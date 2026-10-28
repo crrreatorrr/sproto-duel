@@ -190,7 +190,8 @@ export class AudioManager {
       this.play(e.surface === 'wizard' ? 'boltHit' : e.surface === 'pillar' ? 'pillarHit' : 'fizzle', { pos: e.pos });
     });
     on('damage', (e) => {
-      if (e.kind !== 'fire') this.play('hurt', { pos: e.point, volume: isPlayer(e.target) ? 1 : 0.7 });
+      if (e.kind === 'scorch') this.play('fireBurn', { pos: e.point, volume: 0.5 });
+      else if (e.kind !== 'fire') this.play('hurt', { pos: e.point, volume: (isPlayer(e.target) ? 1 : 0.7) * (e.kind === 'breath' ? 0.6 : 1) });
     });
     on('explosion', (e) => this.play('blastExplode', { pos: e.pos }));
     on('block', (e) => this.play(e.perfect ? 'shieldPerfect' : 'shieldBlock', { pos: e.pos, exactPitch: e.perfect }));
@@ -227,6 +228,12 @@ export class AudioManager {
       } else if (e.beat === 'slam') this.play('bossSlam', { exactPitch: true, rate: big ? 0.88 : 1 });
       else if (e.beat === 'count') this.play('countdown', { exactPitch: true });
       else if (e.beat === 'resume') this.play('roundStart', { exactPitch: true, rate: 1.15, volume: 0.6 });
+    });
+    // Boss reward spells: a whoosh, a coin pump, a puff, a lock beep, a fire roar.
+    const REWARD_SOUNDS: Record<string, SoundKey> = { carpet: 'carpetWhoosh', pump: 'pumpCoin', vape: 'vapePuff', lockon: 'lockBeep', breath: 'breathRoar' };
+    on('rewardCast', (e) => this.play(REWARD_SOUNDS[e.spell], { pos: isPlayer(e.wizard) ? undefined : e.pos, exactPitch: e.spell === 'lockon' }));
+    on('rewardEnd', (e) => {
+      if (e.spell === 'carpet' && e.wizard.active) this.play('pillarHit', { pos: e.wizard.pos, rate: 0.8, volume: 0.35 });
     });
     on('lifePackSpawn', (e) => this.play('lifePackSpawn', { pos: e.pos, exactPitch: true }));
     on('lifePackPickup', () => this.play('lifePackPickup', { exactPitch: true }));

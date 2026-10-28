@@ -3,6 +3,7 @@ import type { ArenaThemeId } from '../arena/themes';
 import type { ModelKey } from '../assets/manifest';
 import { BOSS_PORTRAITS } from '../assets/manifest';
 import { gunMuzzle, handAndMouth, phoneMuzzle, staffMuzzle, twoPhones, vapeMuzzle, type MuzzleSet } from '../wizard/muzzles';
+import type { RewardSpellId } from '../spells/rewardCatalog';
 
 export type BossId = keyof typeof BOSS_PORTRAITS;
 
@@ -99,6 +100,11 @@ export interface BossDef extends BossFighter {
   model: ModelKey;
   /** A second boss fought at the same time (a double fight): the round is won once both are down. */
   partner?: BossPartner;
+  /**
+   * The spell beating this fight teaches the player for good (src/spells/rewardCatalog.ts; a double
+   * fight teaches one, once both bosses are down). Bosses never cast these themselves.
+   */
+  reward: RewardSpellId;
 }
 
 /** Everyone the player faces in this fight: the boss, then its partner if any. */
@@ -130,6 +136,7 @@ export const BOSSES: BossDef[] = [
     id: 'sahil',
     name: 'Sahil',
     title: 'the RugMaster',
+    reward: 'carpet',
     intro: 'Every rug comes with a lifetime guarantee. The rug pull is free.',
     theme: 'desert',
     stages: [
@@ -170,6 +177,7 @@ export const BOSSES: BossDef[] = [
     id: 'obama',
     name: 'Bitcoin Obama',
     title: 'the Pump & Dump Duo',
+    reward: 'pump',
     intro: 'Shiller shills',
     theme: 'void',
     stages: [
@@ -259,6 +267,7 @@ export const BOSSES: BossDef[] = [
     id: 'broccoli',
     name: 'Broccoli Head',
     title: 'the Floret Lord',
+    reward: 'vape',
     intro: 'Leads the LA Vape Cabal.',
     theme: 'city',
     stages: [
@@ -297,6 +306,7 @@ export const BOSSES: BossDef[] = [
     id: 'agent',
     name: 'Glowie',
     title: 'Government Enforcement',
+    reward: 'lockon',
     intro: 'Unknown',
     theme: 'office',
     stages: [
@@ -340,6 +350,7 @@ export const BOSSES: BossDef[] = [
     id: 'tinubu',
     name: 'Tinubu',
     title: 'the Unshackled Demon',
+    reward: 'breath',
     intro: 'Infects you to make you sell your tickets.',
     theme: 'volcano',
     stages: [
@@ -385,6 +396,9 @@ export const BOSSES: BossDef[] = [
     damageMultiplier: 1.27,
   }),
 ];
+
+/** The reward spells a player holds on reaching fight `index` for the first time: one per boss before it. */
+export const rewardsBefore = (index: number): RewardSpellId[] => BOSSES.slice(0, Math.max(0, index)).map((b) => b.reward);
 
 /** Display names for the arena environments, shown on the boss cards. */
 export const ARENA_NAMES: Record<ArenaThemeId, string> = {

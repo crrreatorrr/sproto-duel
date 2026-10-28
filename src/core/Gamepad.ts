@@ -63,6 +63,14 @@ export function spellLabels(device: InputDevice, style: PadStyle): string[] {
   return [mouse(K.mouseBolt), mouse(K.mouseBlast), keyLabel(K.shield[0]), keyLabel(K.stun[0]), keyLabel(K.ultimate[0])];
 }
 
+/** Labels for the five reward-spell slots (carpet, pump, vape, lock-on, breath) on the given device. */
+export function rewardLabels(device: InputDevice, style: PadStyle): string[] {
+  const ids = ['carpet', 'pump', 'vape', 'lockon', 'breath'] as const;
+  // D-pad directions as bare arrows: the reward slots are small.
+  if (device === 'gamepad') return ids.map((id) => padGlyph(G.bindings[id][0], style).replace(/^D-pad /, ''));
+  return ids.map((id) => keyLabel(CONFIG.controls[id][0]));
+}
+
 /**
  * Radial deadzone + response curve. Writes the shaped stick into `out` (same direction as the
  * input, magnitude 0..1) and returns the shaped magnitude.

@@ -4,6 +4,7 @@ import type { Input } from '../core/Input';
 import { clamp, wrapAngle } from '../core/math';
 import { GROUP, type Physics } from '../physics/Physics';
 import type { CameraRig } from '../camera/CameraRig';
+import { REWARD_SPELLS } from '../spells/rewardCatalog';
 import type { Wizard } from '../wizard/Wizard';
 
 const K = CONFIG.controls;
@@ -153,6 +154,8 @@ export class PlayerController {
     if (input.wasPressed(K.ultimate) || tap(PB.ultimate)) intent.press('ultimate');
     if (input.wasPressed(K.dodge) || tap(PB.dodge)) intent.press('dodge');
     if (input.wasPressed(K.jump) || tap(PB.jump)) intent.press('jump');
+    // Boss reward spells (SpellSystem ignores the ones not learned yet, with a "NOT LEARNED" callout).
+    for (const id of REWARD_SPELLS) if (input.wasPressed(K[id]) || tap(PB[id])) intent.press(id);
 
     this.updateAim(usePad && pad.device === 'gamepad');
   }

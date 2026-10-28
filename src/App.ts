@@ -6,12 +6,13 @@ import { Campaign } from './campaign/Campaign';
 import { BOSSES, bossDisplayName, type BossDef } from './campaign/levels';
 import { DoubleTap } from './core/DoubleTap';
 import { events } from './core/events';
-import { bindRumble, spellLabels } from './core/Gamepad';
+import { bindRumble, rewardLabels, spellLabels } from './core/Gamepad';
 import { nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
 import { Menus, loadSettings, saveSettings, type ResultData, type Settings, type StageInfo } from './ui/Menus';
+import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
 
 type AppState = 'menu' | 'playing' | 'paused' | 'results';
@@ -70,6 +71,7 @@ export class App {
     this.settings = loadSettings();
     // God mode is a session-only testing aid: CONFIG.debug.godMode, `?god`, Settings or F9.
     game.setGodMode(CONFIG.debug.godMode || new URLSearchParams(location.search).has('god'));
+    this.syncLearned();
     game.input.mouseNeedsLock = this.requireLock;
     this.match = new Match(game);
     this.audio = new AudioManager();
@@ -110,6 +112,9 @@ export class App {
       settingsChanged: (s) => this.applySettings(s),
       godMode: () => CONFIG.debug.godMode,
       setGodMode: (on) => this.setGodMode(on),
+      learnedSpells: () => new Set(this.game.player.learned),
+      savedSpells: () => new Set(this.campaign.unlocked),
+      forgetSpells: () => this.forgetSpells(),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
     this.applySettings(this.settings);
@@ -173,7 +178,9 @@ export class App {
     const pad = g.input.pad;
     const relabel = () => {
       this.menus.padStyle = pad.style;
+      this.menus.padDevice = pad.device;
       this.hud.setKeyLabels(spellLabels(pad.device, pad.style));
+      this.hud.setRewardKeyLabels(rewardLabels(pad.device, pad.style));
     };
     pad.onDeviceChange((device) => {
       relabel();
@@ -268,7 +275,7 @@ export class App {
     this.dressEnemy(boss);
     this.resetAttract();
     this.menus.showBossIntro(
-      { boss, index: this.campaign.index, total: this.campaign.total },
+      { boss, index: this.campaign.index, total: this.campaign.total, rewardLearned: this.campaign.hasLearned(boss.reward) },
       { begin: () => this.startBossFight(), back: () => this.toMenu() },
     );
   }
@@ -290,9 +297,28 @@ export class App {
     else this.startMatch();
   }
 
+  /**
+   * The player's reward spells: everything the campaign save has learned, plus all five while god
+   * mode is on (testing; never saved). Called whenever either changes and at every match start.
+   */
+  syncLearned(): void {
+    const learned = this.game.player.learned;
+    learned.clear();
+    for (const id of this.campaign.unlocked) learned.add(id);
+    if (CONFIG.debug.godMode) for (const id of REWARD_SPELLS) learned.add(id);
+  }
+
+  /** Settings: "Forget learned spells". The save keeps its progress and clears. */
+  forgetSpells(): void {
+    this.campaign.forgetSpells();
+    this.syncLearned();
+    this.menus.toast('Spells Forgotten', 'Beat the bosses again to relearn them');
+  }
+
   /** God mode (testing): toggled from Settings, F9 in a match, or `?god`. Never saved. */
   setGodMode(on: boolean): void {
     this.game.setGodMode(on);
+    this.syncLearned();
     if (on && (this.state === 'playing' || this.state === 'paused')) this.godUsed = true;
     this.menus.syncGodMode(on);
     this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · no cooldowns · ${CONFIG.debug.godPowerMultiplier}× damage` : '', on ? 'god-on' : 'god-off');
@@ -330,6 +356,7 @@ export class App {
     const g = this.game;
     this.audio.gameplayMuted = false;
     g.player.intent.clear();
+    this.syncLearned();
     this.gauntletOutcome = null;
     this.godUsed = CONFIG.debug.godMode;
     this.cinematic.abort();
@@ -385,6 +412,7 @@ export class App {
   }
 
   toMenu(): void {
+    this.syncLearned();
     this.enterMenuState('quick');
     this.dressEnemy(null);
     this.ai.setProfile(QUICK_DUEL_AI);
@@ -417,9 +445,25 @@ export class App {
     this.resultsTimer = 2.2;
     if (CONFIG.debug.godMode) this.godUsed = true;
     if (this.mode === 'gauntlet' && this.match.boss && winner === this.game.player) {
-      // A god-mode win moves you on in this session only: no saved progress, no clear.
-      this.gauntletOutcome = this.godUsed ? (this.campaign.isLast ? 'complete' : 'next') : this.campaign.recordWin();
+      // A god-mode win moves you on in this session only: no saved progress, no clear, no spell.
+      if (this.godUsed) {
+        this.campaign.lastLearned = null;
+        this.gauntletOutcome = this.campaign.isLast ? 'complete' : 'next';
+      } else {
+        this.gauntletOutcome = this.campaign.recordWin();
+        this.syncLearned();
+      }
     }
+  }
+
+  /**
+   * "NEW SPELL LEARNED": the reward spell a gauntlet win just taught, after the results. `then` is
+   * where the results' primary button was going (the next boss's card, or the completion screen).
+   */
+  showSpellReveal(id: RewardSpellId, then: { label: string; action(): void }): void {
+    this.state = 'results';
+    this.audio.play('spellLearned', { exactPitch: true });
+    this.menus.showSpellReveal(id, { next: then, menu: () => this.toMenu() });
   }
 
   /** After the final boss: the gauntlet-complete screen over the moonlit arena. */
@@ -454,11 +498,16 @@ export class App {
     if (boss) {
       const c = this.campaign;
       const next = c.nextBoss;
+      const onward = this.gauntletOutcome === 'complete' || !next
+        ? { label: 'Claim Victory', action: () => this.showCampaignComplete() }
+        : { label: `Next: ${bossDisplayName(next)}`, action: () => (c.advance(), this.showBossCard()) };
+      // A newly learned spell is revealed on the way onward.
+      const learned = p1Won ? c.lastLearned : null;
       const primary = !p1Won
         ? { label: 'Retry', action: () => this.startBossFight() }
-        : this.gauntletOutcome === 'complete' || !next
-          ? { label: 'Claim Victory', action: () => this.showCampaignComplete() }
-          : { label: `Next: ${bossDisplayName(next)}`, action: () => (c.advance(), this.showBossCard()) };
+        : learned
+          ? { label: 'Continue', action: () => this.showSpellReveal(learned, onward) }
+          : onward;
       const name = bossDisplayName(boss);
       const pair = !!boss.partner;
       const god = this.godUsed;
@@ -474,6 +523,7 @@ export class App {
         rounds: [],
         facts: this.fightFacts(p1Won),
         tag: god ? 'God mode · progress not saved' : undefined,
+        learned: learned ? REWARD_SPELL_INFO[learned].name : undefined,
         ...stats,
       };
     } else {

@@ -1,5 +1,7 @@
 import { CONFIG } from '../config';
-import { padGlyph, type PadStyle } from '../core/Gamepad';
+import { padGlyph, type InputDevice, type PadStyle } from '../core/Gamepad';
+import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
+import { rewardIcon } from './icons';
 import { MenuNav } from './MenuNav';
 import { resolveImage } from '../assets/AssetLoader';
 import { bossStagePortrait } from '../assets/manifest';
@@ -80,6 +82,8 @@ export interface ResultData {
   boss?: BossDef;
   /** Main button; defaults to "Rematch" (MenuHandlers.restart). */
   primary?: { label: string; action(): void };
+  /** A reward spell this win taught for the first time (its name): a chip, then the reveal screen. */
+  learned?: string;
 }
 
 /** What the boss intro card shows. */
@@ -88,6 +92,8 @@ export interface BossIntro {
   /** 0-based fight number. */
   index: number;
   total: number;
+  /** The player already knows this boss's reward spell. */
+  rewardLearned?: boolean;
 }
 
 /** A boss's current stage, for the pause screen. */
@@ -128,6 +134,12 @@ export interface MenuHandlers {
   godMode(): boolean;
   setGodMode(on: boolean): void;
   uiSound(kind: 'hover' | 'click'): void;
+  /** Reward spells the player can cast now (saved ones, plus all five in god mode). */
+  learnedSpells(): ReadonlySet<RewardSpellId>;
+  /** Reward spells the campaign save has learned. */
+  savedSpells(): ReadonlySet<RewardSpellId>;
+  /** Settings: forget the learned reward spells. */
+  forgetSpells(): void;
 }
 
 const CONTROLS: [string, string][] = [
@@ -163,6 +175,15 @@ function padControls(style: PadStyle): [string, string][] {
   ];
 }
 
+/** The boss that teaches reward spell `id`. */
+const teacher = (id: RewardSpellId): BossDef => BOSSES.find((b) => b.reward === id)!;
+
+/** Key and pad buttons for a reward spell, e.g. "Z · D-pad ←". */
+function rewardKeys(id: RewardSpellId, style: PadStyle): string {
+  const key = CONFIG.controls[id][0].replace(/^Key|^Digit/, '');
+  return `${key} · ${CONFIG.gamepad.bindings[id].map((b) => padGlyph(b, style)).join(' / ')}`;
+}
+
 /** Main menu, pause, settings and results screens (DOM overlays). */
 export class Menus {
   readonly root: HTMLElement;
@@ -170,6 +191,8 @@ export class Menus {
   readonly nav: MenuNav;
   /** Glyph set for controller prompts; App keeps it in sync with the connected pad. */
   padStyle: PadStyle = 'xbox';
+  /** The active input device (the reveal screen names the key or the pad button first). */
+  padDevice: InputDevice = 'kbm';
   private readonly toastEl: HTMLElement;
   private settings: Settings;
   private screen: HTMLElement | null = null;
@@ -229,11 +252,14 @@ export class Menus {
     this.root.innerHTML = '';
     this.screen = null;
     this.root.classList.remove('open');
+    this.root.parentElement?.classList.remove('menu-open');
   }
 
   private mount(html: string, cls: string): HTMLElement {
     this.root.innerHTML = `<div class="menu-screen ${cls}">${html}</div>`;
     this.root.classList.add('open');
+    // The HUD steps aside behind every menu (pause, its settings...), except the click-to-resume hint.
+    this.root.parentElement?.classList.toggle('menu-open', cls !== 'click');
     this.screen = this.root.firstElementChild as HTMLElement;
     return this.screen;
   }
@@ -295,10 +321,26 @@ export class Menus {
           <li>The ring of fire burns. When time runs low, it closes in.</li>
           <li>Deal damage to charge your Ultimate. It carries over between rounds.</li>
           <li>Boss Gauntlet: one life per boss. Each boss stage has its own health bar; empty it and the boss transforms. Grab the life packs (three per fight).</li>
+          <li>Every boss you beat teaches you its spell for good, in every later fight and in Quick Duel.</li>
         </ul>
-        <button class="primary" data-act="back">Back</button>
+        <h3 class="reward-head">Boss spells</h3>
+        <ul class="reward-list">${this.rewardRows()}</ul>
+        <div class="menu-actions"><button class="primary" data-act="back">Back</button></div>
       </div>`, 'howto');
     this.on(s, '[data-act="back"]', back);
+  }
+
+  /** How to Play's boss spell list: icon, name, keys, what it does, and whether you know it yet. */
+  private rewardRows(): string {
+    const learned = this.h.learnedSpells();
+    return REWARD_SPELLS.map((id) => {
+      const info = REWARD_SPELL_INFO[id];
+      const b = teacher(id);
+      const status = learned.has(id) ? '<em class="learned">Learned</em>' : `<em>Beat ${bossDisplayName(b)}</em>`;
+      return `<li class="${learned.has(id) ? 'learned' : 'locked'}" style="--accent:${info.color}">
+        <span class="reward-icon">${rewardIcon(id)}</span>
+        <span class="reward-text"><b>${info.name}</b><kbd>${rewardKeys(id, this.padStyle)}</kbd>${status}<small>${info.short}</small></span></li>`;
+    }).join('');
   }
 
   showSettings(back: () => void): void {
@@ -309,28 +351,57 @@ export class Menus {
         <output>${Number(st[key]).toFixed(step < 1 ? 2 : 0)}</output></label>`;
     const toggle = (key: keyof Settings, label: string) => `
       <label class="setting toggle"><span>${label}</span><input type="checkbox" data-key="${key}" ${st[key] ? 'checked' : ''}><i></i></label>`;
+    const known = this.h.savedSpells().size;
+    // Two columns: mouse, display and sound on the left; controller, progress and testing on the right.
     const s = this.mount(`
       <div class="menu-panel settings">
         <h2>Settings</h2>
-        ${slider('sensitivity', 'Mouse sensitivity', 0.3, 2.5, 0.05)}
-        ${toggle('invertY', 'Invert Y')}
-        ${slider('master', 'Master volume', 0, 1, 0.05)}
-        ${slider('music', 'Music', 0, 1, 0.05)}
-        ${slider('sfx', 'Effects', 0, 1, 0.05)}
-        ${toggle('bloom', 'Bloom (glow)')}
-        ${toggle('shadows', 'Shadows')}
-        <h3>Controller</h3>
-        ${slider('padSensitivity', 'Look sensitivity', 0.3, 2.5, 0.05)}
-        ${toggle('padInvertY', 'Invert Y (controller)')}
-        ${slider('aimAssist', 'Aim assist', 0, 1.5, 0.05)}
-        ${toggle('rumble', 'Vibration')}
-        <h3>Testing</h3>
-        <label class="setting toggle god-setting"><span>God mode (testing)<small>No damage, unlimited mana, no cooldowns, ${CONFIG.debug.godPowerMultiplier}× damage · type 99 or press ${CONFIG.debug.godHotkey} · resets on reload</small></span>
-          <input type="checkbox" data-god ${this.h.godMode() ? 'checked' : ''}><i></i></label>
-        <button class="primary" data-act="back">Back</button>
+        <div class="settings-cols">
+          <div class="settings-col">
+            <h3>Mouse &amp; Display</h3>
+            ${slider('sensitivity', 'Mouse sensitivity', 0.3, 2.5, 0.05)}
+            ${toggle('invertY', 'Invert Y')}
+            ${toggle('bloom', 'Bloom (glow)')}
+            ${toggle('shadows', 'Shadows')}
+            <h3>Sound</h3>
+            ${slider('master', 'Master volume', 0, 1, 0.05)}
+            ${slider('music', 'Music', 0, 1, 0.05)}
+            ${slider('sfx', 'Effects', 0, 1, 0.05)}
+          </div>
+          <div class="settings-col">
+            <h3>Controller</h3>
+            ${slider('padSensitivity', 'Look sensitivity', 0.3, 2.5, 0.05)}
+            ${toggle('padInvertY', 'Invert Y (controller)')}
+            ${slider('aimAssist', 'Aim assist', 0, 1.5, 0.05)}
+            ${toggle('rumble', 'Vibration')}
+            <h3>Progress &amp; Testing</h3>
+            <div class="setting forget-setting"><span>Boss spells<small>${known ? `${known} of ${REWARD_SPELLS.length} learned` : 'None learned yet'}</small></span>
+              <button class="ghost small" data-act="forget" ${known ? '' : 'disabled'}>Forget learned spells</button></div>
+            <label class="setting toggle god-setting"><span>God mode (testing)<small>No damage, unlimited mana, no cooldowns, all boss spells, ${CONFIG.debug.godPowerMultiplier}× damage · 99 or ${CONFIG.debug.godHotkey} · resets on reload</small></span>
+              <input type="checkbox" data-god ${this.h.godMode() ? 'checked' : ''}><i></i></label>
+          </div>
+        </div>
+        <div class="menu-actions"><button class="primary" data-act="back">Back</button></div>
       </div>`, 'settings');
     const god = s.querySelector<HTMLInputElement>('input[data-god]')!;
     god.addEventListener('input', () => this.h.setGodMode(god.checked));
+    // Forgetting is permanent: the first press asks, a second within 4 s confirms.
+    const forget = s.querySelector<HTMLButtonElement>('[data-act="forget"]')!;
+    let armed = -1e9;
+    forget.addEventListener('click', () => {
+      if (performance.now() - armed > 4000) {
+        armed = performance.now();
+        forget.textContent = 'Press again to forget';
+        forget.classList.add('armed');
+        return;
+      }
+      this.h.forgetSpells();
+      forget.textContent = 'Forgotten';
+      forget.disabled = true;
+      forget.classList.remove('armed');
+      const note = forget.parentElement!.querySelector('small');
+      if (note) note.textContent = 'None learned yet';
+    });
     s.querySelectorAll<HTMLInputElement>('input[data-key]').forEach((input) => {
       input.addEventListener('input', () => {
         const key = input.dataset.key as keyof Settings;
@@ -420,11 +491,48 @@ export class Menus {
           </div>
         </div>
         ${stages}
-        <button class="primary" data-act="begin">Begin</button>
-        <button class="ghost" data-act="menu">Main Menu</button>
+        ${this.rewardLine(b.reward, !!info.rewardLearned)}
+        <div class="menu-actions row"><button class="primary" data-act="begin">Begin</button>
+        <button class="ghost" data-act="menu">Main Menu</button></div>
       </div>`, 'boss');
     this.on(s, '[data-act="begin"]', () => actions.begin());
     this.on(s, '[data-act="menu"]', () => actions.back());
+  }
+
+  /** The boss card's reward line: "Defeat to learn: <icon> Magic Carpet" (or that you know it). */
+  private rewardLine(id: RewardSpellId, learned: boolean): string {
+    const info = REWARD_SPELL_INFO[id];
+    return `<div class="boss-reward${learned ? ' learned' : ''}" style="--accent:${info.color}">
+      <span class="reward-icon">${rewardIcon(id)}</span>
+      <span class="reward-text"><small>${learned ? 'Reward · already learned' : 'Defeat to learn'}</small><b>${info.name}</b><i>${info.short}</i></span></div>`;
+  }
+
+  /**
+   * "NEW SPELL LEARNED": the reward spell a gauntlet win just taught (after the results). `next` is
+   * where the results were heading (the next boss card, or the completion screen).
+   */
+  showSpellReveal(id: RewardSpellId, actions: { next: { label: string; action(): void }; menu(): void }): void {
+    const info = REWARD_SPELL_INFO[id];
+    const b = teacher(id);
+    const key = CONFIG.controls[id][0].replace(/^Key|^Digit/, '');
+    const pad = CONFIG.gamepad.bindings[id].map((x) => padGlyph(x, this.padStyle)).join(' / ');
+    const keys = this.padDevice === 'gamepad'
+      ? `<kbd class="pad">${pad}</kbd><span>or</span><kbd>${key}</kbd>`
+      : `<kbd>${key}</kbd><span>or</span><kbd class="pad">${pad}</kbd>`;
+    const s = this.mount(`
+      <div class="menu-panel reveal" style="--accent:${info.color};${bossStyleVars(b)}">
+        <p class="boss-fight">New spell learned</p>
+        <div class="reveal-icon"><i class="reveal-rays"></i>${rewardIcon(id)}</div>
+        <h1 class="reveal-name">${info.name}</h1>
+        <p class="reveal-from">Taken from ${bossDisplayName(b)}, ${b.title}</p>
+        <p class="reveal-desc">${info.description}</p>
+        <p class="reveal-keys">${keys}</p>
+        <p class="note">Yours for good: in every fight from now on, and in Quick Duel.</p>
+        <div class="menu-actions"><button class="primary" data-act="continue" data-autofocus>${actions.next.label}</button>
+        <button class="ghost" data-act="menu">Main Menu</button></div>
+      </div>`, 'reveal');
+    this.on(s, '[data-act="continue"]', () => actions.next.action());
+    this.on(s, '[data-act="menu"]', () => actions.menu());
   }
 
   /** Shown after the final boss falls. */
@@ -454,6 +562,7 @@ export class Menus {
         ${r.boss ? `<div class="results-boss">${bossPortraitHtml(r.boss, 'small')}<p class="boss-fight">${r.eyebrow ?? ''}</p></div>` : r.eyebrow ? `<p class="boss-fight">${r.eyebrow}</p>` : ''}
         ${r.tag ? `<p class="result-tag">${r.tag}</p>` : ''}
         <h1 class="result-title">${r.title}</h1>
+        ${r.learned ? `<p class="result-learned">✦ New spell learned: <b>${r.learned}</b></p>` : ''}
         <p class="tagline">${r.subtitle}</p>
         ${r.facts
           ? `<dl class="fight-facts">${r.facts.map((f) => `<div><dt>${f.label}</dt><dd>${f.value}</dd></div>`).join('')}</dl>`
@@ -465,8 +574,8 @@ export class Menus {
           ${row('Perfect reflects', r.player.perfects, r.enemy.perfects)}
           ${row('Dodges', r.player.dodges, r.enemy.dodges)}
         </div>
-        <button class="primary" data-act="rematch">${primary.label}</button>
-        <button class="ghost" data-act="quit">Main Menu</button>
+        <div class="menu-actions row"><button class="primary" data-act="rematch">${primary.label}</button>
+        <button class="ghost" data-act="quit">Main Menu</button></div>
       </div>`, 'results');
     this.on(s, '[data-act="rematch"]', () => primary.action());
     this.on(s, '[data-act="quit"]', () => this.h.quit());

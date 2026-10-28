@@ -476,6 +476,59 @@ S.lifePackPickup = () => {
   return echo(highpass(x, 200), 0.11, 0.3, 0.3);
 };
 
+// Boss reward spells (appended last so every earlier sound's seeded noise stays byte-identical).
+S.carpetWhoosh = () => {
+  // A big cloth whoosh that swells and flaps, with a magic shimmer rising through it.
+  const x = buf(0.9);
+  noise(x, 0, 0.85, (u, t) => swell(u) * (0.7 + 0.3 * Math.sin(t * 2 * Math.PI * 18)), 1.0, (u) => lerp(0.92, 0.6, swell(u)));
+  [76, 81, 86, 91].forEach((n, i) => osc(x, 0.08 + i * 0.07, 0.5, note(n), adsr(0.02, 3), 'sine', 0.18));
+  return echo(highpass(x, 140), 0.09, 0.25, 0.2);
+};
+S.pumpCoin = () => {
+  // A cash-register "ka-ching" and a rising synth sweep: number go up.
+  const x = buf(1.0);
+  noise(x, 0, 0.04, decay(25), 0.5, 0.2);
+  for (const [f, g] of [[2637, 0.4], [3136, 0.3], [3951, 0.18]]) osc(x, 0.03, 0.55, f, adsr(0.005, 4), 'sine', g);
+  osc(x, 0.12, 0.8, (u) => lerp(220, 880, u * u), adsr(0.1, 1.2), 'saw', 0.22);
+  osc(x, 0.12, 0.8, (u) => lerp(330, 1320, u * u), adsr(0.1, 1.2), 'square', 0.08);
+  return echo(lowpass(x, 7000), 0.1, 0.3, 0.25);
+};
+S.vapePuff = () => {
+  // A soft exhale: a breathy puff that blooms and hangs.
+  const x = buf(1.1);
+  noise(x, 0, 1.05, adsr(0.18, 1.8), 0.9, (u) => lerp(0.75, 0.93, u));
+  osc(x, 0, 0.5, (u) => lerp(110, 70, u), adsr(0.1, 2), 'sine', 0.35);
+  return lowpass(highpass(x, 90), 2400);
+};
+S.lockBeep = () => {
+  // Targeting beeps that speed up into a solid lock tone.
+  const x = buf(0.75);
+  for (const t of [0, 0.12, 0.22, 0.3]) osc(x, t, 0.06, 1760, adsr(0.05, 1.5), 'square', 0.25);
+  osc(x, 0.38, 0.33, 2093, adsr(0.02, 1.2), 'square', 0.25);
+  osc(x, 0.38, 0.33, 1046, adsr(0.02, 1.2), 'sine', 0.2);
+  return lowpass(x, 5000);
+};
+S.breathRoar = () => {
+  // A long roar of flame: a whoomp, two seconds of roaring fire with crackles, a fading tail.
+  const x = buf(2.3);
+  noise(x, 0, 2.25, (u, t) => adsr(0.05, 0.6)(u) * (0.8 + 0.2 * Math.sin(t * 2 * Math.PI * 9)), 1.0, (u) => lerp(0.9, 0.82, u));
+  osc(x, 0, 0.6, (u) => lerp(90, 45, u), decay(4), 'sine', 0.7);
+  osc(x, 0, 2.2, (u, t) => 55 + Math.sin(t * 2 * Math.PI * 6) * 8, adsr(0.05, 0.8), 'saw', 0.18);
+  for (let k = 0; k < 26; k++) noise(x, 0.05 + Math.abs(rnd()) * 2.0, 0.012, decay(30), 0.45);
+  return drive(lowpass(x, 3800), 2);
+};
+S.spellLearned = () => {
+  // A triumphant arpeggio and a held shimmering chord: a new spell.
+  const x = buf(2.2);
+  [60, 64, 67, 72, 76, 79, 84].forEach((n, i) => {
+    osc(x, i * 0.07, 1.3, note(n), adsr(0.01, 3), 'triangle', 0.26);
+    osc(x, i * 0.07, 1.0, note(n) * 2.01, adsr(0.01, 4), 'sine', 0.08);
+  });
+  for (const n of [72, 76, 79, 84]) osc(x, 0.5, 1.6, (u, t) => note(n) * (1 + 0.003 * Math.sin(t * 30)), (u) => swell(u) * 0.9, 'sine', 0.12);
+  noise(x, 0.5, 1.4, (u) => swell(u) * 0.5, 0.05, 0.1);
+  return echo(highpass(x, 160), 0.14, 0.38, 0.32);
+};
+
 let total = 0;
 for (const [name, fn] of Object.entries(S)) {
   const x = normalize(fn(), name.startsWith('music') ? 0.7 : 0.89);

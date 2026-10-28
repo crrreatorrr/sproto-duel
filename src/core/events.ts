@@ -2,8 +2,10 @@ import type { Vector3 } from 'three';
 import type { Wizard } from '../wizard/Wizard';
 import type { SpellId } from '../spells/types';
 import type { BossFighter, ProjectileSkin } from '../campaign/levels';
+import type { RewardSpellId } from '../spells/rewardCatalog';
 
-export type DamageKind = SpellId | 'fire' | 'splash';
+/** `breath`: Hellfire Breath's cone; `scorch`: the burning it leaves behind. */
+export type DamageKind = SpellId | 'fire' | 'splash' | 'breath' | 'scorch';
 
 /** Everything gameplay announces. UI, audio and FX subscribe; gameplay never calls them directly. */
 export interface GameEvents {
@@ -57,8 +59,17 @@ export interface GameEvents {
   bossEvolve: { wizard: Wizard; boss: BossFighter; stage: number; from: number; pos: Vector3; enraged: boolean };
   /** A boss fired its signature multi-shot (levels.ts VolleyDef). */
   volley: { wizard: Wizard; name: string; count: number; pos: Vector3 };
-  /** Text popup without damage, e.g. "PERFECT!" or "DODGE". */
-  callout: { pos: Vector3; text: string; style: 'perfect' | 'info' | 'stun' | 'block' | 'boss' };
+  /** Text popup without damage, e.g. "PERFECT!" or "DODGE". `spell`: a boss reward spell's name as it is cast. */
+  callout: { pos: Vector3; text: string; style: 'perfect' | 'info' | 'stun' | 'block' | 'boss' | 'spell' };
+  /**
+   * A boss reward spell was cast (src/spells/RewardSpells.ts): the carpet summoned, Pump It on, a vape
+   * cloud dropped (`pos` is its centre), Lock-On on, the breath started. Audio, FX and the HUD follow it.
+   */
+  rewardCast: { wizard: Wizard; spell: RewardSpellId; pos: Vector3 };
+  /** A reward spell's effect ended early or on time (the carpet lands, the breath stops, a cloud clears...). */
+  rewardEnd: { wizard: Wizard; spell: RewardSpellId };
+  /** Healing over time from a reward spell (the vape cloud): `amount` HP this tick (popups batch it). */
+  rewardHeal: { wizard: Wizard; amount: number };
   /** Golden tickets (src/arena/GoldenTickets.ts). `pos` is the ticket's centre; `id` is unique per ticket. */
   ticketSpawn: { id: number; pos: Vector3 };
   /** A wizard collected a ticket: its mana boost starts (or refreshes). */

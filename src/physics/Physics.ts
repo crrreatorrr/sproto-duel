@@ -220,6 +220,27 @@ export class Physics {
   }
 
   /**
+   * Height of the highest walkable top (WORLD colliders: cover, stumps) under a disc of `radius` at
+   * (x, z), looking down from `maxY`; 0 when only the floor is there. Infinity when something there
+   * reaches above `maxY` (too tall to stand on from here). The Magic Carpet uses it to hover.
+   */
+  surfaceBelow(x: number, z: number, radius: number, maxY: number): number {
+    if (maxY <= 0) return 0;
+    let shape = this.ball.get(radius);
+    if (!shape) this.ball.set(radius, (shape = new RAPIER.Ball(radius)));
+    this.probePos.x = x;
+    this.probePos.y = maxY + radius;
+    this.probePos.z = z;
+    const hit = this.world.castShape(
+      this.probePos, this.identity, this.down, shape, 0, maxY, true,
+      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WORLD),
+    );
+    if (!hit) return 0;
+    if (hit.time_of_impact < 1e-4) return Infinity;
+    return Math.max(0, maxY - hit.time_of_impact);
+  }
+
+  /**
    * Sweep a sphere from `origin` along `motion`. Returns the first hit within the motion length.
    * `skip` lets callers ignore colliders (e.g. a wizard with i-frames).
    */

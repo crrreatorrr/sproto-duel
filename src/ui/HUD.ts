@@ -9,13 +9,15 @@ import { feel } from '../core/feel';
 import type { Game } from '../core/Game';
 import type { Match } from '../core/Match';
 import type { SpellId } from '../spells/types';
+import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
 import type { Wizard } from '../wizard/Wizard';
-import { spellIcon } from './icons';
+import { rewardIcon, spellIcon } from './icons';
 
 const W = CONFIG.wizard;
 const S = CONFIG.spells;
 const TK = CONFIG.tickets;
 const LP = CONFIG.lifePacks;
+const RS = CONFIG.rewardSpells;
 
 /** "m:ss" for the gauntlet's fight clock. */
 const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -39,6 +41,17 @@ interface Slot {
   root: HTMLElement;
   sweep: HTMLElement;
   time: HTMLElement;
+}
+
+/** A learned reward spell's slot in the HUD's second row. */
+interface RewardSlot {
+  spell: RewardSpellId;
+  root: HTMLElement;
+  sweep: HTMLElement;
+  time: HTMLElement;
+  /** The active-duration ring (an SVG rounded square, drawn by its dash length). */
+  ring: SVGRectElement;
+  key: HTMLElement;
 }
 
 const SLOTS: { spell: SpellId; label: string }[] = [
@@ -86,6 +99,11 @@ export class HUD {
   private readonly plates: Plate[];
   private readonly slots: Slot[] = [];
   private readonly slotKeys: HTMLElement[] = [];
+  /** The second row: one slot per reward spell, shown once learned. */
+  private readonly rewardSlots: RewardSlot[] = [];
+  private readonly rewardRow: HTMLElement;
+  /** Lock-On's reticle over the locked target. */
+  private readonly reticle: HTMLElement;
   private readonly timer: HTMLElement;
   private readonly roundLabel: HTMLElement;
   private readonly pips: HTMLElement[][] = [[], []];
@@ -137,7 +155,9 @@ export class HUD {
       <div class="offscreen-arrow partner" data-i="1"></div>
       <div class="god-badge" title="God mode: no damage, unlimited mana, no cooldowns, ${CONFIG.debug.godPowerMultiplier}× damage (99 or ${CONFIG.debug.godHotkey} toggles)">God Mode</div>
       <div class="banner"><img class="banner-art" alt="" draggable="false"><div class="banner-main"></div><div class="banner-sub"></div></div>
+      <div class="lock-reticle"><i></i><i></i><i></i><i></i><b>LOCK</b></div>
       <div class="hud-bottom">
+        <div class="reward-slots"></div>
         <div class="slots"></div>
         <div class="dodge-bar"><div class="dodge-fill"></div><span>ROLL</span></div>
       </div>`;
@@ -208,6 +228,20 @@ export class HUD {
       this.slots.push({ spell: s.spell, root: el, sweep: q('.slot-sweep', el), time: q('.slot-time', el) });
       this.slotKeys.push(q('kbd', el));
     });
+    this.rewardRow = q('.reward-slots');
+    for (const id of REWARD_SPELLS) {
+      const info = REWARD_SPELL_INFO[id];
+      const el = document.createElement('div');
+      el.className = `slot rslot rslot-${id}`;
+      el.style.setProperty('--accent', info.color);
+      el.title = `${info.name}: ${info.short}`;
+      el.innerHTML = `<div class="slot-icon">${rewardIcon(id)}</div><div class="slot-sweep"></div>
+        <svg class="slot-ring" viewBox="0 0 40 40" aria-hidden="true"><rect x="1.5" y="1.5" width="37" height="37" rx="8" pathLength="100"/></svg>
+        <div class="slot-time"></div><kbd>${CONFIG.controls[id][0].replace(/^Key/, '')}</kbd>`;
+      this.rewardRow.appendChild(el);
+      this.rewardSlots.push({ spell: id, root: el, sweep: q('.slot-sweep', el), time: q('.slot-time', el), ring: el.querySelector('rect')!, key: q('kbd', el) });
+    }
+    this.reticle = q('.lock-reticle');
     this.bindEvents();
   }
 
@@ -243,6 +277,11 @@ export class HUD {
   /** Relabel the spell slots, e.g. with controller buttons when a gamepad is in use. */
   setKeyLabels(labels: readonly string[]): void {
     this.slotKeys.forEach((kbd, i) => (kbd.textContent = labels[i] ?? ''));
+  }
+
+  /** Relabel the reward-spell slots (carpet, pump, vape, lock-on, breath), e.g. with D-pad arrows. */
+  setRewardKeyLabels(labels: readonly string[]): void {
+    this.rewardSlots.forEach((s, i) => (s.key.textContent = labels[i] ?? ''));
   }
 
   show(visible: boolean): void {
@@ -347,6 +386,11 @@ export class HUD {
       g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 2), `+${Math.round(e.healed)} HP`, 'heal');
       this.healFlash = 0.6;
     });
+    // Reward spells: the vape cloud's healing, and the player plate glowing while it lasts.
+    events.on('rewardHeal', (e) => {
+      g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 1.9), `+${Math.round(e.amount)}`, 'heal');
+      if (e.wizard === g.player) this.healFlash = Math.max(this.healFlash, 0.35);
+    });
     events.on('noMana', (e) => {
       if (e.wizard !== g.player) return;
       const bar = this.plates[0].mana.parentElement!;
@@ -412,6 +456,8 @@ export class HUD {
 
     const p = g.player;
     this.updateSlots(p);
+    this.updateRewardSlots(p);
+    this.updateReticle(p);
     const dodgeReady = 1 - p.cd.dodge / (W.dodge.duration + W.dodge.cooldown);
     this.set('dodge', this.dodge, 'transform', `scaleX(${dodgeReady.toFixed(3)})`);
 
@@ -464,7 +510,7 @@ export class HUD {
     // A transforming boss's new bar sweeps up (BossStages refills it): the plate glows meanwhile.
     const refill = i > 0 && !!this.game.stagesOf(w)?.transforming;
     const healed = i === 0 && this.healFlash > 0;
-    const cls = `plate plate-${side}${hp < 0.3 && !refill ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${boost > 0 ? ' boosted' : ''}${refill ? ' refill' : ''}${healed ? ' healed' : ''}${w.alive ? '' : ' down'}`;
+    const cls = `plate plate-${side}${hp < 0.3 && !refill ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${boost > 0 ? ' boosted' : ''}${refill ? ' refill' : ''}${healed ? ' healed' : ''}${w.pumped ? ' pumped' : ''}${w.alive ? '' : ' down'}`;
     this.set(`plate${i}`, plate.root, 'class', cls);
   }
 
@@ -502,6 +548,70 @@ export class HUD {
       const cls = `slot slot-${s.spell}${frac > 0 && s.spell !== 'bolt' ? ' cooling' : ''}${noMana ? ' nomana' : ''}${active ? ' active' : ''}${s.spell === 'ultimate' && ready ? ' ready' : ''}`;
       this.set(`sc${id}`, s.root, 'class', cls);
     }
+  }
+
+  /**
+   * The second row: a slot per learned reward spell (hidden until learned), with its key, cooldown
+   * sweep, mana-locked state and a ring that runs down while its effect lasts.
+   */
+  private updateRewardSlots(p: Wizard): void {
+    let shown = 0;
+    for (const s of this.rewardSlots) {
+      const id = s.spell;
+      const learned = p.learned.has(id);
+      if (learned) shown++;
+      if (!learned) {
+        this.set(`rc${id}`, s.root, 'class', `slot rslot rslot-${id} unlearned`);
+        continue;
+      }
+      const S = RS[id];
+      const cd = p.rcd[id];
+      const frac = S.cooldown > 0 ? cd / S.cooldown : 0;
+      const act = this.rewardActive(p, id);
+      const noMana = !p.infiniteMana && p.mana < S.manaCost;
+      const busy = !p.canAct && !(id === 'carpet' && p.riding);
+      this.set(`rsw${id}`, s.sweep, 'style', `${(frac * 360).toFixed(1)}deg`, '--cd');
+      this.set(`rring${id}`, s.ring as unknown as HTMLElement, 'style', `${(act * 100).toFixed(1)} 100`, 'stroke-dasharray');
+      const secs = act > 0 ? act * S.duration : cd;
+      this.set(`rst${id}`, s.time, 'text', act > 0 || cd > 0.25 ? secs.toFixed(secs < 1 ? 1 : 0) : '');
+      const cls = `slot rslot rslot-${id}${cd > 0 ? ' cooling' : ''}${noMana ? ' nomana' : ''}${act > 0 ? ' active' : ''}${busy && act <= 0 ? ' busy' : ''}`;
+      this.set(`rc${id}`, s.root, 'class', cls);
+    }
+    this.set('rrow', this.rewardRow, 'class', `reward-slots${shown ? ' on' : ''}`);
+  }
+
+  /** How much of reward spell `id`'s effect is left for `p` (1 just cast .. 0 over). */
+  private rewardActive(p: Wizard, id: RewardSpellId): number {
+    switch (id) {
+      case 'carpet':
+        return p.carpetTime / RS.carpet.duration;
+      case 'pump':
+        return p.pumpTime / RS.pump.duration;
+      case 'lockon':
+        return p.lockTime / RS.lockon.duration;
+      case 'breath':
+        return p.breathTime / RS.breath.duration;
+      case 'vape': {
+        let left = 0;
+        for (const sm of this.game.arena.smokes) if (sm.owner === p) left = Math.max(left, 1 - sm.age / sm.life);
+        return left;
+      }
+    }
+  }
+
+  /** Lock-On: a green reticle on the enemy your bolts will home in on. */
+  private updateReticle(p: Wizard): void {
+    const target = p.lockedOn && p.alive ? this.game.spells.rewards.lockTarget(p) : null;
+    this.set('ret', this.reticle, 'class', `lock-reticle${target ? ' on' : ''}`);
+    if (!target) return;
+    target.chest(tmp).project(this.game.renderer.camera);
+    if (tmp.z > 1) {
+      this.set('ret', this.reticle, 'class', 'lock-reticle');
+      return;
+    }
+    const x = (tmp.x * 0.5 + 0.5) * window.innerWidth;
+    const y = (-tmp.y * 0.5 + 0.5) * window.innerHeight;
+    this.reticle.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%)`;
   }
 
   /** Small health bar over enemy `k` (0 the rival, 1 the partner), plus an edge arrow when off-screen. */

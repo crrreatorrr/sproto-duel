@@ -112,6 +112,11 @@ export class Projectile implements SkinTarget {
   life = 0;
   reflected = false;
   homing: Wizard | null = null;
+  /**
+   * Lock-On (a reward spell): the enemy this bolt gently curves toward (CONFIG.rewardSpells.lockon).
+   * Dropped when it is reflected or deflected, its target falls, or it flies past it.
+   */
+  seek: Wizard | null = null;
   /** Ticks alive. */
   age = 0;
   /** Wizard this projectile already passed through during a dodge (for the EVADE callout). */
@@ -245,6 +250,7 @@ export class ProjectilePool {
     p.active = true;
     p.reflected = false;
     p.homing = null;
+    p.seek = null;
     p.evaded = null;
     p.seenMask = 0;
     p.age = 0;

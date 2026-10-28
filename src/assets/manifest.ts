@@ -172,6 +172,13 @@ export const SOUNDS = {
   bossSlam: { path: 'audio/boss_slam.mp3', volume: 0.95 },
   lifePackSpawn: { path: 'audio/life_pack_spawn.mp3', volume: 0.5 },
   lifePackPickup: { path: 'audio/life_pack_pickup.mp3', volume: 0.8 },
+  // Boss reward spells (src/spells/RewardSpells.ts) and the "new spell learned" reveal.
+  carpetWhoosh: { path: 'audio/carpet_whoosh.mp3', volume: 0.6, maxVoices: 2 },
+  pumpCoin: { path: 'audio/pump_coin.mp3', volume: 0.65, maxVoices: 2 },
+  vapePuff: { path: 'audio/vape_puff.mp3', volume: 0.6, maxVoices: 2 },
+  lockBeep: { path: 'audio/lock_beep.mp3', volume: 0.5, maxVoices: 2 },
+  breathRoar: { path: 'audio/breath_roar.mp3', volume: 0.7, maxVoices: 2 },
+  spellLearned: { path: 'audio/spell_learned.mp3', volume: 0.8 },
   musicMenu: { path: 'audio/music_menu.mp3', volume: 0.6, loop: true, music: true },
   musicBattle: { path: 'audio/music_battle.mp3', volume: 0.55, loop: true, music: true },
 } satisfies Record<string, SoundAsset>;
