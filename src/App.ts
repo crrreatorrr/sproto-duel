@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, type Difficulty } from './config';
 import { AudioManager } from './audio/AudioManager';
 import { events } from './core/events';
+import { bindRumble, spellLabels } from './core/Gamepad';
 import type { Game } from './core/Game';
 import { Match } from './core/Match';
 import { AIController } from './enemy/AIController';
@@ -24,8 +25,15 @@ export class App {
   /** Drives the player's wizard in the menu background (attract mode). */
   private readonly attract: AIController;
   private attractReset = 0;
-  /** Pointer lock is required to play; automation can turn it off with `?nolock`. */
-  requireLock = !new URLSearchParams(location.search).has('nolock');
+  /** Pointer lock is required to play with mouse + keyboard; automation can turn it off with `?nolock`. */
+  private lockWanted = !new URLSearchParams(location.search).has('nolock');
+  /** A gamepad never needs pointer lock: while it is the active device, play runs without it. */
+  get requireLock(): boolean {
+    return this.lockWanted && this.game.input.pad.device !== 'gamepad';
+  }
+  set requireLock(v: boolean) {
+    this.lockWanted = v;
+  }
   private resultsTimer = 0;
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
@@ -66,7 +74,7 @@ export class App {
           this.menus.hide();
           g.simulating = true;
         }
-      } else if (this.state === 'playing' && this.requireLock) {
+      } else if (this.state === 'playing' && this.lockWanted) {
         this.pause();
       }
     });
@@ -93,6 +101,43 @@ export class App {
     };
     window.addEventListener('pointerdown', firstGesture);
     window.addEventListener('keydown', firstGesture);
+    this.bindGamepad();
+  }
+
+  /** Controller: HUD prompts follow the active device, Start pauses, pad menu navigation, rumble. */
+  private bindGamepad(): void {
+    const g = this.game;
+    const pad = g.input.pad;
+    const relabel = () => {
+      this.menus.padStyle = pad.style;
+      this.hud.setKeyLabels(spellLabels(pad.device, pad.style));
+    };
+    pad.onDeviceChange((device) => {
+      relabel();
+      // Picked up a pad while the game waits for the mouse to be captured: just play.
+      if (device === 'gamepad' && this.state === 'playing' && !g.simulating && !g.qaMode && (!this.menus.visible || this.menus.awaitingClick)) {
+        this.menus.hide();
+        g.simulating = true;
+      }
+    });
+    pad.onConnectionChange((connected) => {
+      relabel();
+      // The pad in use was unplugged (or ran out of battery) mid-duel.
+      if (!connected && pad.device === 'gamepad' && this.state === 'playing' && !g.qaMode) this.pause();
+    });
+    bindRumble(g);
+    g.onFrame((dt) => this.padFrame(dt));
+  }
+
+  /** Per-frame controller handling outside gameplay: Start toggles pause; menus get pad navigation. */
+  padFrame(dt: number): void {
+    const pad = this.game.input.pad;
+    pad.update();
+    if (pad.wasPressed(CONFIG.gamepad.bindings.pause)) {
+      if (this.state === 'playing') return this.pause();
+      if (this.state === 'paused') return this.resume();
+    }
+    this.menus.nav.update(pad, dt);
   }
 
   private applySettings(s: Settings): void {
@@ -103,6 +148,7 @@ export class App {
     g.rig.invertY = s.invertY;
     g.renderer.setQuality({ bloom: s.bloom, shadows: s.shadows });
     this.audio.setVolumes(s.master, s.sfx, s.music);
+    g.playerController.applyPadSettings(s);
   }
 
   /** Menu background: both wizards duel; a KO resets the arena after a beat. */

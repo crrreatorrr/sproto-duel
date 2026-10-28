@@ -1,3 +1,5 @@
+import { GamepadInput } from './Gamepad';
+
 /** Keys whose browser default (scrolling, quick-find, focus change) would interrupt play. */
 const BLOCK_DEFAULT = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Slash', 'Quote']);
 
@@ -17,12 +19,15 @@ export class Input {
   enabled = true;
   /** Ignore mouse buttons while unlocked, so the click that captures the mouse doesn't cast. */
   mouseNeedsLock = true;
+  /** Controller state, polled once per frame; also tracks which device was used last. */
+  readonly pad = new GamepadInput();
 
   constructor(private readonly element: HTMLElement) {
     window.addEventListener('keydown', (e) => {
       if (BLOCK_DEFAULT.has(e.code) && !(e.target instanceof HTMLInputElement)) e.preventDefault();
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
+      this.pad.useKeyboardMouse();
     });
     window.addEventListener('keyup', (e) => this.down.delete(e.code));
     window.addEventListener('blur', () => {
@@ -34,11 +39,14 @@ export class Input {
       this.mouseDown[e.button] = true;
       this.mousePressed[e.button] = true;
     });
+    window.addEventListener('mousedown', () => this.pad.useKeyboardMouse());
     window.addEventListener('mouseup', (e) => {
       if (e.button <= 2) this.mouseDown[e.button] = false;
     });
     element.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('mousemove', (e) => {
+      // Deliberate movement only: browsers send zero-delta moves when the layout shifts.
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 1) this.pad.useKeyboardMouse();
       if (!this.locked) return;
       this.dx += e.movementX;
       this.dy += e.movementY;
@@ -88,5 +96,6 @@ export class Input {
   endFrame(): void {
     this.pressed.clear();
     this.mousePressed = [false, false, false];
+    this.pad.endFrame();
   }
 }

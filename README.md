@@ -31,6 +31,33 @@ npm run gen:audio  # regenerate the synthesized placeholder sounds
 | R / 5 | **Ultimate**: charged by dealing damage. An arena-wide shockwave. Roll through it, hide behind a pillar, or shield to reduce it |
 | Esc / P | Pause |
 
+### Controller
+
+Any pad the browser reports in the "standard" mapping works (Xbox, PlayStation, Switch Pro), wired or
+Bluetooth; press a button once so the browser exposes it. Keyboard and mouse keep working alongside it,
+and the HUD and menu prompts switch to whichever device you used last (PlayStation glyphs for
+DualShock/DualSense). With a controller the game never needs to capture the mouse.
+
+| Xbox | PlayStation | Action |
+|---|---|---|
+| Left stick | Left stick | Move (analog) |
+| Right stick | Right stick | Camera (with turn acceleration at the edge of the stick) |
+| LS click (hold) | L3 (hold) | Sprint |
+| RT (hold) | R2 (hold) | **Bolt** |
+| LT | L2 | **Blast** |
+| LB | L1 | **Shield** |
+| RB | R1 | **Stun** |
+| Y | △ | **Ultimate** |
+| A | ✕ | Jump |
+| B | ○ | Dodge roll |
+| Menu | Options | Pause / resume |
+| D-pad or left stick, A, B | D-pad or left stick, ✕, ○ | Menus: move focus, select, back; left/right adjusts sliders |
+
+Settings has controller look sensitivity, a separate invert Y, aim assist strength and vibration.
+Aim assist with a pad uses a wider cone than the mouse plus a gentle pull toward the opponent while
+you move or aim near them. Deadzones, response curves, bindings, aim assist and rumble strengths are
+in `CONFIG.gamepad` ([src/config.ts](src/config.ts)). Unplugging the pad mid-duel pauses the game.
+
 Spells that collide in mid-air clash; the bigger spell survives, weakened by what it beat. The
 ring of fire at the edge burns, and in the last 30 seconds it closes in. Pillars crumble after
 enough hits.

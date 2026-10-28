@@ -331,6 +331,70 @@ export const CONFIG = {
     mouseBlast: 2,
   },
 
+  /** Controllers in the browser's "standard" mapping (Xbox, PlayStation, Switch Pro). */
+  gamepad: {
+    /** Radial deadzones (stick magnitude 0..1); `trigger` is the analog value that counts as pressed. */
+    deadzone: { move: 0.16, look: 0.12, trigger: 0.3 },
+    /** Stick magnitude treated as full deflection (worn sticks rarely reach 1). */
+    outerDeadzone: 0.94,
+    /** Response exponent after the deadzone: 1 = linear, 2 = fine control near center. */
+    curve: { move: 1, look: 2 },
+    /** Camera turn speed at full right-stick deflection, radians per second (x the Settings slider). */
+    sensitivity: { yaw: 3.3, pitch: 2.1 },
+    /** Holding the right stick at the edge ramps in extra yaw speed, for fast 180s. */
+    acceleration: { threshold: 0.9, delay: 0.12, rampTime: 0.3, extraYaw: 2.2 },
+    /** Stick or trigger travel needed before the pad takes over as the active device (ignores drift). */
+    activateThreshold: 0.4,
+    /** false = hold L3 to sprint; true = click L3 to sprint until the stick returns to center. */
+    sprintToggle: false,
+    /** Button names: a b x y lb rb lt rt back start l3 r3 up down left right home (positional). */
+    bindings: {
+      bolt: ['rt'],
+      blast: ['lt'],
+      shield: ['lb'],
+      stun: ['rb'],
+      ultimate: ['y'],
+      jump: ['a'],
+      dodge: ['b'],
+      sprint: ['l3'],
+      pause: ['start'],
+    },
+    aimAssist: {
+      /** Settings default: 0 = off, 1 = default, 1.5 = strong. Scales everything below. */
+      strength: 1,
+      /** Aim-assist cone with a gamepad at strength 1 (the mouse keeps camera.aimAssistDegrees). */
+      coneDegrees: 10,
+      /** Camera magnetism only acts inside this cone, and only while the player moves or looks. */
+      magnetismDegrees: 7,
+      /** Share of the remaining aim error removed per second at the middle of the cone. */
+      magnetismRate: 1.4,
+      /** Vertical pull relative to horizontal. */
+      pitchScale: 0.5,
+      /** Look slow-down while the crosshair is on the opponent (0..1). */
+      friction: 0.3,
+    },
+    rumble: {
+      enabled: true,
+      /** Global scale on every effect below. */
+      intensity: 1,
+      /** Taking damage: base effect plus `perDamage` magnitude per HP. */
+      hurt: { strong: 0.2, weak: 0.4, ms: 110, perDamage: 0.018 },
+      /** Fire ring ticks. */
+      burn: { strong: 0.05, weak: 0.25, ms: 70 },
+      /** Landing a hit of at least `minDamage`. */
+      bigHit: { strong: 0.12, weak: 0.35, ms: 80, minDamage: 15 },
+      perfect: { strong: 0.45, weak: 0.8, ms: 140 },
+      ko: { strong: 1, weak: 1, ms: 550 },
+    },
+    menu: {
+      /** Seconds a direction is held before it starts repeating, then the repeat interval. */
+      repeatDelay: 0.38,
+      repeatInterval: 0.09,
+      /** Left-stick travel that counts as a menu direction. */
+      stickThreshold: 0.5,
+    },
+  },
+
   teams: [
     {
       name: 'You',
