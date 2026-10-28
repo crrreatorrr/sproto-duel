@@ -107,6 +107,46 @@ npx @gltf-transform/cli optimize input.glb public/assets/models/wizard_player.gl
 
 Meshopt-compressed GLBs load natively. If a model is still over budget, lower `--simplify-ratio`.
 
+## Campaign bosses
+
+The Boss Gauntlet has five bosses, easiest first (roster and tuning in `src/campaign/levels.ts`).
+Each has a model and a portrait; the first batch was generated with Higgsfield (concept image with
+`gpt_image_2_5`, then `tripo_h3_1_image_to_3d`). Regenerate any of them by replacing the file.
+
+| Boss | Model | Portrait | Arena theme |
+|---|---|---|---|
+| 1. Bramble, the Hedge Witch | `models/bosses/bramble.glb` (2.0 m) | `ui/bosses/bramble.png` | `grove` |
+| 2. Cinder, the Ember Adept | `models/bosses/cinder.glb` (2.0 m) | `ui/bosses/cinder.png` | `volcano` |
+| 3. Ysolde, the Frost Warden | `models/bosses/ysolde.glb` (2.1 m) | `ui/bosses/ysolde.png` | `glacier` |
+| 4. Khepri, the Sand Magus | `models/bosses/khepri.glb` (2.2 m) | `ui/bosses/khepri.png` | `desert` |
+| 5. Morvane, the Archlich | `models/bosses/morvane.glb` (2.5 m) | `ui/bosses/morvane.png` | `void` |
+
+Boss models are static meshes (the game animates them procedurally), ≤ 9k triangles. Generate the
+concept in a natural spell-casting stance rather than a T-pose, since there is no rig: whole body,
+front view, plain background.
+
+## Arena environments
+
+Every theme has the same five slots under `textures/themes/<theme>/` and `models/themes/<theme>/`
+(declared in `THEME_ASSETS` in `src/assets/manifest.ts`). The default `moonlit` theme uses the
+assets in the next sections.
+
+| File | Spec |
+|---|---|
+| `textures/themes/<theme>/floor.jpg` | Square, top-down circular arena floor filling the image edge to edge (mapped onto a disc). |
+| `textures/themes/<theme>/sky.jpg` | 2:1 equirectangular sky panorama. |
+| `textures/themes/<theme>/stone.jpg` | Square, seamless tileable surface for the wall and placeholder pillars. |
+| `models/themes/<theme>/pillar.glb` | Cover column ≤ 5k triangles, fitted to 5.5 m; collision is a ~1.7 m wide cylinder, so keep it column-shaped. |
+| `models/themes/<theme>/prop.glb` | Decorative set piece outside the wall, ≤ 8k triangles. |
+
+| Theme | Mood |
+|---|---|
+| `grove` | Twilight enchanted forest glade: mossy flagstones, roots, fireflies, green-gold spirit fire. |
+| `volcano` | Basalt arena over lava: glowing magma cracks, ash-red sky, erupting volcano. |
+| `glacier` | Frozen arena: ice-glazed stone, aurora night sky, lilac frost runes. |
+| `desert` | Sandstone ruins at golden dusk: turquoise and gold inlays, dunes, obelisks. |
+| `void` | Arena floating in a cosmic void: violet-black stone, green rune circuitry, nebula sky. |
+
 ## Textures
 
 | Key | File | Size | Description |
