@@ -504,7 +504,8 @@ export function registerAnimScenarios(qa: QAHarness, game: Game): void {
         const rest = (wing.userData.wingRest as THREE.Quaternion).clone();
         const angle = () => 2 * Math.asin(Math.min(1, rest.clone().invert().multiply(wing.quaternion).normalize().z));
         let lo = Infinity, hi = -Infinity, travel = 0, prev = angle();
-        play(game, 2, () => {
+        const idleTime = 4.5; // more than a whole slow beat
+        play(game, idleTime, () => {
           const x = angle();
           lo = Math.min(lo, x);
           hi = Math.max(hi, x);
@@ -523,8 +524,8 @@ export function registerAnimScenarios(qa: QAHarness, game: Game): void {
           prev = x;
         });
         e.intent.holdBolt = false;
-        c.expect(roused > travel * 0.5 * 1.3, `stage ${stage + 1}: wings beat ${(roused).toFixed(2)} rad/s casting vs ${(travel / 2).toFixed(2)} idle`);
-        notes.push(`stage ${stage + 1}: flap ${lo.toFixed(2)}..${hi.toFixed(2)} rad, ${(travel / 2).toFixed(2)} -> ${roused.toFixed(2)} rad/s casting`);
+        c.expect(roused > (travel / idleTime) * 1.3, `stage ${stage + 1}: wings beat ${(roused).toFixed(2)} rad/s casting vs ${(travel / idleTime).toFixed(2)} idle`);
+        notes.push(`stage ${stage + 1}: flap ${lo.toFixed(2)}..${hi.toFixed(2)} rad, ${(travel / idleTime).toFixed(2)} -> ${roused.toFixed(2)} rad/s casting`);
       });
     }
     c.note(notes.join('; '));

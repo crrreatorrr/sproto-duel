@@ -283,6 +283,8 @@ export class WizardVisual {
   private wingRouse = 0;
   private lastPulse = 0;
   private lastHitFlash = 0;
+  /** performance.now() of the last update (real time for a boss mid-transformation). */
+  private lastNow = 0;
   private time = Math.random() * 10;
   private deathT = 0;
   private iceScale = 0;
@@ -1047,7 +1049,13 @@ export class WizardVisual {
    * Animator poses the skeleton, muzzle anchors follow their bone sockets, and the glows, tint,
    * shield, ice and ring update.
    */
-  update(w: Wizard, dt: number, alpha: number): void {
+  update(w: Wizard, simDt: number, alpha: number): void {
+    // A transformation cinematic freezes the world (BossCinematic, Game.cinematicScale) but not the
+    // boss it is about: its clips, breathing and wings keep real time while the cinematic poses it.
+    const now = performance.now();
+    const realDt = this.lastNow > 0 ? Math.min(0.1, (now - this.lastNow) / 1000) : 0;
+    this.lastNow = now;
+    const dt = simDt === 0 && w.evolving ? realDt : simDt;
     this.time += dt;
     const P = this.proceduralOff ? NO_PROC : this.proc;
     const anim = this.animator;
@@ -1129,7 +1137,8 @@ export class WizardVisual {
     // hunches, sways side to side and breathes deep.
     const calm = alive && !frozen ? 1 - this.stride : 0;
     const breath = Math.sin((this.time * Math.PI * 2) / (3 * (1 + 0.4 * heavy)));
-    const swayX = calm * (0.03 * menace + breath * 0.006 * P.idle);
+    // (The hunch is posture: a rigged look's clips own that, P.move.)
+    const swayX = calm * (0.03 * menace * P.move + breath * 0.006 * P.idle);
     // Side to side: the waddle onto the planted foot, the idle weight shift, a looming boss's sway. A
     // narrow look rolls; a wide hem (small side lean caps) shifts its weight sideways instead, so it
     // never dips into the floor.
