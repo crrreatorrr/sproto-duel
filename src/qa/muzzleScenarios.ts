@@ -23,8 +23,11 @@ const W = CONFIG.wizard;
 const FADE = CONFIG.camera.bossFade;
 /** Spawn vs muzzle tolerance (m): the simulation point itself, so only float error. */
 const TIGHT = 0.02;
-/** Rendered muzzle anchor vs spawn (m): the render pose breathes and bobs a little. */
-const POSE = 0.06;
+/**
+ * Rendered muzzle point vs spawn (m): the render pose breathes, sways and bobs (a late boss stage
+ * looms with a slow sway and hunch, WizardVisual's MotionStyle).
+ */
+const POSE = 0.1;
 
 const byId = (id: string): BossDef => BOSSES.find((b) => b.id === id)!;
 
@@ -200,9 +203,10 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
               const idx = w.muzzleIndex(spell);
               const name = w.visual.muzzles!.points[idx].name;
               c.expect(pointsFor(st.muzzle, spell).includes(name), `${f.id} stage ${stage + 1}: ${spell} from '${name}'`);
-              // The render pose's anchor agrees with the simulation point.
+              // The render pose's measured point agrees with the simulation point (a rigged look's glow
+              // rides its bone socket instead: animScenarios checks that).
               settle(w);
-              w.visual.muzzleWorld(idx, anchor);
+              w.visual.muzzleHomeWorld(idx, anchor);
               w.castPoint(spell, got, idx);
               c.expect(anchor.distanceTo(got) < POSE, `${f.id} stage ${stage + 1}: muzzle anchor ${anchor.distanceTo(got).toFixed(3)} m from castPoint`);
               const from = castFrom(c, w, spell);
@@ -667,28 +671,45 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
       withStage(c, game, byId(id), stage, () => {
         const e = game.enemy, vis = e.visual;
         e.spawn(0, 6, 0);
+        // A static mesh: its lowest point after a second. A rigged look's clips swing hems, staffs and
+        // feet on their own, so there: the lowest point over a run cycle, measured against the same
+        // clips with the procedural motion off (what the lean adds is what this checks).
         const pose = () => {
-          for (let i = 0; i < 60; i++) vis.update(e, 1 / 60, 1);
-          return vis.lookBottom();
+          let low = Infinity;
+          for (let i = 0; i < 90; i++) {
+            vis.update(e, 1 / 60, 1);
+            if (i === 89 || (vis.rigged && i >= 50 && i % 2 === 0)) low = Math.min(low, vis.lookBottom());
+          }
+          return low;
+        };
+        const floor = (vx: number, vz: number) => {
+          if (!vis.rigged) return 0;
+          vis.proceduralOff = true;
+          e.vel.set(vx, 0, vz);
+          const low = pose();
+          vis.proceduralOff = false;
+          return low;
         };
         e.vel.set(0, 0, 0);
-        const still = pose();
+        const still = pose() - floor(0, 0);
         c.expect(Math.abs(still) < 0.03, `${id}: standing, its lowest point is at ${still.toFixed(3)} m`);
         let worst = Infinity, lift = 0;
         // Sprinting every way, and a knockback slide faster than a sprint.
         for (const [vx, vz] of [[0, 9.6], [0, -9.6], [9.6, 0], [-9.6, 0], [6.8, 6.8], [-6.8, -6.8], [0, 15], [15, 0]]) {
+          const base = floor(vx, vz);
           e.vel.set(vx, 0, vz);
-          const low = pose();
+          const low = pose() - base;
           worst = Math.min(worst, low);
           lift = Math.max(lift, vis.leanLift);
-          c.expect(low > -0.03, `${id}: leaning at (${vx}, ${vz}) m/s its lowest point is ${(-low * 100).toFixed(1)} cm under the floor`);
+          // (A rigged look's two windows catch its clips at different phases: a little more slack.)
+          c.expect(low > (vis.rigged ? -0.05 : -0.03), `${id}: leaning at (${vx}, ${vz}) m/s its lowest point is ${(-low * 100).toFixed(1)} cm under the floor${vis.rigged ? ' (below its clip pose)' : ''}`);
           // Wide bosses lean less instead of hopping up: the lift stays small (10 cm a side, both on a diagonal).
           const diagonal = vx !== 0 && vz !== 0;
           c.expect(vis.leanLift < (diagonal ? 0.22 : 0.12), `${id}: leaning at (${vx}, ${vz}) m/s lifts it ${(vis.leanLift * 100).toFixed(1)} cm`);
         }
         e.vel.set(0, 0, 0);
         pose();
-        notes.push(`${id}${stage + 1} lowest ${(worst * 100).toFixed(1)} cm (lift up to ${(lift * 100).toFixed(1)} cm)`);
+        notes.push(`${id}${stage + 1}${vis.rigged ? ' (rigged, vs its clips)' : ''} lowest ${(worst * 100).toFixed(1)} cm (lift up to ${(lift * 100).toFixed(1)} cm)`);
       });
     }
     c.note(notes.join(', '));

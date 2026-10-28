@@ -14,7 +14,55 @@ import type { ArenaThemeId } from '../arena/themes';
 import type { MuzzleSet } from '../wizard/muzzles';
 import { CONFIG } from '../config';
 
-export type WizardClip = 'idle' | 'run' | 'cast' | 'castBig' | 'dodge' | 'hit' | 'stunned' | 'victory' | 'defeat';
+/**
+ * The game's animation states. Locomotion (run and the strafes/backpedal), jump and dodge drive the
+ * legs; cast/castBig/hit can play on the upper body over running (src/wizard/Animator.ts).
+ */
+export type WizardClip =
+  | 'idle' | 'run' | 'strafeL' | 'strafeR' | 'runBack' | 'jump'
+  | 'cast' | 'castBig' | 'dodge' | 'hit' | 'stunned' | 'victory' | 'defeat';
+
+/**
+ * A point carried by a bone of a rigged model: `offset` is in the bone's local frame and units
+ * (centimetres for the Meshy/Higgsfield rigs, whose Armature is scaled 0.01).
+ */
+export interface BoneSocket {
+  bone: string;
+  /** The muzzle point (the game's measured muzzle) in the bone's frame. */
+  offset: readonly [number, number, number];
+  /** Where the glow belongs (the gem's or flame's centre), if not exactly `offset`. */
+  glowOffset?: readonly [number, number, number];
+}
+
+/**
+ * A skinned, animated version of a model (`models/rigged/`). Loaded instead of `path` when the file
+ * is on disk; the static mesh (animated procedurally) is the fallback. It keeps the entry's
+ * `fitHeight`, `anchor`, `doubleSided` and `clips`.
+ */
+export interface RiggedModel {
+  path: string;
+  /** Extra yaw in degrees. The rigs face +Z already, so 0 (the static Tripo meshes need -90). */
+  rotationY?: number;
+  /**
+   * Visual muzzle sockets by muzzle point name (staff, phoneR, phoneL, vape, gun, hand, mouth; see
+   * src/wizard/muzzles.ts): the glows and muzzle effects ride these bones. Spells still leave from
+   * the static muzzle point (Wizard.castPoint), the deterministic gameplay origin.
+   */
+  sockets?: Readonly<Record<string, BoneSocket>>;
+  /** Seconds into `cast` / `cast_big` of the release (the thrust). Defaults 0.45 / 0.62 (the clip library's). */
+  castPeak?: number;
+  castBigPeak?: number;
+  /** Clips this model must not play (Tinubu's rigid wings and robe go through the floor in a roll or jump). */
+  skipClips?: readonly WizardClip[];
+}
+
+/** How a character carries itself (procedural motion and clip speeds). Both 0..1, default 0. */
+export interface MotionStyle {
+  /** Heavier: slower, deeper idle and stride, bigger landings. */
+  weight?: number;
+  /** A late boss stage looming: slow side-to-side sway, a forward hunch, deep breathing. */
+  menace?: number;
+}
 
 export interface ModelAsset {
   path: string;
@@ -41,6 +89,10 @@ export interface ModelAsset {
    * stage (boss stages set `muzzle` in levels.ts). See src/wizard/muzzles.ts and ASSETS.md.
    */
   muzzle?: MuzzleSet;
+  /** Skinned, animated variant, preferred when its file exists (see RiggedModel). */
+  rigged?: RiggedModel;
+  /** Procedural motion style (boss stages get heavier and more menacing). */
+  motion?: MotionStyle;
 }
 
 export interface TextureAsset {
@@ -61,9 +113,14 @@ export interface SoundAsset {
   maxVoices?: number;
 }
 
-const WIZARD_CLIPS: ModelAsset['clips'] = {
+/** Game clip -> action name in the rigged GLBs (models/rigged/, see ASSETS.md). Missing clips are fine. */
+export const WIZARD_CLIPS: Readonly<Partial<Record<WizardClip, string>>> = {
   idle: 'idle',
   run: 'run',
+  strafeL: 'strafe_l',
+  strafeR: 'strafe_r',
+  runBack: 'run_back',
+  jump: 'jump',
   cast: 'cast',
   castBig: 'cast_big',
   dodge: 'roll',
@@ -73,26 +130,75 @@ const WIZARD_CLIPS: ModelAsset['clips'] = {
   defeat: 'defeat',
 };
 
-/** `boss<Id>1..3` model entries at `models/bosses/<id>/stage1..3.glb`, one fit height per stage. */
-function bossStages<Id extends string>(id: Id, heights: [number, number, number]) {
+/**
+ * Visual muzzle sockets of the rigged models, by manifest key then muzzle point name (the rig
+ * agents measure them: `{ bone, offset }`, offset in the bone's local centimetres). Paste new
+ * entries from the rigging pipeline's sockets.json here; a rigged model without one keeps its
+ * glows on the static muzzle point.
+ */
+export const RIG_SOCKETS: Readonly<Record<string, Readonly<Record<string, BoneSocket>>>> = {
+  wizardPlayer: { staff: { bone: 'RightHand', offset: [-30.08, 25.8, -55.03], glowOffset: [-36.09, 24.47, -58.72] } },
+  bossSahil1: { staff: { bone: 'RightHand', offset: [52.73, -17.56, -47.45] } },
+  bossSahil2: { staff: { bone: 'RightHand', offset: [-55.68, 11.52, -19.31], glowOffset: [-56.42, 9.89, -18.23] } },
+  bossSahil3: { staff: { bone: 'RightHand', offset: [33.72, 20.7, -52.72], glowOffset: [35.59, 24.86, -47.73] } },
+  // Stage 1s hold one phone (muzzle 'phone'): Obama's in his right hand, The Midget's in his left.
+  bossObama1: { phone: { bone: 'RightHand', offset: [0.3, 9.98, 4.68] } },
+  bossObama2: { phoneR: { bone: 'RightHand', offset: [-2.1, 13.81, 4.87] }, phoneL: { bone: 'LeftHand', offset: [0.83, 20.24, 3.98] } },
+  bossObama3: { phoneR: { bone: 'RightHand', offset: [-5.13, 17.09, -1.33] }, phoneL: { bone: 'LeftHand', offset: [1.28, 16.54, -1.37] } },
+  bossMidget1: { phone: { bone: 'LeftHand', offset: [0.12, 8.03, -1.66] } },
+  bossMidget2: { phoneR: { bone: 'RightHand', offset: [-4.48, 9.1, 2.08] }, phoneL: { bone: 'LeftHand', offset: [5.17, 10.55, 2.76] } },
+  bossMidget3: { phoneR: { bone: 'RightHand', offset: [-0.29, 9.13, -0.22] }, phoneL: { bone: 'LeftHand', offset: [0.5, 9.37, 4.38] } },
+  bossBroccoli1: { vape: { bone: 'RightHand', offset: [-13.63, 14.86, 6.37] } },
+  bossBroccoli2: { vape: { bone: 'RightHand', offset: [-6.95, 17.63, -15.3] } },
+  bossBroccoli3: { vape: { bone: 'RightForeArm', offset: [-114.36, 63.83, -9] } },
+  bossAgent1: { gun: { bone: 'RightHand', offset: [2.82, 40.28, -1.78] } },
+  bossAgent2: { gun: { bone: 'RightHand', offset: [-33.52, 39.65, -39.52] } },
+  bossAgent3: { gun: { bone: 'RightHand', offset: [0.63, 133.16, -36.55] } },
+  bossTinubu1: { hand: { bone: 'RightHand', offset: [-0.61, 17.42, -4.43] }, mouth: { bone: 'Head', offset: [0.81, 6.55, 11.94] } },
+  bossTinubu2: { hand: { bone: 'RightHand', offset: [-8.33, 22.98, -4.6] }, mouth: { bone: 'Head', offset: [-0.63, 0.76, 29.72] } },
+  bossTinubu3: { hand: { bone: 'RightHand', offset: [-23.94, 22.29, 35.52] }, mouth: { bone: 'Head', offset: [5.79, 4.71, 48.92] } },
+};
+
+/** Clips a boss's rigs must not play: Tinubu's rigid wings and robe go through the floor in a roll or jump (procedural flip instead). */
+const RIG_SKIP_CLIPS: Readonly<Record<string, readonly WizardClip[]>> = { tinubu: ['dodge', 'jump'] };
+
+/**
+ * Boss motion by stage: each stage moves heavier, and the last one looms (MotionStyle). The Midget
+ * stays quick on his feet.
+ */
+const STAGE_MOTION: readonly MotionStyle[] = [{ weight: 0.25 }, { weight: 0.5, menace: 0.35 }, { weight: 0.75, menace: 1 }];
+const LIGHT_STAGE_MOTION: readonly MotionStyle[] = [{ weight: 0 }, { weight: 0.15, menace: 0.25 }, { weight: 0.3, menace: 0.8 }];
+
+/**
+ * `boss<Id>1..3` model entries at `models/bosses/<id>/stage1..3.glb`, one fit height per stage,
+ * each with its rigged variant at `models/rigged/<id>_stage1..3.glb`.
+ */
+function bossStages<Id extends string>(id: Id, heights: [number, number, number], motion = STAGE_MOTION) {
   const name = `boss${id[0].toUpperCase()}${id.slice(1)}` as `boss${Capitalize<Id>}`;
   const out = {} as Record<`${typeof name}${1 | 2 | 3}`, ModelAsset>;
   heights.forEach((fitHeight, i) => {
-    out[`${name}${(i + 1) as 1 | 2 | 3}`] = { path: `models/bosses/${id}/stage${i + 1}.glb`, fitHeight, rotationY: -90, doubleSided: true, anchor: 'feet' };
+    const key = `${name}${(i + 1) as 1 | 2 | 3}` as const;
+    out[key] = {
+      path: `models/bosses/${id}/stage${i + 1}.glb`, fitHeight, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS,
+      rigged: { path: `models/rigged/${id}_stage${i + 1}.glb`, sockets: RIG_SOCKETS[key], skipClips: RIG_SKIP_CLIPS[id] },
+      motion: motion[i],
+    };
   });
   return out;
 }
 
 /** The Midget's stages. Stage 1's mesh has a ~4.6° yaw baked into its node (2 and 3 don't): cancel it so the swap doesn't twist him. */
-const MIDGET_STAGES = bossStages('midget', [1.25, 1.4, 1.6]);
+const MIDGET_STAGES = bossStages('midget', [1.25, 1.4, 1.6], LIGHT_STAGE_MOTION);
 MIDGET_STAGES.bossMidget1.rotationY = -94.6;
 
 export const MODELS = {
-  // Player: Higgsfield/Tripo static mesh (faces +X), animated procedurally like the bosses.
+  // Player: Higgsfield/Tripo static mesh (faces +X), animated procedurally like the bosses, or its
+  // skinned version (models/rigged/, faces +Z) with clips when that file is there.
   // His magical sproto staff: every spell leaves from the glowing orb on top (right hand).
   wizardPlayer: {
     path: 'models/wizard_player.glb', fitHeight: 1.9, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS,
     muzzle: { points: { staff: { type: 'staff', at: [0.076, 0.916, 0.203] } } },
+    rigged: { path: 'models/rigged/wizard_player.glb', sockets: RIG_SOCKETS.wizardPlayer },
   },
   wizardRival: { path: 'models/wizard_rival.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
   pillar: { path: 'models/pillar.glb', fitHeight: 5.5 },

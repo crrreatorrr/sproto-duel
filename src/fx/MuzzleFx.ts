@@ -25,6 +25,7 @@ const tmpColor2 = new THREE.Color();
 const tmpSide = new THREE.Vector3();
 const tmpUp = new THREE.Vector3();
 const tmpPos = new THREE.Vector3();
+const tmpOrigin = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const WHITE = new THREE.Color(1, 1, 1);
 /** Vape clouds: pink, lavender, mint, baby blue, peach. */
@@ -135,9 +136,11 @@ export class MuzzleFx {
 
   /**
    * A spell of `kind` just left `w` through muzzle `index` (-1: the generic wand) at `pos`, heading
-   * along unit `dir`.
+   * along unit `dir`. On a rigged look whose muzzle rides a bone, the effects play at that socket
+   * (the animated staff, phone or vape) rather than the spawn point.
    */
-  cast(w: Wizard, kind: CastKind, index: number, pos: THREE.Vector3, dir: THREE.Vector3): void {
+  cast(w: Wizard, kind: CastKind, index: number, spawn: THREE.Vector3, dir: THREE.Vector3): void {
+    const pos = w.visual.muzzleFxOrigin(index, spawn, tmpOrigin);
     const color = kind === 'blast' ? w.team.blast : kind === 'stun' ? w.team.stun : kind === 'ultimate' ? w.team.ultimate : w.team.spell;
     // The spell leaving: a spark burst and flash in its colour, as every cast has always had (and on
     // the game's own dice, exactly as many draws as before, so seeded AI runs replay unchanged).

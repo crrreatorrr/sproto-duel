@@ -37,7 +37,8 @@ interface Ctx {
   note(msg: string): void;
 }
 
-type Scenario = (c: Ctx) => void;
+/** A scenario; it may be async (awaiting a lazy asset load), the game loop stays detached meanwhile. */
+type Scenario = (c: Ctx) => void | Promise<void>;
 
 class AssertionError extends Error {}
 
@@ -79,9 +80,9 @@ export class QAHarness {
     const t0 = performance.now();
     let pass = true;
     let detail = '';
-    await this.sandbox(() => {
+    await this.sandbox(async () => {
       try {
-        fn(this.makeCtx(notes));
+        await fn(this.makeCtx(notes));
         detail = notes.join('; ') || 'ok';
       } catch (err) {
         pass = false;
@@ -97,7 +98,7 @@ export class QAHarness {
    * Scenarios are 1v1: a double fight's partner is benched for the run (scenarios that want it dress
    * a boss with a partner themselves) and brought back afterwards if that fight is still set up.
    */
-  async sandbox(fn: () => void): Promise<void> {
+  async sandbox(fn: () => void | Promise<void>): Promise<void> {
     const g = this.game;
     const saved = { simulating: g.simulating, playerControl: g.playerControl, controller: g.enemyController, locked: g.actionsLocked };
     g.simulating = false;
@@ -110,7 +111,7 @@ export class QAHarness {
     if (duo) g.setupPartner(null);
     const restoreStats = g.useDefaultStats(); // boss and god-mode stats stay out of scenarios
     try {
-      fn();
+      await fn();
     } finally {
       restoreStats();
       if (duo?.partner && g.boss === duo && !g.partnerActive) g.setupPartner(duo.partner);
