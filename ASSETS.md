@@ -44,7 +44,7 @@ Audio and textures may use any common extension: list `audio/bolt_cast.mp3`, sav
 | `pillar` | `models/pillar.glb` | ≤ 4k | Cover column, fitted to 5.5 m tall, about 1.7 m wide. Collision is a cylinder, so keep it roughly round. |
 | `pillarBroken` | `models/pillar_broken.glb` | ≤ 2k | Stump left after a pillar crumbles, fitted to 1.0 m. Same footprint as the pillar. |
 | `pillarDebris` | `models/pillar_debris.glb` | ≤ 400 | One stone chunk, instanced up to 160 times when pillars break. |
-| `arenaRuins` | `models/arena_ruins.glb` | ≤ 8k | Backdrop piece placed 6 times outside the wall (replaces the placeholder standing stones). Fitted to 6 m. |
+| `arenaRuins` | `models/arena_ruins.glb` | ≤ 8k | Backdrop piece placed 8 times, 8 m outside the wall (replaces the placeholder standing stones). Fitted to 6 m. |
 | `brazier` | `models/brazier.glb` | ≤ 2k | Fire bowl placed 8 times on top of the arena wall. Fitted to 1.6 m. A flame glow is added in code. |
 
 ### Prompts
@@ -137,7 +137,7 @@ assets in the next sections.
 | `textures/themes/<theme>/sky.jpg` | 2:1 equirectangular sky panorama. |
 | `textures/themes/<theme>/stone.jpg` | Square, seamless tileable surface for the wall and placeholder pillars. |
 | `models/themes/<theme>/pillar.glb` | Cover column ≤ 5k triangles, fitted to 5.5 m; collision is a ~1.7 m wide cylinder, so keep it column-shaped. |
-| `models/themes/<theme>/prop.glb` | Decorative set piece outside the wall, ≤ 8k triangles. |
+| `models/themes/<theme>/prop.glb` | Decorative set piece placed 8 times, 8 m outside the wall, ≤ 8k triangles. |
 
 | Theme | Mood |
 |---|---|
