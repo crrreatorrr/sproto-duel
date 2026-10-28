@@ -4,6 +4,7 @@ import type { App } from '../App';
 import { BOSSES } from '../campaign/levels';
 import { events, type GameEvents } from '../core/events';
 import type { Game } from '../core/Game';
+import type { BossStages } from '../campaign/BossStages';
 import type { Wizard } from '../wizard/Wizard';
 import type { QAHarness } from './QAHarness';
 
@@ -62,27 +63,39 @@ function frames(game: Game, seconds: number, each?: () => void): void {
   }
 }
 
+/** Put a boss straight into `stage` (full bar), without leaving a cinematic for it behind. */
+function jump(st: BossStages, stage: number): void {
+  st.evolveTo(stage);
+  st.release(0);
+  cineOf(st)?.abort();
+}
+
+let cineOf: (st: BossStages) => App['cinematic'] | null = () => null;
+
 /** Empty `w`'s current stage bar with one big hit from the player. */
 function deplete(game: Game, w: Wizard): void {
   game.spells.dealDamage(w, game.player, (w.health + 500) / game.player.damageMultiplier, w.chest(new THREE.Vector3()), 'blast');
 }
 
-/** Screen rect of a wizard's look, from its visual root's bounds. */
+/** Screen rect of a wizard's look: the cylinder it stands in (posed root, look radius, top). */
 function screenRect(game: Game, w: Wizard): { left: number; right: number; top: number; bottom: number } {
-  const box = new THREE.Box3().setFromObject(w.visual.root);
+  const v = w.visual;
+  const r = v.boundsRadius * v.root.scale.x;
+  const base = v.root.position;
+  const box = new THREE.Box3(new THREE.Vector3(base.x - r, base.y, base.z - r), new THREE.Vector3(base.x + r, base.y + v.topHeight * v.root.scale.y, base.z + r));
   const cam = game.renderer.camera;
   cam.updateMatrixWorld();
-  const r = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
-  const v = new THREE.Vector3();
+  const out = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+  const p = new THREE.Vector3();
   for (let i = 0; i < 8; i++) {
-    v.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).project(cam);
-    const x = (v.x * 0.5 + 0.5) * innerWidth, y = (-v.y * 0.5 + 0.5) * innerHeight;
-    r.left = Math.min(r.left, x);
-    r.right = Math.max(r.right, x);
-    r.top = Math.min(r.top, y);
-    r.bottom = Math.max(r.bottom, y);
+    p.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).project(cam);
+    const x = (p.x * 0.5 + 0.5) * innerWidth, y = (-p.y * 0.5 + 0.5) * innerHeight;
+    out.left = Math.min(out.left, x);
+    out.right = Math.max(out.right, x);
+    out.top = Math.min(out.top, y);
+    out.bottom = Math.max(out.bottom, y);
   }
-  return r;
+  return out;
 }
 
 /**
@@ -93,6 +106,7 @@ function screenRect(game: Game, w: Wizard): { left: number; right: number; top: 
  */
 export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App): void {
   const cine = app.cinematic;
+  cineOf = () => cine;
 
   qa.add('cinematic.freezes_combat_returns_camera_no_input', (c) => {
     withLiveFight(c, game, app, 0, () => {
@@ -160,11 +174,10 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
   qa.add('cinematic.stage3_bigger_and_pauses', (c) => {
     withLiveFight(c, game, app, 4, () => {
       const e = game.enemy, st = game.stages;
-      st.evolveTo(1);
-      st.release(0);
+      jump(st, 1);
       c.step(DT);
       deplete(game, e);
-      c.expect(cine.state?.stage === 2 && cine.state.duration === K.duration[2] && K.duration[2] > K.duration[1], `stage 3 shot ${JSON.stringify(cine.state)}`);
+      c.expect(cine.state?.stage === 2 && cine.state.duration === K.duration[2] && K.duration[2] > K.duration[1], `stage 3 shot: stage ${cine.state?.stage}, ${cine.state?.duration} s`);
       c.expect(game.ui.querySelector('.cine.tier2') !== null, 'stage 3 is not the bigger cinematic');
       frames(game, K.duration[2] * K.burstAt + 0.3);
       const title = game.ui.querySelector('.cine-title')?.textContent ?? '';
@@ -188,8 +201,7 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
       const pst = game.partnerStages, st = game.stages;
       const mid = BOSSES[1].partner!;
       // Obama down to his last stage, then knocked out: The Midget is enraged.
-      st.evolveTo(2);
-      st.release(0);
+      jump(st, 2);
       c.step(DT);
       q.health = q.maxHealth * 0.5;
       deplete(game, e);
@@ -210,11 +222,9 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
       withLiveFight(c, game, app, index, () => {
         const e = game.enemy, st = game.stages;
         for (const stage of [1, 2]) {
-          if (stage === 2) {
-            st.evolveTo(1);
-            st.release(0);
-            c.step(DT);
-          }
+          // (Stage 2 came from the first shot; wait out its grace, when the boss is immune.)
+          if (stage === 2) c.step(K.grace + 0.05);
+          c.expect(st.stage === stage - 1, `${BOSSES[index].id}: in stage ${st.stage + 1} before the shot into stage ${stage + 1}`);
           deplete(game, e);
           const D = cine.state!.duration;
           frames(game, D * K.burstAt + 0.45);

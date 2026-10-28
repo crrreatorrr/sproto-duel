@@ -353,7 +353,7 @@ export class BossCinematic {
 
   /** Transformations play as cinematics now: armed (a gauntlet fight), enabled, and not under QA. */
   get live(): boolean {
-    return K.enabled && this.armed && (!this.game.qaMode || this.allowInQa);
+    return K.enabled && this.armed && (!(this.game.qaMode || this.game.inSandbox) || this.allowInQa);
   }
 
   /** A cinematic is on screen (or queued). */

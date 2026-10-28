@@ -197,7 +197,8 @@ export function registerLifePackScenarios(qa: QAHarness, game: Game, app: App): 
       try {
         ref.lifePacks = lp;
         p.health = p.maxHealth * 0.4;
-        c.expect(lp.spawnAt(p.pos.x + 9, p.pos.z - 1) !== null, 'spawnAt refused');
+        // Down the open street behind the player (the bazaar's stalls line both sides).
+        c.expect(lp.spawnAt(p.pos.x, p.pos.z - 9) !== null, 'spawnAt refused');
         c.expect(lp.bestFor(p, L.aiSeekRange) === lp.pack, 'bestFor does not see the pack');
         c.step(6, () => {
           ref.update(DT);

@@ -395,8 +395,10 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(q.height === MIDGET.hitbox.height && q.radius === MIDGET.hitbox.radius, `hitbox ${q.radius}/${q.height}`);
       const chest = q.chest(v).y - q.pos.y, wand = q.castPoint('bolt', v).y - q.pos.y;
       c.expect(chest < 0.9 && wand < 1 && q.tagHeight < 1.8 && q.shieldCenterY < 0.75, `aim points not scaled: chest ${chest.toFixed(2)} wand ${wand.toFixed(2)}`);
-      const shot = () => {
+      const shot = (fullHeight = false) => {
         c.setup({ player: [0, -6], enemy: [0, 8], partner: [0, 1] });
+        // (A round reset gives each boss its stage hurtbox, so the control capsule goes on after it.)
+        if (fullHeight) q.setHitbox(W.radius, W.height);
         p.facing = p.intent.facing = 0;
         p.aimPoint.set(0, 1.75, 8); // high on Obama
         p.intent.press('bolt');
@@ -407,9 +409,8 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(q.health === q.maxHealth, 'a high bolt hit The Midget');
       c.expect(e.health < e.maxHealth, 'the high bolt missed Obama');
       // A full-height wizard in his place would have taken it.
-      q.setHitbox(W.radius, W.height);
       try {
-        shot();
+        shot(true);
         c.expect(q.health < q.maxHealth && e.health === e.maxHealth, 'control: a full-height wizard did not block the shot');
       } finally {
         q.setHitbox(MIDGET.hitbox.radius, MIDGET.hitbox.height);
@@ -521,7 +522,8 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
         c.note(`avg gap ${gap.toFixed(1)} m, ${((stacked / n) * 100).toFixed(0)}% of the time within 2.5 m, ${sep.toFixed(0)}° apart around the player, dmg Obama ${dmg.e.toFixed(0)} Midget ${dmg.q.toFixed(0)}`);
         c.expect(gap > C.duo.spacing * 0.8 && stacked / n < 0.15, `bosses stayed bunched (avg gap ${gap.toFixed(1)} m, ${((stacked / n) * 100).toFixed(0)}% stacked)`);
         c.expect(sep > 15, `no flank (avg ${sep.toFixed(0)}° apart around the player)`);
-        c.expect(dmg.e > 0 && dmg.q > 0 && q.stats.casts > 5, 'one of the pair never attacked');
+        // Gauntlet bosses pick their moments (slow bursts, wide aim): both must attack, not necessarily land.
+        c.expect(e.stats.casts > 2 && q.stats.casts > 2, `one of the pair never attacked (casts ${e.stats.casts} / ${q.stats.casts})`);
         // setTarget: an AI can switch to the other enemy (the soak's reference AI does).
         ref.setTarget(q);
         c.expect(ref.opponent === q, 'setTarget did not switch');

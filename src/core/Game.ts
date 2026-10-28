@@ -95,6 +95,11 @@ export class Game {
   /** Set by the QA harness: match flow and other tick hooks stay out of scenario runs. */
   qaMode = false;
   /**
+   * True for the whole of a QA sandbox (scenarios, soaks), even while a scenario lets the match
+   * flow run (qaMode off): transformation cinematics stay headless unless a scenario asks for them.
+   */
+  inSandbox = false;
+  /**
    * Plays boss transformations as cinematics (App's BossCinematic). While it is `live` (a gauntlet
    * fight being played, not QA or a soak) BossStages leaves the light show to it.
    */

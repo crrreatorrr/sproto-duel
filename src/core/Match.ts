@@ -79,8 +79,10 @@ export class Match {
   timer: number = M.roundTime;
   /** The gauntlet's fight clock (counts up) and safety caps. */
   readonly clock = new GauntletClock();
-  /** A Boss Gauntlet fight: one round, one life, no round timer. */
-  single = false;
+  /** A Boss Gauntlet fight (there is a boss): one round, one life, no round timer. */
+  get single(): boolean {
+    return this.boss !== null;
+  }
   /** Seconds left in the current intro/round-end phase. */
   phaseTime = 0;
   /** Campaign boss for this match (null in Quick Duel). */
@@ -174,11 +176,8 @@ export class Match {
   /** `boss`: the campaign fight being played (one round, one life), or null for a Quick Duel. */
   startMatch(boss: BossDef | null = null): void {
     this.boss = boss;
-    this.single = boss !== null;
-    const g = this.game;
-    // A fresh fight: its full budget of life packs (Retry too), and the mode's ticket pace.
-    g.lifePacks.reset();
-    g.tickets.spawnInterval = this.single ? CONFIG.tickets.bossSpawnInterval : CONFIG.tickets.spawnInterval;
+    // A fresh fight: its full budget of life packs (Retry too).
+    this.game.lifePacks.reset();
     this.round = 1;
     this.wins[0] = this.wins[1] = 0;
     this.roundWinners = [];
@@ -198,6 +197,8 @@ export class Match {
     }
     g.spawnWizards();
     g.enemyController?.reset?.();
+    // Gauntlet fights last 15+ minutes: golden tickets come at their slower pace there.
+    g.tickets.spawnInterval = this.single ? CONFIG.tickets.bossSpawnInterval : CONFIG.tickets.spawnInterval;
     this.timer = M.roundTime;
     this.clock.reset();
     this.phase = 'intro';

@@ -401,6 +401,7 @@ export class App {
     this.state = 'menu';
     this.match.phase = 'menu';
     this.match.boss = null;
+    g.tickets.spawnInterval = CONFIG.tickets.spawnInterval;
     this.resultsTimer = 0;
     g.input.releaseLock();
     g.simulating = true;
