@@ -16,6 +16,7 @@ function budgetFor(rel) {
   if (rel.startsWith('models/themes/') && rel.endsWith('pillar.glb')) return 5000;
   if (rel.startsWith('models/themes/') && rel.endsWith('prop.glb')) return 8000;
   if (rel.startsWith('models/bosses/')) return 9000;
+  if (rel.startsWith('models/obstacles/')) return 6000;
   return 10000;
 }
 
