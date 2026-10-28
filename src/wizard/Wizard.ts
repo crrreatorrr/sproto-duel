@@ -136,6 +136,11 @@ export class Wizard {
   hitFlash = 0;
   /** 1 on release of a spell, decays to 0. Drives the cast animation. */
   castPulse = 0;
+  /**
+   * Seconds since this wizard last attacked (a bolt, blast, stun, Ultimate or Hellfire Breath; not a
+   * shield). Attacking from inside a vape cloud gives you away (AIController) and pauses its healing.
+   */
+  sinceAttack = 1e9;
   /** Projectiles fired so far: picks the muzzle when a look alternates between several (castPoint). */
   muzzleTurn = 0;
   burnTimer = 0;
@@ -381,6 +386,7 @@ export class Wizard {
     this.dodgeTime = this.iframes = this.stunTime = this.evolveTime = this.shieldTime = this.shieldAge = 0;
     this.cast = null;
     this.hitFlash = this.castPulse = this.burnTimer = 0;
+    this.sinceAttack = 1e9;
     this.burning = false;
     this.sprintExhausted = false;
     for (const k of REWARD_SPELLS) this.rcd[k] = 0;
@@ -471,6 +477,7 @@ export class Wizard {
     }
     if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
     if (this.castPulse > 0) this.castPulse = Math.max(0, this.castPulse - dt * 5);
+    this.sinceAttack += dt;
 
     // Golden-ticket boost: faster regen with no delay; when it ends, mana clamps to the normal max.
     if (this.manaBoost > 0) {

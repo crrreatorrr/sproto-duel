@@ -86,6 +86,10 @@ export class SpellSystem {
     this.muzzleFx = new MuzzleFx(scene, fx);
     this.volleys = wizards.map(() => this.newVolleySlot());
     this.rewards = new RewardSpells(scene, physics, fx, wizards, arena, (t, s, a, p, k) => this.dealDamage(t, s, a, p, k), (w) => this.noMana(w));
+    // Every attack (not a shield) restarts Wizard.sinceAttack: it gives a vape-cloud hider away.
+    events.on('cast', (e) => {
+      if (e.spell !== 'shield') e.wizard.sinceAttack = 0;
+    });
   }
 
   /** Side of the spell being traced (`skipQuery`): allies on that side are passed through. */
@@ -911,7 +915,8 @@ export class SpellSystem {
     if (target.immune || target.evolving) {
       // God mode or a transforming boss: the hit still reads (flash, sound, "IMMUNE" popup) but
       // removes no HP. God mode still takes the knockback; a transforming boss stands its ground.
-      target.hitFlash = CONFIG.wizard.hitFlashTime;
+      // Hazard ticks (lava, the fire ring, burning) don't flash: standing in lava would strobe white.
+      if (kind !== 'fire' && kind !== 'scorch') target.hitFlash = CONFIG.wizard.hitFlashTime;
       if (source && source !== target) source.stats.hits++;
       if (knockDir && knockback > 0 && !target.evolving) target.addKnockback(knockDir.x, knockDir.z, knockback);
       events.emit('damage', { target, source, amount: 0, point: point.clone(), kind });

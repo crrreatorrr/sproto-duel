@@ -361,8 +361,17 @@ export function registerJumpScenarios(qa: QAHarness, game: Game): void {
     let worst = Infinity;
     let maxY = 0;
     let bad = '';
+    // A wizard that lands on the other one's head (capsules are solid) may jump again from there:
+    // that flight is no double jump, so it stays out of the height check until it is back down.
+    const headHop = new Set<Wizard>();
+    let headHops = 0;
     c.step(14, () => {
       for (const w of game.wizards) {
+        const o = game.wizards.find((x) => x !== w && x.active);
+        if (o && Math.hypot(w.pos.x - o.pos.x, w.pos.z - o.pos.z) < 2 * W.radius + 0.1 && w.pos.y > o.pos.y + 1) {
+          if (!headHop.has(w)) headHops++;
+          headHop.add(w);
+        } else if (w.grounded && w.pos.y < STUMP_TOP + 0.05) headHop.delete(w);
         if (Math.random() < 0.02) w.intent.move.set(Math.random() * 2 - 1, 0, Math.random() * 2 - 1).normalize();
         // Steer back toward the pillar ring so stumps get hopped on.
         const r = Math.hypot(w.pos.x, w.pos.z);
@@ -375,11 +384,11 @@ export function registerJumpScenarios(qa: QAHarness, game: Game): void {
         w.health = MAXHP;
         if (!Number.isFinite(w.pos.x + w.pos.y + w.pos.z + w.vy + w.vel.x + w.vel.z)) bad = 'NaN';
         if (w.pos.y < 0) bad = `below floor y=${w.pos.y}`;
-        maxY = Math.max(maxY, w.pos.y);
+        if (!headHop.has(w)) maxY = Math.max(maxY, w.pos.y);
         for (const p of pillars) worst = Math.min(worst, clearance(w, p));
       }
     });
-    c.note(`jumps=${c.player.jumps + c.enemy.jumps} min clearance=${worst.toFixed(3)}m maxY=${maxY.toFixed(2)}`);
+    c.note(`jumps=${c.player.jumps + c.enemy.jumps} min clearance=${worst.toFixed(3)}m maxY=${maxY.toFixed(2)}${headHops ? ` (${headHops} head hops left out)` : ''}`);
     c.expect(!bad, bad);
     c.expect(maxY <= STUMP_TOP + APEX + 0.05, `rose to ${maxY.toFixed(2)} m (double jump?)`);
     c.expect(worst > -0.02, `capsule went ${(-worst).toFixed(3)} m into a pillar`);

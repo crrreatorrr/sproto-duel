@@ -540,8 +540,10 @@ export const CONFIG = {
       /** 5 m across. */
       radius: 2.5,
       height: 3.2,
-      /** HP per second while the caster stands inside its own cloud. */
-      healPerSecond: 3,
+      /** HP per second while the caster stands inside its own cloud... */
+      healPerSecond: 2,
+      /** ...except for this long after it attacks from inside (Wizard.sinceAttack): no hiding and healing while shooting. */
+      castHealPause: 1,
       /** Seconds the cloud takes to billow out, and to thin away at the end. */
       grow: 0.45,
       fade: 0.9,
@@ -782,7 +784,12 @@ export const CONFIG = {
     /** Distance from the fire ring the AI tries to keep. */
     fireMargin: 3,
     /** Seconds the AI keeps firing at a target's last known position after it vanishes into a vape cloud. */
-    lostTrackTime: 3,
+    lostTrackTime: 6,
+    /**
+     * Attacking from inside a vape cloud gives you away: for this long after a bolt, blast, stun,
+     * Ultimate or breath (Wizard.sinceAttack) the AI sees you through the haze (and fires at you).
+     */
+    castRevealTime: 0.5,
     /** How long the AI stays aggressive after spotting a punish window. */
     punishTime: 1.6,
     /** Minimum seconds between retreats. */

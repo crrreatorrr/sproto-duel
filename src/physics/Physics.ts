@@ -330,6 +330,18 @@ export class Physics {
     return this.raycast(a, dir, len, GROUP.WORLD, undefined, this.seeThrough) === null;
   }
 
+  /**
+   * True if nothing in the WORLD group blocks a -> b, glass included: for damage that cover stops
+   * (Hellfire Breath). Sight (lineOfSight) sees through glass; spells don't pass it.
+   */
+  clearPath(a: Vector3, b: Vector3): boolean {
+    const dir = this.losDir.subVectors(b, a);
+    const len = dir.length();
+    if (len < 1e-4) return true;
+    dir.divideScalar(len);
+    return this.raycast(a, dir, len, GROUP.WORLD) === null;
+  }
+
   /** Skip transparent cover (glass partitions) in sight checks. */
   private readonly seeThrough = (tag: ColliderTag) => tag.kind === 'pillar' && tag.pillar.shape.seeThrough;
 

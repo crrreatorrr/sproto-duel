@@ -11,7 +11,7 @@ import { nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
-import { Menus, loadSettings, saveSettings, type ResultData, type Settings, type StageInfo } from './ui/Menus';
+import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
 
@@ -33,10 +33,21 @@ export class App {
   /** Result of the last gauntlet win, so the results screen knows where "next" leads. */
   private gauntletOutcome: 'next' | 'complete' | null = null;
   /**
-   * God mode was on at some point during this fight: a win then saves no progress and counts no
-   * clear, and the results say so.
+   * God mode was on at some point during this fight (until it ended): a win then saves no progress
+   * and counts no clear, and the results say so.
    */
   godUsed = false;
+  /**
+   * Why the last gauntlet win saved nothing, decided when the fight ended (the results show this):
+   * 'god', god mode was used in it; 'skipped', earlier fights of this run were won in god mode (see
+   * Campaign.continuesSave). null: it was saved (or it wasn't a gauntlet win).
+   */
+  winUnsaved: UnsavedReason | null = null;
+  /**
+   * New Gauntlet's fight-1 card is up: the save starts over only once Begin is pressed, so backing
+   * out to the menu keeps Continue.
+   */
+  private freshRun = false;
   /** Boss transformations as cinematics during a gauntlet fight. */
   readonly cinematic: BossCinematic;
   /** The "99" god-mode cheat. Public so QA can feed it timed presses. */
@@ -257,10 +268,13 @@ export class App {
     this.beginMatch(null);
   }
 
-  /** Boss Gauntlet from fight 1. */
+  /**
+   * Boss Gauntlet from fight 1: its card. The saved run is only replaced when Begin is pressed
+   * (startBossFight), so New Gauntlet then Main Menu still offers Continue.
+   */
   newGauntlet(): void {
-    this.campaign.startNew();
-    this.showBossCard();
+    this.campaign.index = 0;
+    this.showBossCard(true);
   }
 
   /** Boss Gauntlet from the saved fight. */
@@ -269,20 +283,42 @@ export class App {
     this.showBossCard();
   }
 
-  /** Pre-fight card for the current gauntlet boss, over a preview of their arena. */
-  showBossCard(): void {
-    const boss = this.campaign.boss;
+  /**
+   * Pre-fight card for the current gauntlet boss, over a preview of their arena. `freshRun`: New
+   * Gauntlet's fight-1 card (Begin starts the run over; the card says so if that replaces a save).
+   */
+  showBossCard(freshRun = false): void {
+    const c = this.campaign;
+    const boss = c.boss;
     this.enterMenuState('gauntlet');
+    this.freshRun = freshRun;
     this.dressEnemy(boss);
     this.resetAttract();
     this.menus.showBossIntro(
-      { boss, index: this.campaign.index, total: this.campaign.total, rewardLearned: this.campaign.hasLearned(boss.reward) },
+      {
+        boss, index: c.index, total: c.total, rewardLearned: c.hasLearned(boss.reward), rewardNote: this.rewardNote(),
+        beginNote: freshRun && c.canContinue ? `Replaces your save at fight ${c.saved.next + 1}` : undefined,
+      },
       { begin: () => this.startBossFight(), back: () => this.toMenu() },
     );
   }
 
+  /**
+   * Whether a win on the current boss card would be saved: 'god' while god mode is on, 'skipped'
+   * when earlier fights of this run were won in god mode (Campaign.continuesSave), else null.
+   */
+  private rewardNote(): UnsavedReason | null {
+    if (CONFIG.debug.godMode) return 'god';
+    return this.campaign.continuesSave ? null : 'skipped';
+  }
+
   /** One life against the current gauntlet boss (all three stages), in their arena. */
   startBossFight(): void {
+    if (this.freshRun) {
+      // Begin on New Gauntlet's card: now the run starts over.
+      this.freshRun = false;
+      this.campaign.startNew();
+    }
     const boss = this.campaign.boss;
     this.mode = 'gauntlet';
     this.dressEnemy(boss);
@@ -316,12 +352,16 @@ export class App {
     this.menus.toast('Spells Forgotten', 'Beat the bosses again to relearn them');
   }
 
-  /** God mode (testing): toggled from Settings, F9 in a match, or `?god`. Never saved. */
+  /**
+   * God mode (testing): toggled from Settings, F9 in a match, or `?god`. Never saved. Once the fight
+   * is decided (the final KO) its result is settled: a toggle before the results changes nothing.
+   */
   setGodMode(on: boolean): void {
     this.game.setGodMode(on);
     this.syncLearned();
-    if (on && (this.state === 'playing' || this.state === 'paused')) this.godUsed = true;
+    if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.decided) this.godUsed = true;
     this.menus.syncGodMode(on);
+    if (this.menus.current === 'boss') this.menus.setBossRewardNote(this.rewardNote());
     this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · no cooldowns · ${CONFIG.debug.godPowerMultiplier}× damage` : '', on ? 'god-on' : 'god-off');
   }
 
@@ -358,7 +398,10 @@ export class App {
     this.audio.gameplayMuted = false;
     g.player.intent.clear();
     this.syncLearned();
+    // God mode's stats come back on the player (the menu's background duel fights without them).
+    g.holdGodMode(false);
     this.gauntletOutcome = null;
+    this.winUnsaved = null;
     this.godUsed = CONFIG.debug.godMode;
     this.cinematic.abort();
     this.cinematic.armed = boss !== null;
@@ -394,7 +437,7 @@ export class App {
         if (st?.current) stages.push({ index: st.stage, name: st.current.name, who: boss.partner ? w.name : '', down: !w.alive });
       }
     }
-    this.menus.showPause(boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${bossDisplayName(boss)}, ${boss.title}` : '', stages);
+    this.menus.showPause(boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${bossDisplayName(boss)}, ${boss.title}` : '', stages, boss ? 'Restart Fight' : 'Restart Match');
     this.audio.setPaused(true);
   }
 
@@ -424,6 +467,7 @@ export class App {
   /** Shared by the main menu, boss cards and the gauntlet-complete screen: attract duel behind a menu. */
   private enterMenuState(mode: GameMode): void {
     const g = this.game;
+    this.freshRun = false;
     this.cinematic.abort();
     this.cinematic.armed = false;
     this.mode = mode;
@@ -440,20 +484,27 @@ export class App {
     this.hud.show(false);
     this.audio.setPaused(false);
     this.audio.playMusic('musicMenu');
+    // The background duel is a show, not a test drive: stock stats even with god mode on.
+    g.holdGodMode(true);
   }
 
+  /**
+   * The fight's result is settled here, once, from what happened while it was live (`godUsed` ignores
+   * toggles after the final KO): nothing done before the results show changes it. A gauntlet win
+   * saves progress and teaches the boss's spell only if god mode was never on in it and the run so
+   * far is saved (Campaign.continuesSave); otherwise it moves you on in this session only: no saved
+   * progress, no clear, no spell, and the results say why.
+   */
   private onMatchEnd(winner: Wizard | null): void {
     this.resultsTimer = 2.2;
-    if (CONFIG.debug.godMode) this.godUsed = true;
+    this.winUnsaved = null;
     if (this.mode === 'gauntlet' && this.match.boss && winner === this.game.player) {
-      // A god-mode win moves you on in this session only: no saved progress, no clear, no spell.
-      if (this.godUsed) {
-        this.campaign.lastLearned = null;
-        this.gauntletOutcome = this.campaign.isLast ? 'complete' : 'next';
-      } else {
-        this.gauntletOutcome = this.campaign.recordWin();
-        this.syncLearned();
-      }
+      const c = this.campaign;
+      this.gauntletOutcome = c.isLast ? 'complete' : 'next';
+      c.lastLearned = null;
+      if (this.godUsed) this.winUnsaved = 'god';
+      else if (c.recordWin() === 'unsaved') this.winUnsaved = 'skipped';
+      else this.syncLearned();
     }
   }
 
@@ -461,7 +512,7 @@ export class App {
    * "NEW SPELL LEARNED": the reward spell a gauntlet win just taught, after the results. `then` is
    * where the results' primary button was going (the next boss's card, or the completion screen).
    */
-  showSpellReveal(id: RewardSpellId, then: { label: string; action(): void }): void {
+  showSpellReveal(id: RewardSpellId, then: MenuAction): void {
     this.state = 'results';
     this.audio.play('spellLearned', { exactPitch: true });
     this.menus.showSpellReveal(id, { next: then, menu: () => this.toMenu() });
@@ -473,7 +524,7 @@ export class App {
     this.dressEnemy(null);
     this.ai.setProfile(QUICK_DUEL_AI);
     this.resetAttract();
-    this.menus.showCampaignComplete({ clears: this.campaign.saved.clears, god: this.godUsed }, { again: () => this.newGauntlet(), menu: () => this.toMenu() });
+    this.menus.showCampaignComplete({ clears: this.campaign.saved.clears, unsaved: this.winUnsaved }, { again: () => this.newGauntlet(), menu: () => this.toMenu() });
   }
 
   /** Results screen. Public so QA can finish a match without waiting for the results delay. */
@@ -501,7 +552,7 @@ export class App {
       const next = c.nextBoss;
       const onward = this.gauntletOutcome === 'complete' || !next
         ? { label: 'Claim Victory', action: () => this.showCampaignComplete() }
-        : { label: `Next: ${bossDisplayName(next)}`, action: () => (c.advance(), this.showBossCard()) };
+        : { label: 'Next Fight', sub: bossDisplayName(next), action: () => (c.advance(), this.showBossCard()) };
       // A newly learned spell is revealed on the way onward.
       const learned = p1Won ? c.lastLearned : null;
       const primary = !p1Won
@@ -511,11 +562,12 @@ export class App {
           : onward;
       const name = bossDisplayName(boss);
       const pair = !!boss.partner;
-      const god = this.godUsed;
+      // Settled when the fight ended (onMatchEnd), so it always matches the save.
+      const unsaved = p1Won ? this.winUnsaved : this.godUsed ? 'god' : null;
       data = {
         title: p1Won ? 'Victory' : 'Defeat',
         subtitle: p1Won ? `${name}, ${boss.title}, ${pair ? 'fall' : 'falls'}.` : `${name}, ${boss.title}, ${pair ? 'win' : 'wins'} this time.`,
-        eyebrow: `Fight ${this.match.bossIndex + 1} of ${BOSSES.length}${p1Won ? (god ? ' · not saved' : ' cleared') : ''}`,
+        eyebrow: `Fight ${this.match.bossIndex + 1} of ${BOSSES.length}${p1Won ? (unsaved ? ' · not saved' : ' cleared') : ''}`,
         boss,
         primary,
         victory: p1Won,
@@ -523,7 +575,7 @@ export class App {
         // One life, one round: the fight's facts instead of a round strip.
         rounds: [],
         facts: this.fightFacts(p1Won),
-        tag: god ? 'God mode · progress not saved' : undefined,
+        tag: unsaved === 'god' ? 'God mode · progress not saved' : unsaved === 'skipped' ? 'Not saved · earlier wins used god mode' : undefined,
         learned: learned ? REWARD_SPELL_INFO[learned].name : undefined,
         ...stats,
       };

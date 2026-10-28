@@ -21,6 +21,7 @@ import { registerMuzzleScenarios } from './qa/muzzleScenarios';
 import { registerRewardSpellScenarios } from './qa/rewardSpellScenarios';
 import { registerAnimScenarios } from './qa/animScenarios';
 import { registerRenderScenarios } from './qa/renderScenarios';
+import { registerMenuScenarios } from './qa/menuScenarios';
 import { campaignSoak, soak, type CampaignSoakOptions } from './qa/soak';
 import { CONFIG, type Difficulty } from './config';
 import { BOSSES } from './campaign/levels';
@@ -56,6 +57,7 @@ async function boot() {
   registerCinematicScenarios(qa, game, app);
   registerMuzzleScenarios(qa, game);
   registerRewardSpellScenarios(qa, game, app);
+  registerMenuScenarios(qa, game, app);
   registerAnimScenarios(qa, game);
   registerOfficeScenarios(qa, game);
   registerArenaKitScenarios(qa, game);

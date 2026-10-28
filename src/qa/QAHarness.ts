@@ -109,11 +109,15 @@ export class QAHarness {
     g.enemyController = null;
     const duo = g.partnerActive ? g.boss : null;
     if (duo) g.setupPartner(null);
+    // God mode applies only if a scenario turns it on (the menus hold it off the background duel).
+    const godHeld = g.godHeld;
+    g.holdGodMode(false);
     const restoreStats = g.useDefaultStats(); // boss and god-mode stats stay out of scenarios
     try {
       await fn();
     } finally {
       restoreStats();
+      g.holdGodMode(godHeld);
       if (duo?.partner && g.boss === duo && !g.partnerActive) g.setupPartner(duo.partner);
       this.reset();
       g.qaMode = false;
