@@ -39,7 +39,7 @@ export interface StageAttacks {
   volley?: VolleyDef;
 }
 
-/** One of a boss's three forms. Stage 1 starts each round; 2 and 3 begin at CONFIG.campaign.stageThresholds. */
+/** One of a boss's three forms. Stage 1 starts each fight; each stage has its own health bar (BossFighter.stageHealth). */
 export interface BossStage {
   name: string;
   model: ModelKey;
@@ -61,8 +61,13 @@ export interface BossFighter {
   palette: TeamPalette;
   /** Base AI for stage 1; later stages scale it by CONFIG.campaign.stageAI. */
   ai: AIProfile;
-  /** Multiplies the boss's max health. */
-  healthMultiplier: number;
+  /**
+   * HP of each stage's own health bar (stage 1, 2, 3). When a bar empties the boss transforms into
+   * the next stage and comes back with that stage's full bar (overflow from the hit is lost); only
+   * emptying the last bar is a KO. Sized so a stage lasts about five minutes against a competent
+   * player (the soak's reference AI).
+   */
+  stageHealth: [number, number, number];
   /** Multiplies all damage the boss deals. */
   damageMultiplier: number;
 }
@@ -144,7 +149,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.4,
       preferredRange: [10, 15],
     },
-    healthMultiplier: 0.7,
+    stageHealth: [900, 1050, 1200],
     damageMultiplier: 0.55,
   }),
   boss({
@@ -184,7 +189,7 @@ export const BOSSES: BossDef[] = [
     },
     // As a pair: Obama is the glass cannon (88 HP, hits hardest), The Midget the tank (123 HP, closes
     // in). Knock out the nearest first and you face an enraged Obama; a sharp player drops Obama first.
-    healthMultiplier: 0.4,
+    stageHealth: [420, 500, 580],
     damageMultiplier: 0.66,
     partner: {
       // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
@@ -218,7 +223,7 @@ export const BOSSES: BossDef[] = [
         preferredRange: [7, 12],
         hopRate: 0.45,
       },
-      healthMultiplier: 0.56,
+      stageHealth: [560, 660, 760],
       damageMultiplier: 0.52,
       hitbox: { radius: 0.32, height: 1.25 },
     },
@@ -256,7 +261,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.85,
       preferredRange: [9, 14],
     },
-    healthMultiplier: 0.95,
+    stageHealth: [800, 950, 1100],
     damageMultiplier: 0.9,
   }),
   boss({
@@ -296,7 +301,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.95,
       preferredRange: [8, 13],
     },
-    healthMultiplier: 0.9,
+    stageHealth: [800, 950, 1100],
     damageMultiplier: 0.9,
   }),
   boss({
@@ -336,7 +341,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 1.05,
       preferredRange: [8, 13],
     },
-    healthMultiplier: 1.0,
+    stageHealth: [800, 950, 1100],
     damageMultiplier: 1.1,
   }),
 ];
