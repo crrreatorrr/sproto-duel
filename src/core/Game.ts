@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
 import { MODELS, type ModelKey } from '../assets/manifest';
-import type { BossDef, BossPartner } from '../campaign/levels';
+import { bossFighters, type BossDef, type BossPartner } from '../campaign/levels';
 import { BossStages } from '../campaign/BossStages';
 import { Arena } from '../arena/Arena';
 import { FireRing } from '../arena/FireRing';
@@ -112,6 +112,21 @@ export class Game {
   cinematicScale = 1;
   /** Takes over the camera each frame after the rig has placed it (BossCinematic), or null. */
   director: ((realDt: number) => void) | null = null;
+  /**
+   * Extra things a warm-up should draw (BossCinematic's glow shells): called with the roots of the
+   * warm looks just before the offscreen draw, returns the undo.
+   */
+  readonly warmHooks: ((looks: readonly THREE.Object3D[]) => () => void)[] = [];
+  /** The fight (boss, partner, arena theme) the last warm-up covered; a change runs one before the next frame. */
+  private warmKey = '';
+  /**
+   * One hidden copy of every boss stage model warmed so far (out of the scene except while a warm-up
+   * draws it): its materials keep their programs compiled and its textures uploaded for the
+   * session, so a stage swap mid-fight never compiles or uploads anything.
+   */
+  private readonly warmLooks = new Map<ModelKey, WizardVisual>();
+  /** Programs the last warm-up compiled and how long it took (ms), for QA and the perf overlay. */
+  readonly lastWarmUp = { programs: 0, ms: 0, key: '' };
   /** Total simulated time. */
   simTime = 0;
   /** Smoothed frame stats for the QA harness / perf overlay. */
@@ -519,7 +534,55 @@ export class Game {
     this.updateOcclusionFade(realDt);
     this.popups.update(realDt);
     for (const fn of this.frameHooks) fn(realDt, alpha);
+    // A new fight was just dressed (App: setupEnemy, then the arena theme), behind its boss card.
+    if (!this.inSandbox && this.warmKey !== this.fightKey()) this.warmUp();
     this.renderer.render();
+  }
+
+  /** The boss, its partner and the arena theme: what a warm-up depends on. */
+  private fightKey(): string {
+    return `${this.boss?.id ?? 'rival'}|${this.partnerActive ? this.partner.name : ''}|${this.arena.theme}`;
+  }
+
+  /**
+   * Compile and upload now everything this fight can show later (Renderer.precompile), so nothing
+   * hitches on first use: the pooled tickets, life pack, projectile skins, muzzle and reward-spell
+   * effects, the cinematic's effects and glow shells, and every stage model of the boss (and its
+   * partner), each drawn once from a hidden warm copy that stays alive. Runs by itself before the
+   * first frame of a newly dressed fight (the boss card is up then); QA calls it directly.
+   */
+  warmUp(): number {
+    const t0 = performance.now();
+    this.warmKey = this.fightKey();
+    const looks: THREE.Object3D[] = [];
+    if (this.boss) {
+      for (const def of bossFighters(this.boss)) {
+        for (const st of def.stages) {
+          let v = this.warmLooks.get(st.model);
+          if (!v) {
+            const model = this.assets.instantiate(st.model);
+            if (!model) continue;
+            v = new WizardVisual(def.palette, model, MODELS[st.model]);
+            this.warmLooks.set(st.model, v);
+          }
+          if (!looks.includes(v.root)) looks.push(v.root);
+        }
+      }
+    }
+    // The player's reward spells' looks (the carpet, Pump It's phones) are built on first use otherwise.
+    this.spells.rewards.fx.prepare(this.player);
+    for (const r of looks) this.renderer.scene.add(r);
+    const undo = this.warmHooks.map((h) => h(looks));
+    let programs = 0;
+    try {
+      programs = this.renderer.precompile();
+    } finally {
+      for (const u of undo) u();
+      for (const r of looks) r.removeFromParent();
+    }
+    const ms = performance.now() - t0;
+    Object.assign(this.lastWarmUp, { programs, ms, key: this.warmKey });
+    return programs;
   }
 
   /**

@@ -227,6 +227,15 @@ export class RewardFx {
     return p;
   }
 
+  /**
+   * Build `w`'s carpet and Pump It looks now (hidden), so their shaders compile and textures upload
+   * in a warm-up (Game.warmUp) rather than on the first cast.
+   */
+  prepare(w: Wizard): void {
+    this.carpetFor(w);
+    this.pumpFor(w);
+  }
+
   /** The burst that announces each cast. */
   private castBurst(w: Wizard, spell: string, pos: THREE.Vector3): void {
     const chest = w.chest(tmp);

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { Debris } from '../arena/Debris';
 import { resolveImage } from '../assets/AssetLoader';
-import { bossStagePortrait } from '../assets/manifest';
+import { bossStagePortrait, MODELS } from '../assets/manifest';
 import { events } from '../core/events';
 import { feel } from '../core/feel';
 import { clamp, damp, lerp, wrapAngle } from '../core/math';
@@ -152,9 +152,10 @@ const CRACK_FRAG = /* glsl */ `
     float len = uSpread * (0.55 + 0.45 * h(id + 7.3));
     float ray = (1.0 - smoothstep(0.0, 0.025 + 0.05 * (1.0 - r), abs(f - wob))) * (1.0 - smoothstep(len * 0.85, len, r));
     float ring = exp(-pow((r - uSpread * 0.8) * 10.0, 2.0)) * 0.35 * uSpread;
-    float core = exp(-r * 6.0) * 0.9;
+    float core = exp(-r * 7.0) * 0.5;
     float edge = 1.0 - smoothstep(0.85, 1.0, r);
-    float a = (ray + ring + core) * edge * uGlow;
+    // Saturates at the colour (the rays and core never go far past it: bloom would wash the shot out).
+    float a = min(1.0, (ray + ring + core) * edge * uGlow);
     float pulse = 1.2 + 0.35 * sin(uTime * 8.0 - r * 18.0);
     gl_FragColor = vec4(uColor * pulse * a, a);
   }
@@ -191,10 +192,19 @@ const WAVE_FRAG = /* glsl */ `
     float d = (1.0 - r) * uRadius;
     float band = (1.0 - smoothstep(0.0, uWidth, abs(d))) * step(r, 1.0);
     float trail = d > 0.0 ? exp(-d / (uWidth * 3.0)) * 0.35 : 0.0;
-    float a = (band + trail) * uOpacity * step(r, 1.0);
+    float a = min(1.0, (band + trail) * uOpacity * step(r, 1.0));
     gl_FragColor = vec4(uColor * (1.0 + band) * a, a);
   }
 `;
+
+/** The orbit camera at one moment (BossCinematic.orbitPose). */
+interface OrbitPose {
+  theta: number;
+  dist: number;
+  y: number;
+  centerY: number;
+}
+const orbitPose: OrbitPose = { theta: 0, dist: 0, y: 0, centerY: 0 };
 
 interface Wave {
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
@@ -234,7 +244,15 @@ interface Shot {
   fromY: number;
   fromQuat: THREE.Quaternion;
   fromFov: number;
+  /** The orbit (planOrbit): start angle, direction (+1/-1) and extra camera height (m) that keep it clear of cover. */
   orbitStart: number;
+  orbitDir: number;
+  lift: number;
+  /** The arena's light factor (K.themeLight): bloom, flashes, lights and sparks at the burst and slam. */
+  light: number;
+  /** Camera distance from the boss's centre this frame: as planned, and after keeping out of walls (QA). */
+  camPlanned: number;
+  camActual: number;
   /** The look height (top of the current form), smoothed across the swap. */
   height: number;
   color: number;
@@ -395,6 +413,18 @@ export class BossCinematic {
       this.waves.push({ mesh, t: 0, duration: 0, radius: 1 });
     }
 
+    // Warm-ups (Game.warmUp, behind the boss card) draw the glow shells on every stage look too,
+    // and the landing's debris in the arena's look, so the first transformation compiles nothing.
+    game.warmHooks.push((looks) => {
+      const added: THREE.Mesh[] = [];
+      for (const r of looks) this.shellsOn(r, this.shellOld, added);
+      this.debris.setMaterial(game.arena.debris.material);
+      this.debris.setGeometry(game.arena.debris.geometry);
+      return () => {
+        for (const sh of added) sh.removeFromParent();
+      };
+    });
+
     events.on('bossEvolve', (e) => {
       if (!this.live) return;
       const stages = game.stagesOf(e.wizard);
@@ -413,10 +443,16 @@ export class BossCinematic {
     return this.shot !== null;
   }
 
-  /** The current shot's phase and progress (QA). */
-  get state(): { phase: string; t: number; duration: number; stage: number; enraged: boolean; wizard: Wizard } | null {
+  /** The current shot's phase and progress, and its camera this frame (QA). */
+  get state(): {
+    phase: string; t: number; duration: number; stage: number; enraged: boolean; wizard: Wizard;
+    camera: { planned: number; actual: number; lift: number; start: number; dir: number };
+  } | null {
     const s = this.shot;
-    return s ? { phase: s.phase, t: s.t, duration: s.duration, stage: s.stage, enraged: s.enraged, wizard: s.w } : null;
+    return s ? {
+      phase: s.phase, t: s.t, duration: s.duration, stage: s.stage, enraged: s.enraged, wizard: s.w,
+      camera: { planned: s.camPlanned, actual: s.camActual, lift: s.lift, start: s.orbitStart, dir: s.orbitDir },
+    } : null;
   }
 
   /** Stop at once and put everything back (leaving the fight, Retry). The transformation completes. */
@@ -464,10 +500,16 @@ export class BossCinematic {
       fromQuat: cam.quaternion.clone(),
       fromFov: cam.fov,
       orbitStart: Math.atan2(tmpA.x, tmpA.z) + 0.4,
+      orbitDir: 1,
+      lift: 0,
+      light: K.themeLight[g.arena.theme] ?? 1,
+      camPlanned: 0,
+      camActual: 0,
       height: w.visual.topHeight * stages.lookScale,
       color,
       colorHi: tmpColor2.setHex(pal.spell).lerp(WHITE, 0.55).getHex(),
     };
+    this.planOrbit(shot);
     this.shot = shot;
     stages.drive(0);
     g.director = this.direct;
@@ -485,10 +527,10 @@ export class BossCinematic {
     // Effects in the boss's colours.
     this.shellOld.uniforms.uColor.value.setHex(pal.spell).multiplyScalar(1.4);
     this.shellOld.uniforms.uHot.value.setHex(color).lerp(WHITE, 0.55);
-    this.shellNew.uniforms.uColor.value.setHex(pal.spell).lerp(WHITE, 0.4).multiplyScalar(1.6);
+    this.shellNew.uniforms.uColor.value.setHex(pal.spell).lerp(WHITE, 0.15).multiplyScalar(1.15);
     this.shellNew.uniforms.uHot.value.setHex(color);
     this.vortex.material.uniforms.uColor.value.setHex(pal.spell).lerp(WHITE, 0.2);
-    this.crack.material.uniforms.uColor.value.setHex(color).multiplyScalar(1.5);
+    this.crack.material.uniforms.uColor.value.setHex(color).multiplyScalar(K.crackGlow * shot.light);
     this.crack.material.uniforms.uSeed.value = Math.random() * 10;
     // A deep shade of the palette: it darkens and tints bright skies instead of washing them out.
     this.dome.material.uniforms.uColor.value.setHex(enraged ? color : pal.spell).multiplyScalar(0.35);
@@ -645,7 +687,8 @@ export class BossCinematic {
     const ramp = charge * charge;
     this.shellOld.uniforms.uGlow.value = s.burst ? 0 : ramp * (0.75 + 0.25 * Math.sin(t * (8 + 22 * charge))) * (0.6 + 0.15 * I);
     this.shellOld.uniforms.uCrack.value = s.burst ? 0 : smooth(tBurst * 0.28, tBurst, t);
-    this.shellNew.uniforms.uGlow.value = s.burst ? Math.max(0, 1 - (t - tBurst) / (0.6 * s.speed)) : 0;
+    // The new form fades out of its light quickly (sooner in a bright arena), so it reads.
+    this.shellNew.uniforms.uGlow.value = s.burst ? (0.35 + 0.3 * s.light) * Math.max(0, 1 - (t - tBurst) / ((0.22 + 0.1 * s.light) * s.speed)) : 0;
     this.shellNew.uniforms.uCrack.value = 0;
 
     // ---- the vortex and its sparks
@@ -677,10 +720,14 @@ export class BossCinematic {
     const flash = s.burst ? Math.exp(-(t - tBurst) * 4) : 0;
     const tint = K.tint[tier] * (smooth(0, tBurst, t) * (1 - smooth(tReturn, D, t))) + 0.5 * flash + 0.4 * peak;
     this.tintWorld(s, tint);
-    g.renderer.bloomBoost = K.bloom[tier] * (flash + 0.5 * peak + 0.15 * ramp * (s.burst ? 0 : 1));
+    // The bar's presence: the shot's own look fades in with the letterbox and out with it.
+    const bar = smooth(0, 0.3, t) * (1 - smooth(tReturn, D, t));
+    // A bright arena's own glow (sun on sand, lava) is turned down for the shot, so the bloom
+    // never fogs the new form; the beats add a little of their own on top.
+    const duck = CONFIG.render.bloomStrength * K.bloomDuck * (1 - s.light) * bar;
+    g.renderer.bloomBoost = K.bloom[tier] * s.light * (flash + 0.5 * peak + 0.15 * ramp * (s.burst ? 0 : 1)) - duck;
 
     // ---- letterbox and title card (driven here so pausing freezes them)
-    const bar = smooth(0, 0.3, t) * (1 - smooth(tReturn, D, t));
     this.barTop.style.transform = `scaleY(${bar.toFixed(3)})`;
     this.barBottom.style.transform = `scaleY(${bar.toFixed(3)})`;
     const cardIn = s.burst ? smooth(tBurst, tBurst + 0.25 * s.speed, t) * (1 - smooth(tReturn + (D - tReturn) * 0.3, D, t)) : 0;
@@ -694,19 +741,24 @@ export class BossCinematic {
   /** The old form bursts into light; the new one is about to grow out of it. */
   private onBurst(s: Shot, base: THREE.Vector3): void {
     const g = this.game;
-    // Light scales with the boss (a short one is framed closer): never a white-out.
-    const I = K.intensity[s.tier] * Math.min(1, s.height / 2.2);
+    // Light scales with the boss (a short one is framed closer): never a white-out. In his colours
+    // rather than white, and dimmer in a bright arena (s.light): the new form must read.
+    const size = Math.min(1, s.height / 2.2);
+    const I = K.intensity[s.tier] * size;
+    const L = s.light;
     const at = tmpA.set(base.x, base.y + s.rise + s.height * 0.55, base.z);
     tmpColor.setHex(s.color);
     tmpColor2.setHex(s.colorHi);
-    const n = K.intensity[s.tier];
-    g.fx.sparks.burst(at, Math.round(150 * n), tmpColor, 3.2, 6, 18 * Math.sqrt(n), 0.26, 0.9, { gravity: 2, drag: 1.6 });
-    g.fx.sparks.burst(at, Math.round(70 * n), tmpColor2, 3.6, 2, 7, 0.38, 0.6, { drag: 3 });
-    g.fx.sparks.burst(at, Math.round(40 * n), WHITE, 4, 10, 24, 0.12, 0.35, { drag: 2 });
-    g.fx.flash(at, s.color, 4.5 * I, 0.4);
-    g.fx.flash(at, 0xffffff, 2.2 * I, 0.18);
+    // Fewer sparks for a short boss (framed closer) and in a bright arena.
+    const n = K.intensity[s.tier] * (0.35 + 0.65 * size) * (0.4 + 0.6 * L);
+    const mote = 0.6 + 0.4 * size;
+    g.fx.sparks.burst(at, Math.round(110 * n), tmpColor, 3.2, 6, 18 * Math.sqrt(n), 0.24 * mote, 0.9, { gravity: 2, drag: 1.6 });
+    g.fx.sparks.burst(at, Math.round(45 * n), tmpColor2, 3.6, 2, 7, 0.32 * mote, 0.55, { drag: 3 });
+    g.fx.sparks.burst(at, Math.round(20 * n), tmpColor2, 3, 10, 24, 0.1 * mote, 0.3, { drag: 2 });
+    g.fx.flash(at, s.color, 3.2 * I * L, 0.32);
+    g.fx.flash(at, s.colorHi, 1.2 * I * L, 0.14);
     this.wave(base, s.color, 10 * K.intensity[s.tier], 0.6, 0.7);
-    g.fx.light(at, s.color, 45 * I, 0.8);
+    this.keyLight(s, base, 0.7, 10 * I * L, 0.6);
     feel.shake(0.55 * I);
     feel.screenFlash(s.color, C.evolveFlash);
     // The new form wears a fading shell of light.
@@ -719,15 +771,19 @@ export class BossCinematic {
   private onSlam(s: Shot, base: THREE.Vector3): void {
     const g = this.game;
     const I = K.intensity[s.tier];
+    const size = Math.min(1, s.height / 2.2);
+    const L = s.light;
     tmpB.set(base.x, 0, base.z);
-    // The arena-wide shockwave, a fast white one inside it, and a bright ring at his feet.
+    // The arena-wide shockwave, a fast one inside it and a ring at his feet, in his colours (sized
+    // to him: a short boss is framed close); a low flash and light at his feet (never over the new
+    // form), fewer sparks when bright.
     this.wave(tmpB, s.color, CONFIG.arena.fireRadius + 4, 0.9 + 0.2 * s.tier, 1.4);
-    this.wave(tmpB, 0xffffff, 12 * I, 0.45, 0.6);
-    this.wave(tmpB, s.colorHi, 4 * I, 0.3, 0.4);
-    g.fx.flash(tmpA.set(base.x, 0.4, base.z), s.color, 3.5 * I * Math.min(1, s.height / 2.2), 0.3);
-    g.fx.light(tmpA, s.color, 30 * I, 0.6);
+    this.wave(tmpB, s.color, 12 * I * size, 0.45, 0.6);
+    this.wave(tmpB, s.color, 4 * I * size, 0.3, 0.4);
+    g.fx.flash(tmpA.set(base.x, 0.25, base.z), s.color, 1.8 * I * L * size, 0.24);
+    this.keyLight(s, base, 0.45, 10 * I * L * size, 0.45);
     tmpColor.setHex(s.color);
-    for (let i = 0; i < 40 * I; i++) {
+    for (let i = 0; i < 26 * I * L * size; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 6 + Math.random() * 10;
       g.fx.sparks.emit(base.x + Math.sin(a) * 0.6, 0.15, base.z + Math.cos(a) * 0.6,
@@ -745,10 +801,22 @@ export class BossCinematic {
     events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'slam', enraged: s.enraged });
   }
 
+  /**
+   * A light in his colour on the camera's side of him (`up` x his height above his feet), so the
+   * new form is lit in his palette from the front instead of glowing from inside.
+   */
+  private keyLight(s: Shot, base: THREE.Vector3, up: number, intensity: number, duration: number): void {
+    const cam = this.game.renderer.camera.position;
+    tmpC.set(cam.x - base.x, 0, cam.z - base.z);
+    if (tmpC.lengthSq() < 1e-6) tmpC.set(0, 0, 1);
+    tmpC.normalize().multiplyScalar(1 + 0.4 * s.height);
+    this.game.fx.light(tmpB.set(base.x + tmpC.x, base.y + s.rise + s.height * up, base.z + tmpC.z), s.color, intensity, duration);
+  }
+
   /** Motes on a spiral, pulled into the boss. */
   private spiralSparks(s: Shot, base: THREE.Vector3, y: number, charge: number, dt: number): void {
     const fx = this.game.fx;
-    const n = Math.round((40 + 120 * charge) * K.intensity[s.tier] * dt);
+    const n = Math.round((40 + 120 * charge) * K.intensity[s.tier] * (0.55 + 0.45 * Math.min(1, s.height / 2.2)) * (0.5 + 0.5 * s.light) * dt);
     tmpColor.setHex(s.boss.palette.spell);
     tmpColor2.setHex(s.colorHi);
     for (let i = 0; i < n; i++) {
@@ -772,7 +840,6 @@ export class BossCinematic {
     const g = this.game;
     const cam = g.renderer.camera;
     const D = s.duration, t = s.t;
-    const tier = s.tier;
     const tBurst = K.burstAt * D, tReturn = K.returnAt * D;
     const base = s.w.visual.root.position;
     // Where the rig wants the camera now (the return blends into it).
@@ -782,15 +849,13 @@ export class BossCinematic {
     tmpQ.copy(cam.quaternion);
     const rigFov = cam.fov;
 
-    // The orbit around the boss.
-    const H = s.height;
-    const rise = s.rise;
-    const center = tmpA.set(base.x, base.y + H * 0.55 + rise, base.z);
-    const orbit = THREE.MathUtils.degToRad(K.orbit[tier]);
-    const theta = s.orbitStart + orbit * smoother(t / tReturn);
-    const punch = s.burst ? 0.32 * Math.exp(-(t - tBurst) * 3.5) : 0;
-    let dist = Math.max(3.4, H * K.cameraDistance) * (lerp(1.18, 0.88, smooth(0, tBurst, t)) + punch + (tier === 2 ? 0.25 : 0));
-    let y = base.y + H * 0.38 + rise * 0.55;
+    // The orbit around the boss (on the side planOrbit found clear of cover).
+    const o = this.orbitPose(s, t, s.height, s.rise, orbitPose);
+    const center = tmpA.set(base.x, base.y + o.centerY, base.z);
+    const theta = o.theta;
+    let dist = o.dist;
+    let y = base.y + o.y + s.lift;
+    s.camPlanned = Math.hypot(o.dist, o.y - o.centerY);
 
     // The cut in, then the return: polar blends around the boss, so the camera never passes through him.
     const swoop = smooth(0, 0.13 * D, t);
@@ -807,14 +872,15 @@ export class BossCinematic {
       y = lerp(y, rigY, back);
     }
     const pos = tmpB.set(base.x + Math.sin(th) * dist, y, base.z + Math.cos(th) * dist);
-    // Keep out of walls and cover: pull in along the line to the boss.
+    // Last resort (the plan keeps the shot clear): never inside a wall or cover, pull in along the line to the boss.
     tmpC.subVectors(pos, center);
     const len = tmpC.length();
     if (len > 0.5 && back < 1) {
-      const hit = g.physics.sphereCast(center, tmpC, 0.3, GROUP.WORLD);
+      const hit = g.physics.sphereCast(center, tmpC, K.clearRadius, GROUP.WORLD);
       if (hit && hit.distance < len) pos.copy(center).addScaledVector(tmpC, Math.max(0.6, hit.distance - 0.3) / len);
     }
     if (pos.y < 0.35) pos.y = 0.35;
+    s.camActual = pos.distanceTo(center);
     // Shake (the rig's own shake is replaced here).
     const sh = feel.trauma * feel.trauma * 0.35;
     pos.x += (Math.sin(this.time * 41) + 0.5 * Math.sin(this.time * 87)) * sh;
@@ -838,6 +904,86 @@ export class BossCinematic {
     }
   };
 
+  /**
+   * The shot's camera at cinematic time `t`, before the cut-in and return blends, for a boss `H` m
+   * tall floating `rise` m up: orbit angle, distance from his centre, and heights (above his feet)
+   * of the camera (without the plan's lift) and of the centre it looks at.
+   */
+  private orbitPose(s: Shot, t: number, H: number, rise: number, out: OrbitPose): OrbitPose {
+    const D = s.duration, tier = s.tier;
+    const tBurst = K.burstAt * D;
+    const orbit = THREE.MathUtils.degToRad(K.orbit[tier]);
+    out.theta = s.orbitStart + s.orbitDir * orbit * smoother(t / (K.returnAt * D));
+    const punch = t >= tBurst ? 0.32 * Math.exp(-(t - tBurst) * 3.5) : 0;
+    out.dist = Math.max(3.4, H * K.cameraDistance) * (lerp(1.18, 0.88, smooth(0, tBurst, t)) + punch + (tier === 2 ? 0.25 : 0));
+    out.y = H * 0.38 + rise * 0.55;
+    out.centerY = H * 0.55 + rise;
+    return out;
+  }
+
+  /**
+   * Before the shot: pick the orbit with the most clearance, so the camera never has to pull in
+   * close to the boss in a cluttered arena (stalls, cubicles, cars, rocks). Start angles all round
+   * him and both directions are tried: at each beat (the charge, the burst, the fall, the slam) a
+   * sphere is swept from his centre to where the camera will be, and the candidate whose worst beat
+   * is clearest wins; ties go to no lift and the start nearest the usual one (just past the
+   * player's view). Only if every side is blocked is the camera lifted over the cover.
+   */
+  private planOrbit(s: Shot): void {
+    const physics = this.game.physics;
+    const base = s.w.visual.root.position;
+    const D = s.duration;
+    // The beats as [time, his height, how high he floats]: the old form until the burst, both
+    // around it (the new one grows out of it), the new one after, landed at the slam.
+    const h0 = s.height, h1 = this.nextHeight(s);
+    const rise = K.rise[s.tier];
+    const tB = K.burstAt * D, tS = K.slamAt * D;
+    const beats: [number, number, number][] = [
+      [0.3 * D, h0, rise], [tB, h0, rise], [tB, h1, rise], [tB + 0.15, h0, rise], [tB + 0.15, h1, rise],
+      [(tB + tS) / 2, h1, rise], [tS, h1, 0], [Math.min(tS + 0.12, K.returnAt * D), h1, 0],
+    ];
+    const defStart = s.orbitStart;
+    const n = Math.max(1, K.clearAngles);
+    let best = { score: -1, cost: Infinity, start: defStart, dir: 1, lift: 0 };
+    for (const lift of K.clearLifts) {
+      for (let k = 0; k < n; k++) {
+        // 0, +1, -1, +2, -2... steps away from the usual start.
+        const step = k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2);
+        const start = defStart + (step * Math.PI * 2) / n;
+        for (const dir of [1, -1]) {
+          s.orbitStart = start;
+          s.orbitDir = dir;
+          let score = 1;
+          for (const [t, H, r] of beats) {
+            const o = this.orbitPose(s, t, H, r, orbitPose);
+            tmpA.set(base.x, base.y + o.centerY, base.z);
+            tmpC.set(Math.sin(o.theta) * o.dist, o.y + lift - o.centerY, Math.cos(o.theta) * o.dist);
+            const len = tmpC.length();
+            const hit = physics.sphereCast(tmpA, tmpC, K.clearRadius, GROUP.WORLD);
+            if (hit && hit.distance < len) score = Math.min(score, clamp((hit.distance - K.clearRadius) / len, 0, 1));
+            if (score <= best.score - 0.02) break;
+          }
+          // Clear is clear (within 2%): then the lowest, least-turned, forward orbit.
+          const cost = lift * 4 + Math.abs(step) * (Math.PI * 2 / n) + (dir < 0 ? 0.15 : 0);
+          const better = score > best.score + 0.02 || (score >= best.score - 0.02 && cost < best.cost);
+          if (better) best = { score, cost, start, dir, lift };
+        }
+      }
+      if (best.score >= 0.98) break;
+    }
+    s.orbitStart = best.start;
+    s.orbitDir = best.dir;
+    s.lift = best.lift;
+  }
+
+  /** Height (m) of the form the boss is turning into (BossStages.applyLook: its model, or the grown placeholder). */
+  private nextHeight(s: Shot): number {
+    const key = s.boss.stages[s.stage]?.model;
+    if (key && this.game.assets.modelVariant(key) !== 'missing') return MODELS[key].fitHeight ?? CONFIG.wizard.height;
+    const prev = Math.max(0, s.stage - 1);
+    return s.height * (C.placeholderScale[s.stage] / C.placeholderScale[prev]);
+  }
+
   // ------------------------------------------------------------------ helpers
 
   /** Start a shockwave ring at `at` (floor) growing to `radius` m over `duration` s, `width` m thick. */
@@ -847,7 +993,8 @@ export class BossCinematic {
     w.duration = duration;
     w.radius = radius;
     w.mesh.position.set(at.x, 0.06, at.z);
-    w.mesh.material.uniforms.uColor.value.setHex(color).multiplyScalar(1.6);
+    // Floor-level light right under the camera's gaze: kept low (bloom spreads it over the boss), lower still in a bright arena.
+    w.mesh.material.uniforms.uColor.value.setHex(color).multiplyScalar(K.waveGlow * (this.shot?.light ?? 1));
     w.mesh.material.uniforms.uWidth.value = width;
     w.mesh.visible = true;
   }
@@ -876,9 +1023,13 @@ export class BossCinematic {
   /** Glow shells over every opaque mesh of the boss's current look (not the shield, ring or aura). */
   private attachShells(mat: THREE.ShaderMaterial): void {
     const s = this.shot;
-    if (!s) return;
+    if (s) this.shellsOn(s.w.visual.root, mat, this.shells);
+  }
+
+  /** Glow shells in `mat` over the opaque meshes under `root`, added to `out`. */
+  private shellsOn(root: THREE.Object3D, mat: THREE.ShaderMaterial, out: THREE.Mesh[]): void {
     const meshes: THREE.Mesh[] = [];
-    s.w.visual.root.traverse((o) => {
+    root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh || m.userData.cineShell) return;
       const mm = m.material as THREE.Material;
@@ -902,7 +1053,7 @@ export class BossCinematic {
       shell.renderOrder = 13;
       shell.frustumCulled = false;
       m.add(shell);
-      this.shells.push(shell);
+      out.push(shell);
     }
   }
 

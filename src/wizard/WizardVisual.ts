@@ -145,7 +145,7 @@ function addDitherFade(mat: THREE.Material, uniform: { value: number }): void {
 /** Shared geometry for the code-built phone prop: a 1 m tall body (scaled per look) and its screen. */
 let phoneGeo: { body: THREE.BoxGeometry; screen: THREE.PlaneGeometry } | null = null;
 
-const tmpColor = new THREE.Color();
+const WHITE = new THREE.Color(1, 1, 1);
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
 const tmpAxis = new THREE.Vector3();
@@ -289,6 +289,11 @@ export class WizardVisual {
   private wingRouse = 0;
   private lastPulse = 0;
   private lastHitFlash = 0;
+  /** Hit flash emissive level now (0..CONFIG.wizard.hitGlow.peak) and how hot recent hits ran (0..1). */
+  private hitGlow = 0;
+  private hitHeat = 0;
+  /** The emissive the look wears this frame: the hit flash in the spell colour, plus the stun tint (QA). */
+  readonly hitEmissive = new THREE.Color();
   /** performance.now() of the last update (real time for a boss mid-transformation). */
   private lastNow = 0;
   private time = Math.random() * 10;
@@ -1140,8 +1145,10 @@ export class WizardVisual {
 
     // Events: a hit (hitFlash is set again by every hit), a spell leaving (castPulse jumps to 1),
     // takeoffs and touchdowns (squash and stretch).
-    if (w.hitFlash > this.lastHitFlash + 1e-4 && alive) this.flinch(w, s, c);
+    const hit = w.hitFlash > this.lastHitFlash + 1e-4;
+    if (hit && alive) this.flinch(w, s, c);
     this.lastHitFlash = w.hitFlash;
+    this.updateHitGlow(hit, dt);
     if (w.castPulse > 0.9 && w.castPulse > this.lastPulse + 0.05) this.lungeV += 2.4;
     this.lastPulse = w.castPulse;
     if (this.seenJumps < 0) {
@@ -1298,17 +1305,14 @@ export class WizardVisual {
     // Muzzle glows (on their sockets when rigged), the windup glow at the muzzle and cast flashes.
     this.updateMuzzles(w, dt, winding);
 
-    // Hit flash / stun tint.
-    const flash = saturate(w.hitFlash / W.hitFlashTime);
-    // Flash strength fades with the timer so rapid hits flicker instead of pinning the model white.
-    const f = flash * flash * 1.4;
-    tmpColor.setRGB(f, f, f);
+    // Hit flash (in the wizard's spell colour, capped) / stun tint.
+    const tint = this.hitEmissive.setHex(this.team.spell).lerp(WHITE, W.hitGlow.white).multiplyScalar(this.hitGlow);
     if (frozen) {
-      tmpColor.r += 0.05;
-      tmpColor.g += 0.35;
-      tmpColor.b += 0.6;
+      tint.r += 0.05;
+      tint.g += 0.35;
+      tint.b += 0.6;
     }
-    for (const m of this.tintMaterials) m.emissive.copy(tmpColor);
+    for (const m of this.tintMaterials) m.emissive.copy(tint);
 
     // Shield bubble.
     const shieldOn = w.shielded;
@@ -1335,6 +1339,33 @@ export class WizardVisual {
     this.ring.position.y = 0.03 - lift;
     this.ring.scale.setScalar(1 - 0.3 * saturate(lift / 1.5));
     (this.ring.material as THREE.MeshBasicMaterial).opacity = (0.35 + (w.invulnerable ? 0.4 : 0)) * (1 - 0.4 * saturate(lift / 1.5));
+  }
+
+  /**
+   * The hit flash: a hit lifts the glow to its peak, which is lower the hotter recent hits ran it,
+   * and between hits it fades toward a floor that only a stream of hits keeps up; so breath ticks
+   * and bolts settle into a steady glow in his colour instead of strobing white. Never above
+   * CONFIG.wizard.hitGlow.peak. On sim time (holds in a hit-stop).
+   */
+  private updateHitGlow(hit: boolean, dt: number): void {
+    const G = W.hitGlow;
+    if (dt > 0) {
+      const k = saturate((this.hitHeat - 0.5) * 2);
+      const floor = G.peak * G.sustain * k * k * (3 - 2 * k);
+      const fade = Math.exp(-G.decay * dt);
+      this.hitGlow = this.hitGlow > floor ? floor + (this.hitGlow - floor) * fade : this.hitGlow * fade;
+      this.hitHeat *= Math.exp(-dt / G.heatTime);
+    }
+    if (hit) {
+      const peak = G.peak * lerp(1, G.sustain, this.hitHeat);
+      this.hitGlow = Math.min(G.peak, Math.max(this.hitGlow, peak));
+      this.hitHeat = Math.min(1, this.hitHeat + G.heatPerHit);
+    }
+  }
+
+  /** Hit flash level right now, 0..CONFIG.wizard.hitGlow.peak (QA). */
+  get hitGlowLevel(): number {
+    return this.hitGlow;
   }
 
   /** A hit: tip the body along its knockback (back, for a blow from the front), and crumple a little. */

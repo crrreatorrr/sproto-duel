@@ -517,12 +517,14 @@ export class BossStages {
     const e = this.owner;
     this.time += dt;
     const transforming = this.tf !== null;
-    const level = this.boss && e.alive ? (transforming ? Math.max(this.auraLevel, C.aura[STAGE_COUNT - 1]) * 1.5 : this.auraLevel) : 0;
+    // A cinematic (driven) brings its own light: the aura doesn't swell over the new form then.
+    const swell = transforming && !this.driven;
+    const level = this.boss && e.alive ? (swell ? Math.max(this.auraLevel, C.aura[STAGE_COUNT - 1]) * 1.5 : this.auraLevel) : 0;
     this.aura.visible = level > 0;
     if (this.aura.visible) {
       const pulse = 0.85 + 0.15 * Math.sin(this.time * 4.2);
       this.auraGlow.material.opacity = 0.3 * level * pulse;
-      this.auraGlow.scale.setScalar(2.4 + level * 0.9 + (transforming ? 1.2 * Math.sin(this.evolveProgress * Math.PI) : 0));
+      this.auraGlow.scale.setScalar(2.4 + level * 0.9 + (swell ? 1.2 * Math.sin(this.evolveProgress * Math.PI) : 0));
       this.auraRing.material.opacity = 0.42 * level * pulse;
       this.auraRing.scale.setScalar(1 + 0.12 * Math.sin(this.time * 2.6));
       this.auraRing.rotation.z = this.time * 0.6;

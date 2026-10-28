@@ -13,9 +13,11 @@ export class Renderer {
   private bloom: UnrealBloomPass;
   /** Pixel height factor used by point-sprite shaders for size attenuation. */
   pointScale = 1;
-  /** Extra bloom on top of CONFIG.render.bloomStrength (a boss transformation's burst). */
+  /** Extra bloom on top of CONFIG.render.bloomStrength (a boss transformation; negative turns it down). */
   bloomBoost = 0;
   private resizeListeners: (() => void)[] = [];
+  /** Offscreen target of `precompile`. */
+  private warmTarget: THREE.WebGLRenderTarget | null = null;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
@@ -80,7 +82,51 @@ export class Renderer {
 
   render(): void {
     this.renderer.info.reset();
-    this.bloom.strength = CONFIG.render.bloomStrength + this.bloomBoost;
+    this.bloom.strength = Math.max(0, CONFIG.render.bloomStrength + this.bloomBoost);
     this.composer.render();
+  }
+
+  /** Shader programs compiled so far (cached by three.js and shared by matching materials). */
+  get programCount(): number {
+    return this.renderer.info.programs?.length ?? 0;
+  }
+
+  /**
+   * Draw the whole scene once into a small offscreen target, hidden and off-screen objects
+   * included: every shader program the scene can need (its shadow-pass variant too) is compiled and
+   * every texture uploaded now, instead of on first use mid-fight (a ticket's first spawn, a volley,
+   * a stage swap). Nothing reaches the screen; visibility is restored at once. Lights keep their
+   * visibility: the light count is part of every lit program. Into a render target like the
+   * composer's scene pass, so the programs match (no tone mapping, linear output). Returns the
+   * number of programs it compiled.
+   */
+  precompile(): number {
+    const r = this.renderer;
+    const before = this.programCount;
+    const lights = new Set<THREE.Object3D>();
+    this.scene.traverseVisible((o) => {
+      if ((o as THREE.Light).isLight) lights.add(o);
+    });
+    const objects: THREE.Object3D[] = [];
+    const state: boolean[] = [];
+    this.scene.traverse((o) => {
+      objects.push(o);
+      state.push(o.visible, o.frustumCulled);
+      o.visible = (o as THREE.Light).isLight ? lights.has(o) : true;
+      o.frustumCulled = false;
+    });
+    this.warmTarget ??= new THREE.WebGLRenderTarget(64, 64, { type: THREE.HalfFloatType });
+    const prev = r.getRenderTarget();
+    try {
+      r.setRenderTarget(this.warmTarget);
+      r.render(this.scene, this.camera);
+    } finally {
+      r.setRenderTarget(prev);
+      for (let i = 0; i < objects.length; i++) {
+        objects[i].visible = state[2 * i];
+        objects[i].frustumCulled = state[2 * i + 1];
+      }
+    }
+    return this.programCount - before;
   }
 }
