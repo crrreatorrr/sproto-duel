@@ -3,7 +3,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import assetIndex from 'virtual:asset-index';
-import { MODELS, TEXTURES, type ModelAsset, type ModelKey, type TextureAsset, type TextureKey } from './manifest';
+import { MODELS, TEXTURES, WIZARD_CLIPS, type ModelAsset, type ModelKey, type RiggedModel, type TextureAsset, type TextureKey } from './manifest';
+import { prepareRig } from './rig';
 
 const available = new Set(assetIndex);
 const BASE = `${import.meta.env.BASE_URL}assets/`;
@@ -28,6 +29,8 @@ export const resolveImage = (path: string) => resolveAsset(path, IMAGE_EXTS);
 export interface ModelInstance {
   root: THREE.Object3D;
   animations: THREE.AnimationClip[];
+  /** The rigged variant this copy is (sockets, clip timing), or null/absent for a static model. */
+  rig?: RiggedModel | null;
 }
 
 /** A loaded, normalized model. Instantiate copies with `AssetLoader.instantiateModel`. */
@@ -35,6 +38,43 @@ export interface ModelTemplate {
   root: THREE.Group;
   animations: THREE.AnimationClip[];
   skinned: boolean;
+  /** Loaded from a manifest entry's `rigged` file (null: its static mesh, or a model without one). */
+  rig: RiggedModel | null;
+}
+
+/** Which file of a manifest model is used: its rigged variant, its static mesh, or neither (placeholder). */
+export type ModelVariant = 'rigged' | 'static' | 'missing';
+
+const riggedSpecs = new WeakMap<ModelAsset, ModelAsset>();
+const rigOfSpec = new WeakMap<ModelAsset, RiggedModel>();
+const rigOf = (spec: ModelAsset): RiggedModel | null => rigOfSpec.get(spec) ?? null;
+
+/**
+ * The load spec for `spec`'s rigged file (null without one): same fit height, feet anchor, sides and
+ * clips; its own path and yaw (the rigs face +Z). Memoized, so loads cache by the rigged path.
+ */
+export function riggedSpec(spec: ModelAsset): ModelAsset | null {
+  const r = spec.rigged;
+  if (!r) return null;
+  let out = riggedSpecs.get(spec);
+  if (!out) {
+    out = {
+      path: r.path, fitHeight: spec.fitHeight, rotationY: r.rotationY ?? 0, yOffset: spec.yOffset, anchor: spec.anchor,
+      doubleSided: spec.doubleSided, clips: spec.clips ?? WIZARD_CLIPS, maxTriangles: spec.maxTriangles, muzzle: spec.muzzle, motion: spec.motion,
+    };
+    riggedSpecs.set(spec, out);
+    rigOfSpec.set(out, r);
+  }
+  return out;
+}
+
+/**
+ * The spec to load for a manifest model: its rigged variant when that file is on disk (`has`), else
+ * the static mesh. Pure, so QA can try it against any file list.
+ */
+export function selectModelSpec(spec: ModelAsset, has: (path: string) => boolean = (p) => available.has(p)): ModelAsset {
+  const rigged = riggedSpec(spec);
+  return rigged && has(rigged.path) ? rigged : spec;
 }
 
 /**
@@ -60,7 +100,7 @@ export class AssetLoader {
     let done = 0;
     const tick = () => onProgress?.(++done, jobs.length);
     for (const key of Object.keys(MODELS) as ModelKey[]) {
-      jobs.push(this.loadModelAsset(MODELS[key] as ModelAsset, key).then((t) => void this.models.set(key, t)).then(tick));
+      jobs.push(this.loadModelVariant(MODELS[key] as ModelAsset, key).then((t) => void this.models.set(key, t)).then(tick));
     }
     for (const key of Object.keys(TEXTURES) as TextureKey[]) {
       jobs.push(this.loadTextureAsset(TEXTURES[key] as TextureAsset).then((t) => void this.textures.set(key, t)).then(tick));
@@ -77,7 +117,26 @@ export class AssetLoader {
   /** A fresh copy of a template (geometry and materials are shared with the template). */
   instantiateModel(t: ModelTemplate): ModelInstance {
     const root = t.skinned ? cloneSkinned(t.root) : t.root.clone(true);
-    return { root, animations: t.animations };
+    return { root, animations: t.animations, rig: t.rig };
+  }
+
+  /** Which file manifest model `key` loaded: its rigged variant, its static mesh, or none. */
+  modelVariant(key: ModelKey): ModelVariant {
+    const t = this.models.get(key);
+    return !t ? 'missing' : t.rig ? 'rigged' : 'static';
+  }
+
+  /**
+   * Load a manifest model, preferring its rigged variant (`spec.rigged`) when that file is on disk;
+   * the static mesh if there is none or it fails to load. Cached by path like `loadModelAsset`.
+   */
+  async loadModelVariant(spec: ModelAsset, name: string = spec.path): Promise<ModelTemplate | null> {
+    const want = selectModelSpec(spec);
+    if (want !== spec) {
+      const t = await this.loadModelAsset(want, `${name} (rigged)`);
+      if (t) return t;
+    }
+    return this.loadModelAsset(spec, name);
   }
 
   texture(key: TextureKey): THREE.Texture | null {
@@ -128,7 +187,7 @@ export class AssetLoader {
 
   /** Register an in-memory scene as if it had been loaded from `spec.path` (tools and QA). */
   provideModel(spec: ModelAsset, scene: THREE.Object3D, name: string = spec.path): ModelTemplate {
-    const t = normalizeModel(name, scene, [], spec);
+    const t = normalizeModel(name, scene, [], spec, null);
     this.modelsByPath.set(spec.path, Promise.resolve(t));
     this.readyModels.set(spec.path, t);
     return t;
@@ -145,7 +204,7 @@ export class AssetLoader {
     if (!url) return null;
     try {
       const gltf = await this.gltf.loadAsync(url);
-      return normalizeModel(name, gltf.scene, gltf.animations, spec);
+      return normalizeModel(name, gltf.scene, gltf.animations, spec, rigOf(spec));
     } catch (err) {
       console.warn(`[assets] Failed to load ${spec.path}, using placeholder.`, err);
       return null;
@@ -200,8 +259,12 @@ function feetCenter(inner: THREE.Object3D, box: THREE.Box3): THREE.Vector3 {
   return out;
 }
 
-/** Fit to height, stand on y=0, center on XZ, enable shadows, and check the triangle budget. */
-function normalizeModel(key: string, scene: THREE.Object3D, animations: THREE.AnimationClip[], spec: ModelAsset): ModelTemplate {
+/**
+ * Fit to height, stand on y=0, center on XZ, enable shadows, and check the triangle budget. Skinned
+ * models (bounds from the posed skeleton) are also never culled and get their root motion pinned
+ * (src/assets/rig.ts).
+ */
+function normalizeModel(key: string, scene: THREE.Object3D, animations: THREE.AnimationClip[], spec: ModelAsset, rig: RiggedModel | null): ModelTemplate {
   const wrapper = new THREE.Group();
   wrapper.name = `model:${key}`;
   const inner = new THREE.Group();
@@ -236,6 +299,7 @@ function normalizeModel(key: string, scene: THREE.Object3D, animations: THREE.An
   if (triangles > budget) {
     console.warn(`[assets] ${spec.path} has ${Math.round(triangles)} triangles (budget ${budget}). Consider decimating it.`);
   }
-  console.info(`[assets] Loaded ${spec.path} (${Math.round(triangles)} tris, ${animations.length} clips)`);
-  return { root: wrapper, animations, skinned };
+  if (skinned) prepareRig(wrapper, animations);
+  console.info(`[assets] Loaded ${spec.path} (${Math.round(triangles)} tris, ${animations.length} clips${skinned ? ', skinned' : ''})`);
+  return { root: wrapper, animations, skinned, rig: skinned ? rig : null };
 }

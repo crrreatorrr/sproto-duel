@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { CONFIG, type TeamPalette } from '../config';
 import type { ModelInstance } from '../assets/AssetLoader';
-import type { WizardClip, ModelAsset } from '../assets/manifest';
+import type { ModelAsset } from '../assets/manifest';
 import { muzzleSetFor } from '../campaign/muzzleIndex';
 import { glowTexture } from '../fx/textures';
 import { clamp, damp, lerp, saturate, wrapAngle } from '../core/math';
+import { Animator, type AnimInput } from './Animator';
 import { PLACEHOLDER_MUZZLES, resolveMuzzles, type CastKind, type MuzzleType, type ResolvedMuzzles } from './muzzles';
 import type { Wizard } from './Wizard';
 
@@ -90,9 +91,16 @@ const MUZZLE_LOOK: Record<MuzzleType, { color: number; idle: number; glow: numbe
   mouth: { color: 0xff5a10, idle: 0.18, glow: 0.34, flash: 0.95, flashColor: 0xffa040, pull: 0.09, decay: 6, light: 1.1 },
 };
 
-/** One muzzle point of the current look: its anchor in the feet frame, tip glow, cast flash and optional prop. */
+/**
+ * One muzzle point of the current look: its anchor in the feet frame (the measured point, or where
+ * its bone socket is this frame on a rigged look), tip glow, cast flash and optional prop.
+ */
 interface MuzzleSlot {
   readonly anchor: THREE.Group;
+  /** The measured point (feet frame): the gameplay origin (Wizard.castPoint). */
+  readonly home: THREE.Vector3;
+  /** Rigged look: an empty riding the socket's bone, which the anchor follows. */
+  socket: THREE.Object3D | null;
   readonly glow: THREE.Sprite;
   readonly flash: THREE.Sprite;
   /** A code-built phone for an empty fist (MuzzlePoint.prop). */
@@ -140,7 +148,28 @@ const tmpDir = new THREE.Vector3();
 const tmpV = new THREE.Vector3();
 const tmpInv = new THREE.Matrix4();
 const X_AXIS = new THREE.Vector3(1, 0, 0);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const W = CONFIG.wizard;
+
+/**
+ * Procedural motion on a rigged look, as a share of a static mesh's (the clips carry most of it):
+ * the lean into movement (`move`: none, the run, strafe and jump clips lean on their own), the bank
+ * into turns and speed changes (`lean`), footstep bob, idle breathing and sway, the cast lunge, the
+ * hit flinch. Jump squash and stretch stays at full strength. The weapon arms are left to the
+ * clips (the rigs hold them aimed); the pivot moves the whole body.
+ */
+const RIG_PROC = { move: 0, lean: 0.4, bob: 0.12, idle: 0.3, lunge: 0.35, flinch: 0.55, menace: 0.6 };
+const STATIC_PROC = { move: 1, lean: 1, bob: 1, idle: 1, lunge: 1, flinch: 1, menace: 1 };
+/** No procedural motion at all (`proceduralOff`, QA). */
+const NO_PROC = { move: 0, lean: 0, bob: 0, idle: 0, lunge: 0, flinch: 0, menace: 0 };
+
+/** Vertex `i` of `mesh` in world space as rendered (a skinned mesh in its current pose). */
+function posedVertex(mesh: THREE.Mesh, i: number, out: THREE.Vector3): THREE.Vector3 {
+  if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) mesh.getVertexPosition(i, out);
+  else out.fromBufferAttribute(mesh.geometry.attributes.position, i);
+  return out.applyMatrix4(mesh.matrixWorld);
+}
 
 /**
  * Lowest points of a look toward one horizontal direction, as (reach, height) pairs: only those no
@@ -220,9 +249,40 @@ export class WizardVisual {
   private readonly shield: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private readonly ice: THREE.Mesh;
   private readonly ring: THREE.Mesh;
-  private mixer: THREE.AnimationMixer | null = null;
-  private actions = new Map<WizardClip, THREE.AnimationAction>();
-  private currentClip: WizardClip | null = null;
+  /** Clip state machine of a rigged look (null: a static mesh or placeholder, animated procedurally). */
+  animator: Animator | null = null;
+  private readonly animInput: AnimInput = { speed: 0, localX: 0, localZ: 0, celebrate: false, iceFormed: false, weight: 0 };
+  /** Procedural motion strengths for the current look (RIG_PROC on a rigged one). */
+  private proc = STATIC_PROC;
+  /** The look's MotionStyle, and the eased values in use (a grown placeholder stage counts as heavier). */
+  private styleWeight = 0;
+  private styleMenace = 0;
+  private weight = 0;
+  private menace = 0;
+  /** Split wing meshes or wing bones of the look (Tinubu), flapped slowly; empty when the wings are part of the body. */
+  private readonly wings: THREE.Object3D[] = [];
+  /** Hit flinch spring (lean angles, rad) and cast lunge spring (meters forward). */
+  private flinchX = 0;
+  private flinchXV = 0;
+  private flinchZ = 0;
+  private flinchZV = 0;
+  private lunge = 0;
+  private lungeV = 0;
+  /** Smoothed facing turn rate (rad/s) and acceleration in the character's frame (m/s^2). */
+  private turnRate = 0;
+  private lastFacing = NaN;
+  private accX = 0;
+  private accZ = 0;
+  private lastVX = 0;
+  private lastVZ = 0;
+  /** Footstep cycle (radians; one step per pi) and how much of the stride bob is in (eases in and out). */
+  private stepPhase = 0;
+  private stride = 0;
+  /** Wing flap phase and how roused the wings are (casting, transforming), 0..1. */
+  private wingPhase = 0;
+  private wingRouse = 0;
+  private lastPulse = 0;
+  private lastHitFlash = 0;
   private time = Math.random() * 10;
   private deathT = 0;
   private iceScale = 0;
@@ -240,6 +300,14 @@ export class WizardVisual {
   celebrate = false;
   /** True when a GLB is shown, false for the primitive placeholder. */
   usesModel = false;
+  /** True when the GLB is a rigged (skinned) variant from models/rigged/. */
+  rigged = false;
+  /**
+   * Switch the procedural motion off (lean, sway, bob, lunge, flinch; jump squash and stretch, the
+   * roll flip and the topple stay): QA compares a rigged look's clip pose with and without it, and a
+   * cinematic that poses the look itself may want it off.
+   */
+  proceduralOff = false;
   /** Height of the top of the current look (hat, crown or model), in meters. The HUD tag sits above it. */
   topHeight = WIZARD_TOP;
 
@@ -321,13 +389,13 @@ export class WizardVisual {
   }
 
   private build(model: ModelInstance | null, modelSpec: ModelAsset, variant: PlaceholderVariant): void {
+    this.styleWeight = modelSpec.motion?.weight ?? 0;
+    this.styleMenace = modelSpec.motion?.menace ?? 0;
     if (model) {
       this.usesModel = true;
+      this.rigged = !!model.rig;
       const height = modelSpec.fitHeight ?? CONFIG.wizard.height;
       this.topHeight = height;
-      this.measureLook(model.root);
-      model.root.position.y = -0.9;
-      this.body.add(model.root);
       model.root.traverse((o) => {
         const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
         if (m && 'emissive' in m) {
@@ -337,18 +405,66 @@ export class WizardVisual {
           this.tintMaterials.push(clone);
           this.owned.push(clone);
         }
+        // Each copy of a skinned model has its own skeleton (and bone texture): free it with the look.
+        const skinned = o as THREE.SkinnedMesh;
+        if (skinned.isSkinnedMesh) {
+          skinned.frustumCulled = false;
+          this.owned.push(skinned.skeleton);
+        }
+        // Wings split onto their own bones (Tinubu's LeftWing/RightWing, no clip channels) or meshes.
+        if (/wing/i.test(o.name) && ((o as THREE.Bone).isBone || ((o as THREE.Mesh).isMesh && !skinned.isSkinnedMesh))) {
+          o.userData.wingRest = o.quaternion.clone();
+          o.userData.wingSide = /left/i.test(o.name) ? 1 : /right/i.test(o.name) ? -1 : o.position.x >= 0 ? 1 : -1;
+          this.wings.push(o);
+        }
       });
-      if (model.animations.length) this.setupClips(model, modelSpec);
+      if (model.animations.length) {
+        const anim = new Animator(model, modelSpec);
+        if (anim.clips.length) this.animator = anim;
+        else anim.dispose();
+      }
+      this.proc = this.animator ? RIG_PROC : STATIC_PROC;
+      // Measured in its own frame (feet at the origin) and in the pose it starts in (a rig's idle).
+      this.measureLook(model.root);
+      model.root.position.y = -0.9;
+      this.body.add(model.root);
       const set = muzzleSetFor(modelSpec);
       this.fxScale = height / 2;
       this.applyMuzzles(set ? resolveMuzzles(set, height) : null);
+      this.attachSockets(model);
     } else {
       this.usesModel = false;
+      this.rigged = false;
+      this.proc = STATIC_PROC;
       this.buildPlaceholder(variant);
       const k = PLACEHOLDER_SCALE[variant] ?? 1;
       this.fxScale = k;
       this.applyMuzzles(resolveMuzzles(PLACEHOLDER_MUZZLES[variant], 1, k));
     }
+  }
+
+  /**
+   * Rigged look: hang an empty on each muzzle's socket bone (manifest `rigged.sockets`, by muzzle
+   * point name), so its glows follow the animated staff, phone or vape. Muzzles without a socket
+   * keep their measured point.
+   */
+  private attachSockets(model: ModelInstance): void {
+    const sockets = model.rig?.sockets;
+    const points = this.muzzles?.points;
+    if (!sockets || !points) return;
+    const names = Object.keys(sockets);
+    points.forEach((p, i) => {
+      // By muzzle name; a lone muzzle takes a lone socket whatever it is called (phone / phoneR).
+      const s = sockets[p.name] ?? (points.length === 1 && names.length === 1 ? sockets[names[0]] : undefined);
+      const bone = s && model.root.getObjectByName(THREE.PropertyBinding.sanitizeNodeName(s.bone));
+      if (!s || !bone) return;
+      const socket = new THREE.Object3D();
+      socket.name = `socket:${p.name}`;
+      const at = s.glowOffset ?? s.offset;
+      socket.position.set(at[0], at[1], at[2]);
+      bone.add(socket);
+      this.slots[i].socket = socket;
+    });
   }
 
   /** Lean-lift footprint and camera-fade radius of a GLB look, from its vertices (once per swap). */
@@ -361,7 +477,7 @@ export class WizardVisual {
       if (!mesh.isMesh) return;
       const pos = mesh.geometry.attributes.position;
       for (let i = 0; i < pos.count; i++) {
-        tmpV.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        posedVertex(mesh, i, tmpV);
         r2 = Math.max(r2, tmpV.x * tmpV.x + tmpV.z * tmpV.z);
         if (tmpV.y > 0.3) continue;
         bands[0].push([tmpV.z, tmpV.y]);
@@ -384,7 +500,9 @@ export class WizardVisual {
       slot.anchor.visible = !!m;
       slot.flare = slot.charge = 0;
       slot.flash.visible = false;
+      slot.socket = null;
       if (!m) continue;
+      slot.home.copy(m.local);
       slot.anchor.position.copy(m.local);
       slot.type = m.type;
       slot.size = m.size;
@@ -426,7 +544,10 @@ export class WizardVisual {
     phone.visible = false;
     anchor.add(glow, flash, phone);
     this.muzzleRoot.add(anchor);
-    return { anchor, glow, flash, phone, color: new THREE.Color(), flashColor: new THREE.Color(), type: 'staff', size: 1, flare: 0, charge: 0 };
+    return {
+      anchor, home: new THREE.Vector3(), socket: null, glow, flash, phone,
+      color: new THREE.Color(), flashColor: new THREE.Color(), type: 'staff', size: 1, flare: 0, charge: 0,
+    };
   }
 
   // ------------------------------------------------------------------ muzzles
@@ -472,10 +593,34 @@ export class WizardVisual {
     return !!slot && slot.anchor.visible && slot.phone.visible;
   }
 
-  /** World position of muzzle `index` as last rendered (QA and effects). */
+  /**
+   * World position of muzzle `index` as last rendered (QA and effects): on a rigged look with a
+   * socket, where the animated prop is; otherwise the measured point in the render pose.
+   */
   muzzleWorld(index: number, out: THREE.Vector3): THREE.Vector3 {
     const slot = this.slots[index];
     return slot ? slot.anchor.getWorldPosition(out) : out.set(NaN, NaN, NaN);
+  }
+
+  /** World position of muzzle `index`'s measured point (the gameplay origin) in the render pose (QA). */
+  muzzleHomeWorld(index: number, out: THREE.Vector3): THREE.Vector3 {
+    const slot = this.slots[index];
+    if (!slot) return out.set(NaN, NaN, NaN);
+    this.muzzleRoot.updateWorldMatrix(true, false);
+    return this.muzzleRoot.localToWorld(out.copy(slot.home));
+  }
+
+  /** Muzzle `index` rides a bone socket of a rigged look. */
+  muzzleSocketed(index: number): boolean {
+    return !!this.slots[index]?.socket && this.slots[index].anchor.visible;
+  }
+
+  /**
+   * Where muzzle effects for `index` should play (MuzzleFx): its bone socket as last rendered when it
+   * has one, else `spawn` (the projectile's spawn point, Wizard.castPoint).
+   */
+  muzzleFxOrigin(index: number, spawn: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    return index >= 0 && this.muzzleSocketed(index) ? this.slots[index].anchor.getWorldPosition(out) : out.copy(spawn);
   }
 
   /** World position of the spell's windup glow, or NaN when none shows (QA). */
@@ -500,9 +645,29 @@ export class WizardVisual {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.visible) return;
       const pos = mesh.geometry.attributes.position;
-      for (let i = 0; i < pos.count; i++) low = Math.min(low, tmpV.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld).y);
+      for (let i = 0; i < pos.count; i++) low = Math.min(low, posedVertex(mesh, i, tmpV).y);
     });
     return low;
+  }
+
+  /** The procedural hip pivot (QA: lean, sway, bob, lunge and squash all show on it). */
+  get hipPivot(): THREE.Object3D {
+    return this.pivot;
+  }
+
+  /** How far the procedural death topple has gone, 0..1 (0 while a defeat clip plays instead). */
+  get topple(): number {
+    return this.deathT;
+  }
+
+  /** Split wings found on the look (QA). */
+  get wingCount(): number {
+    return this.wings.length;
+  }
+
+  /** Eased MotionStyle in use: weight and menace (QA). */
+  get motionStyle(): { weight: number; menace: number } {
+    return { weight: this.weight, menace: this.menace };
   }
 
   /** Muzzle objects owned by this visual (QA: the count never changes). */
@@ -529,10 +694,10 @@ export class WizardVisual {
   private clearLook(): void {
     this.body.scale.setScalar(1);
     this.body.position.y = 0;
-    this.mixer?.stopAllAction();
-    this.mixer = null;
-    this.actions.clear();
-    this.currentClip = null;
+    this.animator?.dispose();
+    this.animator = null;
+    this.wings.length = 0;
+    for (const s of this.slots) s.socket = null;
     this.armPivot.clear();
     this.body.clear();
     for (const r of this.owned) r.dispose();
@@ -773,34 +938,6 @@ export class WizardVisual {
     }
   }
 
-  private setupClips(model: ModelInstance, spec: ModelAsset): void {
-    this.mixer = new THREE.AnimationMixer(model.root);
-    for (const [clip, name] of Object.entries(spec.clips ?? {}) as [WizardClip, string][]) {
-      const want = name.toLowerCase();
-      const found =
-        model.animations.find((a) => a.name.toLowerCase() === want) ??
-        model.animations.find((a) => a.name.toLowerCase().includes(want));
-      if (!found) continue;
-      const action = this.mixer.clipAction(found);
-      if (clip === 'defeat' || clip === 'victory' || clip === 'dodge' || clip === 'cast' || clip === 'castBig' || clip === 'hit') {
-        action.setLoop(THREE.LoopOnce, 1);
-        action.clampWhenFinished = true;
-      }
-      this.actions.set(clip, action);
-    }
-  }
-
-  private play(clip: WizardClip, fade = 0.12, restart = false): void {
-    if (!this.mixer) return;
-    const next = this.actions.get(clip) ?? (clip === 'castBig' ? this.actions.get('cast') : undefined);
-    if (!next) return;
-    if (this.currentClip === clip && !restart) return;
-    const prev = this.currentClip ? this.actions.get(this.currentClip) : undefined;
-    next.reset().fadeIn(fade).play();
-    if (prev && prev !== next) prev.fadeOut(fade);
-    this.currentClip = clip;
-  }
-
   /** Brief flash on the shield when it blocks something. */
   shieldImpact(perfect: boolean): void {
     this.shieldHit = perfect ? 1.5 : 1;
@@ -817,7 +954,14 @@ export class WizardVisual {
     const fade = this.fadeUniform.value;
     // The camera in the feet frame, so glows sit on the camera's side of their prop.
     this.muzzleRoot.updateWorldMatrix(true, false);
-    tmpCam.copy(WizardVisual.viewer).applyMatrix4(tmpInv.copy(this.muzzleRoot.matrixWorld).invert());
+    tmpInv.copy(this.muzzleRoot.matrixWorld).invert();
+    tmpCam.copy(WizardVisual.viewer).applyMatrix4(tmpInv);
+    // Rigged looks: anchors ride their bone sockets (posed by the Animator this frame).
+    for (const slot of this.slots) {
+      if (!slot.socket || !slot.anchor.visible) continue;
+      slot.socket.updateWorldMatrix(true, false);
+      slot.anchor.position.setFromMatrixPosition(slot.socket.matrixWorld).applyMatrix4(tmpInv);
+    }
     this.lightLevel = 0;
     let first = -1;
     for (let i = 0; i < MAX_MUZZLES; i++) {
@@ -892,9 +1036,21 @@ export class WizardVisual {
     glow.scale.setScalar(size * Math.max(0.6, this.fxScale));
   }
 
-  /** Per render frame. `alpha` interpolates between the last two physics ticks. */
+  /**
+   * Per render frame. `alpha` interpolates between the last two physics ticks.
+   *
+   * Procedural motion on the hip pivot gives every look life: all of it for a static mesh or
+   * placeholder, a lighter share on top of a rigged look's clips (RIG_PROC). Breathing and a slow
+   * idle sway; a lean into movement, acceleration and turns; a footstep bob and waddle paced by the
+   * stride; jump squash and stretch; a flinch along the knockback when hit; a gather-and-lunge on
+   * casts; on big boss stages a heavier gait and a looming sway (MotionStyle). Then the rig's
+   * Animator poses the skeleton, muzzle anchors follow their bone sockets, and the glows, tint,
+   * shield, ice and ring update.
+   */
   update(w: Wizard, dt: number, alpha: number): void {
     this.time += dt;
+    const P = this.proceduralOff ? NO_PROC : this.proc;
+    const anim = this.animator;
     const x = lerp(w.prevPos.x, w.pos.x, alpha);
     const y = lerp(w.prevPos.y, w.pos.y, alpha);
     const z = lerp(w.prevPos.z, w.pos.z, alpha);
@@ -902,56 +1058,40 @@ export class WizardVisual {
     const facing = w.prevFacing + wrapAngle(w.facing - w.prevFacing) * alpha;
     this.root.rotation.y = facing;
 
-    // Velocity in local space for leaning.
+    // Velocity in local space for leaning (+x the character's left, +z forward), knockback included.
     const s = Math.sin(facing), c = Math.cos(facing);
     const vx = w.vel.x + w.knock.x, vz = w.vel.z + w.knock.z;
     const localX = vx * c - vz * s;
     const localZ = vx * s + vz * c;
     const speed = Math.hypot(vx, vz);
     const frozen = w.stunned;
+    const alive = w.alive;
 
-    if (!frozen) {
-      // Rising leans back a touch, falling tips forward into the landing.
-      const air = w.grounded ? 0 : -w.vy * 0.012;
-      this.leanX = damp(this.leanX, (localZ / CONFIG.wizard.sprintSpeed) * 0.28 + air, 10, dt);
-      this.leanZ = damp(this.leanZ, (-localX / CONFIG.wizard.sprintSpeed) * 0.3, 10, dt);
+    // Motion style: the look's own; a placeholder stage grown by BossStages counts as heavier.
+    const growth = Math.max(0, this.root.scale.x - 1);
+    this.weight = damp(this.weight, Math.max(this.styleWeight, growth * 3), 2, dt);
+    this.menace = damp(this.menace, Math.max(this.styleMenace, saturate((growth - 0.15) * 10)), 2, dt);
+    const heavy = this.weight;
+    const menace = this.menace * P.menace;
+
+    // Turn rate and acceleration, smoothed: leaning into turns, starts and stops.
+    if (dt > 0) {
+      const yaw = Number.isNaN(this.lastFacing) ? 0 : wrapAngle(facing - this.lastFacing) / dt;
+      this.turnRate = damp(this.turnRate, clamp(yaw, -10, 10), 12, dt);
+      const ax = (vx - this.lastVX) / dt, az = (vz - this.lastVZ) / dt;
+      this.accX = damp(this.accX, clamp(ax * c - az * s, -60, 60), 10, dt);
+      this.accZ = damp(this.accZ, clamp(ax * s + az * c, -60, 60), 10, dt);
     }
+    this.lastFacing = facing;
+    this.lastVX = vx;
+    this.lastVZ = vz;
 
-    // Lean + recoil, capped so a wide hem never tips far into the floor (the rest is lifted out below).
-    // +X tips the front down, -X the back; +Z tips the right side (-X) down, -Z the left.
-    const caps = this.leanCaps;
-    const leanX = clamp(this.leanX - w.castPulse * 0.12, -caps[1], caps[0]);
-    const leanZ = clamp(this.leanZ, -caps[2], caps[3]);
-    tmpQ.setFromAxisAngle(X_AXIS, leanX);
-    tmpQ2.setFromAxisAngle(Z_AXIS, leanZ);
-    tmpQ.multiply(tmpQ2);
-
-    // Dodge roll: full flip around the axis perpendicular to the roll direction.
-    let squash = 1;
-    if (w.dodging && !this.actions.has('dodge')) {
-      const p = 1 - w.dodgeTime / CONFIG.wizard.dodge.duration;
-      const e = p * p * (3 - 2 * p);
-      const dx = w.dodgeDir.x, dz = w.dodgeDir.z;
-      const lx = dx * c - dz * s;
-      const lz = dx * s + dz * c;
-      tmpAxis.set(lz, 0, -lx).normalize();
-      tmpQ2.setFromAxisAngle(tmpAxis, e * Math.PI * 2);
-      tmpQ.premultiply(tmpQ2);
-      squash = 1 - Math.sin(p * Math.PI) * 0.35;
-    }
-
-    // Death: topple backwards.
-    if (!w.alive) {
-      this.deathT = Math.min(1, this.deathT + dt * 2.2);
-      const e = 1 - (1 - this.deathT) * (1 - this.deathT);
-      tmpQ2.setFromAxisAngle(X_AXIS, -e * 1.45);
-      tmpQ.premultiply(tmpQ2);
-    } else {
-      this.deathT = 0;
-    }
-    this.pivot.quaternion.copy(tmpQ);
-
-    // Jump squash & stretch: takeoff and touchdown kick a springy scale; airborne speed stretches.
+    // Events: a hit (hitFlash is set again by every hit), a spell leaving (castPulse jumps to 1),
+    // takeoffs and touchdowns (squash and stretch).
+    if (w.hitFlash > this.lastHitFlash + 1e-4 && alive) this.flinch(w, s, c);
+    this.lastHitFlash = w.hitFlash;
+    if (w.castPulse > 0.9 && w.castPulse > this.lastPulse + 0.05) this.lungeV += 2.4;
+    this.lastPulse = w.castPulse;
     if (this.seenJumps < 0) {
       this.seenJumps = w.jumps;
       this.seenLandings = w.landings;
@@ -963,50 +1103,150 @@ export class WizardVisual {
     }
     if (w.landings !== this.seenLandings) {
       this.seenLandings = w.landings;
-      this.stretch = -Math.min(J.maxLandSquash, w.landSpeed * J.landSquash);
+      this.stretch = -Math.min(J.maxLandSquash, w.landSpeed * J.landSquash * (1 + 0.3 * heavy));
       this.stretchVel = 0;
     }
     // Elongate along the motion, rising or falling; neutral at the apex.
-    const restStretch = w.grounded ? 0 : Math.min(0.08, Math.abs(w.vy) * 0.01);
-    // Fixed sub-steps keep the spring stable through long frames.
-    for (let left = dt; left > 1e-5; left -= 1 / 120) {
-      const h = Math.min(left, 1 / 120);
-      this.stretchVel += (-320 * (this.stretch - restStretch) - 16 * this.stretchVel) * h;
-      this.stretch += this.stretchVel * h;
-    }
-    squash *= 1 + this.stretch;
-    const thin = 1 - this.stretch * 0.5;
+    this.springs(dt, w.grounded ? 0 : Math.min(0.08, Math.abs(w.vy) * 0.01));
 
-    // Bob / breathe / celebrate.
-    const moving = speed > 0.5 && !w.dodging && w.alive && w.grounded;
+    if (!frozen) {
+      // Rising leans back a touch, falling tips forward into the landing; speeding up tips forward,
+      // braking back; turning while moving banks into the turn.
+      const air = w.grounded ? 0 : -w.vy * 0.012;
+      const turn = clamp(-this.turnRate * saturate(speed / W.moveSpeed) * 0.045, -0.14, 0.14);
+      const toX = ((localZ / W.sprintSpeed) * 0.28 + air) * P.move + clamp(this.accZ * 0.0035, -0.1, 0.1) * P.lean;
+      const toZ = ((-localX / W.sprintSpeed) * 0.3) * P.move + (clamp(-this.accX * 0.0025, -0.08, 0.08) + turn) * P.lean;
+      this.leanX = damp(this.leanX, toX, 10, dt);
+      this.leanZ = damp(this.leanZ, toZ, 10, dt);
+    }
+
+    // Footsteps: one bob per step, paced by the stride (longer for big and heavy looks), with the
+    // weight rolling onto the planted foot.
+    const moving = speed > 0.5 && !w.dodging && alive && w.grounded;
+    if (moving && !frozen) this.stepPhase += ((dt * speed) / (1.75 * w.sizeScale * this.root.scale.x * (1 + 0.25 * heavy))) * Math.PI;
+    this.stride = damp(this.stride, moving ? 1 : 0, 8, dt);
+    // Idle life (alive, unfrozen): breathing, a slow weight shift and look-around; a looming boss
+    // hunches, sways side to side and breathes deep.
+    const calm = alive && !frozen ? 1 - this.stride : 0;
+    const breath = Math.sin((this.time * Math.PI * 2) / (3 * (1 + 0.4 * heavy)));
+    const swayX = calm * (0.03 * menace + breath * 0.006 * P.idle);
+    // Side to side: the waddle onto the planted foot, the idle weight shift, a looming boss's sway. A
+    // narrow look rolls; a wide hem (small side lean caps) shifts its weight sideways instead, so it
+    // never dips into the floor.
+    const side = calm * (Math.sin(this.time * 0.9) * 0.014 * P.idle + Math.sin(this.time * 1.85) * 0.035 * menace) +
+      this.stride * Math.sin(this.stepPhase) * 0.03 * P.bob;
+    const roll = saturate((Math.min(this.leanCaps[2], this.leanCaps[3]) - 0.12) / 0.2);
+    const swayZ = side * roll;
+    const shift = side * (1 - roll) * 1.4 * w.sizeScale;
+    const yaw = calm * (Math.sin(this.time * 0.53) * 0.025 * P.idle + Math.sin(this.time * 0.7 + 1) * 0.035 * menace);
+
+    // Lean, sway, flinch and the cast's gather (back) and lunge (forward), capped so a wide hem never
+    // tips far into the floor (the rest is lifted out below).
+    // +X tips the front down, -X the back; +Z tips the right side (-X) down, -Z the left.
+    const winding = w.cast ? saturate(w.cast.elapsed / w.cast.duration) : 0;
+    const caps = this.leanCaps;
+    const leanX = clamp(this.leanX + swayX + this.flinchX + (this.lunge - winding * 0.08) * P.lunge, -caps[1], caps[0]);
+    const leanZ = clamp(this.leanZ + swayZ + this.flinchZ, -caps[2], caps[3]);
+    tmpQ.setFromAxisAngle(X_AXIS, leanX);
+    tmpQ2.setFromAxisAngle(Z_AXIS, leanZ);
+    tmpQ.multiply(tmpQ2);
+    if (yaw !== 0) tmpQ.premultiply(tmpQ2.setFromAxisAngle(Y_AXIS, yaw));
+
+    // Dodge roll without a roll clip: full flip around the axis perpendicular to the roll direction.
+    let squash = 1;
+    if (w.dodging && !anim?.has('dodge')) {
+      const p = 1 - w.dodgeTime / W.dodge.duration;
+      const e = p * p * (3 - 2 * p);
+      const dx = w.dodgeDir.x, dz = w.dodgeDir.z;
+      const lx = dx * c - dz * s;
+      const lz = dx * s + dz * c;
+      tmpAxis.set(lz, 0, -lx).normalize();
+      tmpQ2.setFromAxisAngle(tmpAxis, e * Math.PI * 2);
+      tmpQ.premultiply(tmpQ2);
+      squash = 1 - Math.sin(p * Math.PI) * 0.35;
+    }
+
+    // Death without a defeat clip: topple backwards (a defeat clip falls on its own).
+    if (!alive && !anim?.has('defeat')) {
+      this.deathT = Math.min(1, this.deathT + dt * 2.2);
+      const e = 1 - (1 - this.deathT) * (1 - this.deathT);
+      tmpQ2.setFromAxisAngle(X_AXIS, -e * 1.45);
+      tmpQ.premultiply(tmpQ2);
+    } else {
+      this.deathT = 0;
+    }
+    this.pivot.quaternion.copy(tmpQ);
+
+    // Squash and stretch, the windup's crouch, and breathing.
+    squash *= (1 + this.stretch) * (1 - winding * 0.03 * P.lunge) * (1 + breath * 0.008 * calm * P.idle * (1 + menace));
+    const thin = (1 - this.stretch * 0.5) * (1 - breath * 0.004 * calm * P.idle);
+
+    // Bob: celebrate hops, footsteps, or the breath's rise and fall.
     let bob = 0;
     if (frozen || !w.grounded) bob = 0;
-    else if (this.celebrate) bob = Math.abs(Math.sin(this.time * 7)) * 0.25;
-    else if (moving) bob = Math.abs(Math.sin(this.time * (w.sprinting ? 15 : 12))) * 0.06;
-    else bob = Math.sin(this.time * 2.2) * 0.012;
+    else if (this.celebrate) bob = Math.abs(Math.sin(this.time * 7)) * 0.25 * (anim?.has('victory') ? 0.25 : 1);
+    else {
+      bob = this.stride * Math.abs(Math.sin(this.stepPhase)) * 0.055 * (1 + 0.6 * heavy) * P.bob;
+      bob += calm * breath * 0.012 * (1 + menace) * P.idle;
+    }
     // A lean about the hip tips a wide look's hem into the floor: lift it by whatever would dip
     // (nothing when standing straight).
     this.leanLift = 0;
-    if (w.alive && !w.dodging && this.feet.length === 4) {
+    if (alive && !w.dodging && this.feet.length === 4) {
       this.leanLift = leanDip(this.feet[leanX >= 0 ? 0 : 1], leanX, thin, squash) + leanDip(this.feet[leanZ >= 0 ? 3 : 2], leanZ, thin, squash);
     }
-    this.pivot.position.y = 0.9 * squash + bob + this.leanLift - (w.alive ? 0 : this.deathT * 0.55);
+    this.pivot.position.y = 0.9 * squash + bob + this.leanLift - this.deathT * 0.55;
     this.pivot.scale.set(thin, squash, thin);
-
-    // Stun jitter.
-    if (frozen) this.pivot.position.x = (Math.random() - 0.5) * 0.03;
-    else this.pivot.position.x = 0;
+    // The lunge carries the body forward; a stunned wizard shivers in the ice.
+    this.pivot.position.z = this.lunge * 0.5 * P.lunge;
+    this.pivot.position.x = frozen ? Math.sin(this.time * 97) * Math.sin(this.time * 61) * 0.015 : shift;
 
     // Arm thrust on release, raised a little during windup (the placeholder's prop stays near its muzzle).
-    const winding = w.cast ? saturate(w.cast.elapsed / w.cast.duration) : 0;
     this.armPivot.position.z = w.castPulse * 0.16 + winding * 0.05;
     this.armPivot.rotation.x = -winding * 0.25 - w.castPulse * 0.15;
 
-    // Muzzle glows, the windup glow at the muzzle and cast flashes.
+    // Ice shell (stunned): the rig's stun clip plays until it has formed, then the pose is frozen in it.
+    this.iceScale = damp(this.iceScale, frozen ? 1 : 0, frozen ? 25 : 12, dt);
+    this.ice.visible = this.iceScale > 0.02;
+    if (this.ice.visible) {
+      const k = this.iceScale * w.sizeScale;
+      this.ice.scale.set(k, k * 1.45, k);
+      this.ice.position.y = w.shieldCenterY;
+      this.ice.rotation.y = this.time * 0.3;
+    }
+
+    // Clips (rigged looks): the legs follow movement only, not a knockback slide.
+    if (anim) {
+      const inp = this.animInput;
+      inp.speed = Math.hypot(w.vel.x, w.vel.z);
+      inp.localX = w.vel.x * c - w.vel.z * s;
+      inp.localZ = w.vel.x * s + w.vel.z * c;
+      inp.celebrate = this.celebrate;
+      inp.iceFormed = this.iceScale > 0.85;
+      inp.weight = heavy;
+      anim.update(w, dt, inp);
+    }
+    // Split wings (Tinubu's LeftWing/RightWing): a slow, menacing flap about the bone's forward axis
+    // (their bind axes are the model's; +Z lifts the left wing, -Z the right), beating faster and
+    // wider while a spell winds up or leaves and through a transformation; nearly still when KO'd or
+    // frozen. Within the rig's tested range, -25° (fold) to +30° (lift).
+    if (this.wings.length) {
+      const roused = w.cast !== null || w.castPulse > 0.2 || w.evolving ? 1 : 0;
+      this.wingRouse = damp(this.wingRouse, roused, roused ? 8 : 2.5, dt);
+      this.wingPhase += dt * ((1.9 - 0.5 * heavy) + 3.2 * this.wingRouse);
+      const amp = (0.2 + 0.18 * this.wingRouse) * (alive && !frozen ? 1 : 0.15);
+      const flap = clamp(0.05 + Math.sin(this.wingPhase) * amp, -0.43, 0.52);
+      for (const wing of this.wings) {
+        tmpQ2.setFromAxisAngle(Z_AXIS, flap * (wing.userData.wingSide as number));
+        wing.quaternion.copy(wing.userData.wingRest as THREE.Quaternion).multiply(tmpQ2);
+      }
+    }
+
+    // Muzzle glows (on their sockets when rigged), the windup glow at the muzzle and cast flashes.
     this.updateMuzzles(w, dt, winding);
 
     // Hit flash / stun tint.
-    const flash = saturate(w.hitFlash / CONFIG.wizard.hitFlashTime);
+    const flash = saturate(w.hitFlash / W.hitFlashTime);
     // Flash strength fades with the timer so rapid hits flicker instead of pinning the model white.
     const f = flash * flash * 1.4;
     tmpColor.setRGB(f, f, f);
@@ -1035,44 +1275,42 @@ export class WizardVisual {
       this.shield.position.y = w.shieldCenterY;
     }
 
-    // Ice shell.
-    this.iceScale = damp(this.iceScale, frozen ? 1 : 0, frozen ? 25 : 12, dt);
-    this.ice.visible = this.iceScale > 0.02;
-    if (this.ice.visible) {
-      const k = this.iceScale * w.sizeScale;
-      this.ice.scale.set(k, k * 1.45, k);
-      this.ice.position.y = w.shieldCenterY;
-      this.ice.rotation.y = this.time * 0.3;
-    }
-
     // The team ring stays on the ground under an airborne wizard (a landing marker), shrinking with height.
-    this.ring.visible = w.alive;
+    this.ring.visible = alive;
     const ground = Math.min(y, w.grounded ? y : w.groundY);
     const lift = y - ground;
     this.ring.position.y = 0.03 - lift;
     this.ring.scale.setScalar(1 - 0.3 * saturate(lift / 1.5));
     (this.ring.material as THREE.MeshBasicMaterial).opacity = (0.35 + (w.invulnerable ? 0.4 : 0)) * (1 - 0.4 * saturate(lift / 1.5));
+  }
 
-    // Animation clips for real models.
-    if (this.mixer) {
-      if (!w.alive) this.play('defeat', 0.2);
-      else if (this.celebrate) this.play('victory', 0.2);
-      else if (frozen) this.play('stunned', 0.08);
-      else if (w.dodging) this.play('dodge', 0.06);
-      else if (w.cast) this.play(w.cast.spell === 'ultimate' ? 'castBig' : 'cast', 0.06);
-      else if (w.castPulse > 0.75) this.play('cast', 0.05, w.castPulse > 0.97);
-      else if (w.hitFlash > 0.08) this.play('hit', 0.05);
-      else if (!w.grounded) {
-        // No jump clip: hold a slowed run pose through the air.
-        this.play('run', 0.15);
-        const run = this.actions.get('run');
-        if (run) run.timeScale = 0.3;
-      } else if (moving) {
-        this.play('run', 0.15);
-        const run = this.actions.get('run');
-        if (run) run.timeScale = speed / CONFIG.wizard.moveSpeed;
-      } else this.play('idle', 0.2);
-      this.mixer.update(frozen ? 0 : dt);
+  /** A hit: tip the body along its knockback (back, for a blow from the front), and crumple a little. */
+  private flinch(w: Wizard, s: number, c: number): void {
+    const kx = w.knock.x, kz = w.knock.z;
+    const k = Math.hypot(kx, kz);
+    let lx = 0, lz = -1;
+    if (k > 0.3) {
+      lx = (kx * c - kz * s) / k;
+      lz = (kx * s + kz * c) / k;
+    }
+    const kick = 3.2 * this.proc.flinch;
+    this.flinchXV += lz * kick;
+    this.flinchZV -= lx * kick;
+    this.stretchVel -= 0.9 * this.proc.flinch;
+  }
+
+  /** The springs (squash/stretch toward `restStretch`, flinch, lunge), in fixed sub-steps so long frames stay stable. */
+  private springs(dt: number, restStretch: number): void {
+    for (let left = dt; left > 1e-5; left -= 1 / 120) {
+      const h = Math.min(left, 1 / 120);
+      this.stretchVel += (-320 * (this.stretch - restStretch) - 16 * this.stretchVel) * h;
+      this.stretch += this.stretchVel * h;
+      this.flinchXV += (-160 * this.flinchX - 11 * this.flinchXV) * h;
+      this.flinchX += this.flinchXV * h;
+      this.flinchZV += (-160 * this.flinchZ - 11 * this.flinchZV) * h;
+      this.flinchZ += this.flinchZV * h;
+      this.lungeV += (-200 * this.lunge - 15 * this.lungeV) * h;
+      this.lunge += this.lungeV * h;
     }
   }
 }

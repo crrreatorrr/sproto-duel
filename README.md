@@ -225,6 +225,33 @@ leaves its caster from a **muzzle** on the current look (`src/wizard/muzzles.ts`
   gone entirely when the camera is inside one. Wide models lean less and are lifted while leaning
   so their hems never dip into the floor.
 
+## Character animation
+
+Every character moves, rigged or not (`src/wizard/WizardVisual.ts`, `src/wizard/Animator.ts`):
+
+- **Rigged looks** (skinned GLBs in `public/assets/models/rigged/`, preferred over the static mesh
+  when the file exists; see ASSETS.md) play their baked clips through a two-layer state machine:
+  - **legs**: idle; locomotion blended by direction relative to facing (run, strafe left/right,
+    run back), phase-synced and sped up with the speed; jump, roll, hit, stun, victory, defeat;
+  - **upper body**: follows the legs, but casts and hit reactions play here over running, so the
+    legs keep running while the arms cast.
+  Cross-fades take 0.06-0.25 s with normalized weights. Casts are scrubbed so the staff thrust
+  peaks exactly on release (blast and the Ultimate use `cast_big` through the follow-through), hits
+  hold ~0.35 s, a stun's ice freezes the pose once formed, and hit-stop freezes everything. Root
+  motion is pinned at load so the body stays over its collider; the mocap's turned stances are
+  turned back (a constant hips yaw per clip, measured at load) and a look-at keeps the eyes on the
+  target. Missing clips fall back gracefully (no strafe clips: the hips turn toward the travel
+  while the chest keeps facing the target); Tinubu's split wings flap procedurally.
+- **Procedural motion** on the hip pivot (all of it for static meshes and placeholders, a lighter
+  share on top of clips): breathing and idle sway, a lean into movement, acceleration and turns, a
+  footstep bob and waddle paced by the stride, jump squash and stretch, a flinch along the
+  knockback, a gather-and-lunge on casts, the roll flip and death topple when there is no clip.
+  Boss stages carry themselves heavier each stage (slower idle and stride, bigger landings) and the
+  last stage looms with a slow sway and hunch (manifest `motion`).
+- **Muzzle sockets**: on a rigged look the staff orb, phone, vape or gun glow, charge glow, muzzle
+  light and cast effects ride a bone socket (manifest `rigged.sockets`), so they follow the animated
+  prop. Projectiles still spawn from the measured muzzle point (`Wizard.castPoint`).
+
 ## Project layout
 
 ```
@@ -232,10 +259,12 @@ src/
   config.ts             all tuning numbers
   App.ts                menus, match, pause, pointer lock, settings
   main.ts               boot + debug handle (window.__duel)
-  assets/               manifest.ts (asset keys -> files) and the loader with fallbacks
+  assets/               manifest.ts (asset keys -> files), the loader with fallbacks (rigged -> static -> placeholder),
+                        rig.ts (skinned models: root motion, body-half clip split)
   core/                 Game loop (fixed 60 Hz sim + interpolation), Match flow, Input, events, feel (hit-stop/shake/flash)
   physics/              Rapier wrapper: character controller, sphere casts, raycasts
-  wizard/               shared Wizard entity + its visual (placeholder or GLB, procedural animation), muzzles
+  wizard/               shared Wizard entity + its visual (placeholder, static or rigged GLB), clip state machine
+                        (Animator.ts), procedural motion, muzzles
   player/               keyboard + mouse controller (input buffering, aim assist)
   enemy/                AI state machine (approach / attack / evade / retreat)
   spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate,
@@ -265,6 +294,7 @@ A QA harness runs inside the game. Open the browser console:
 ```js
 await __duel.qa.runAll()            // deterministic scenarios over the real simulation
 await __duel.qa.runAll('muzzles.')  // spells leave each caster's staff, phones, vape, gun, hand, mouth
+await __duel.qa.runAll('anim.')     // rigged files preferred, clip state machine, root pinned, sockets, no leaks
 await __duel.qa.soak('normal', 6)   // headless AI-vs-AI rounds: pacing, damage share, tickets per side
 await __duel.qa.perf(8)             // real frame-time stats while you play
 ```
@@ -280,6 +310,8 @@ synthetic input, measures performance, and reports bugs and feel problems by sev
 - Fixed 60 Hz simulation with render interpolation; hit-stop pauses the sim, not the camera.
 - Projectiles, particles, debris, popups, flashes and beams are pooled; nothing is allocated per
   frame in the hot paths.
+- Rigged characters: every clip action is created once per look and driven by weights and explicit
+  times (no per-frame allocation); skinned meshes skip frustum culling (three at most on screen).
 - Pixel ratio capped at 1.5, bloom at half resolution, one shadow-casting light. Bloom and shadows
   can be turned off in Settings.
 - Rapier ships its WebAssembly inlined (about 1.7 MB gzipped) in its own cached chunk.

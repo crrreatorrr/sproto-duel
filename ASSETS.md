@@ -19,7 +19,9 @@ Tuning per asset, all in `src/assets/manifest.ts`:
 | `fitHeight` | Always set for models. Higgsfield models come at arbitrary scale; the loader rescales to this height and stands the model on the floor. |
 | `rotationY` | The model doesn't face forward (+Z). Try `180` or `90`. |
 | `yOffset` | Feet float or sink after fitting. |
-| `clips` | Wizard animation names inside the GLB (case-insensitive, substrings OK). |
+| `clips` | Wizard animation names inside the GLB (case-insensitive; exact names first, then substrings). |
+| `rigged` | A skinned, animated version of the model (`models/rigged/`), used instead when on disk. See *Rigged characters*. |
+| `motion` | Procedural motion style: `weight` (heavier, slower) and `menace` (a looming sway), 0..1. Boss stages get heavier each stage. |
 
 Audio and textures may use any common extension: list `audio/bolt_cast.mp3`, save
 `audio/bolt_cast.wav`, it is still found.
@@ -83,19 +85,66 @@ Audio and textures may use any common extension: list `audio/bolt_cast.mp3`, sav
 > Iron fire brazier on a short stand, wide bowl with claw feet and rune engravings, empty bowl
 > (flames are added in game), stylized hand-painted texture, game-ready low-poly
 
-### Wizard animations (optional but recommended)
+### Rigged characters (`models/rigged/`)
 
-Higgsfield 3D outputs are usually static meshes. Without animation clips the game animates wizards
-procedurally (lean, bob, roll, cast thrust, topple), so a static model already works. For full
-animation:
+The player and every boss stage have a static Higgsfield/Tripo mesh (animated procedurally: breathing,
+sway, leans, footstep bob, squash and stretch, flinch, cast lunge, topple) **and** an optional
+skinned, animated version in `models/rigged/`. When the rigged file is on disk the loader uses it
+instead and the clips drive the body; when it is missing (or fails to load) the static mesh is used,
+so files can land one at a time.
 
-1. Upload the GLB to [Mixamo](https://www.mixamo.com) and auto-rig it.
-2. Download these animations (FBX, "with skin" for the first one, "without skin" for the rest):
-   Idle, Running, Standing 1H Magic Attack (cast), Standing 2H Magic Area Attack (big cast),
-   Sprinting Forward Roll, Hit Reaction, Dizzy (stunned), Victory, Dying.
-3. Combine them in Blender into one GLB. Name the actions to match the manifest `clips`: `idle`,
-   `run`, `cast`, `cast_big`, `roll`, `hit`, `stun`, `victory`, `defeat` (or edit `clips` to match
-   your names).
+| Manifest key | Rigged file |
+|---|---|
+| `wizardPlayer` | `models/rigged/wizard_player.glb` |
+| `boss<Id>1..3` (Sahil, Obama, Midget, Broccoli, Agent, Tinubu) | `models/rigged/<id>_stage1..3.glb`, e.g. `sahil_stage2.glb`, `midget_stage3.glb` |
+
+**Pipeline** (the rigging agents' tooling): the stage's Tripo mesh is auto-rigged with
+Higgsfield/Meshy (24-joint humanoid: `Hips`, `Spine02`, `Spine01`, `Spine`, `neck`, `Head`, and
+`Left`/`Right` `Shoulder`, `Arm`, `ForeArm`, `Hand`, `UpLeg`, `Leg`, `Foot`, `ToeBase`), the mage
+motion set is retargeted onto it (calibrated to the character's own idle), props such as staffs
+are split onto the hand bone and kept upright, and the result is optimized to one GLB per stage.
+Conventions the game relies on:
+
+- **Facing +Z** (manifest `rigged.rotationY` 0; the static Tripo meshes need -90).
+- **Already fitted**: height equals the entry's `fitHeight` with the feet at y = 0. The loader still
+  applies `fitHeight` and `anchor: 'feet'` (a no-op when fitted). The `Armature` root is scaled 0.01
+  (centimetre bones); leave it.
+- **Clips are baked per character**, named: `idle`, `run`, `cast`, `cast_big`, `hit`, `defeat`,
+  `roll`, `stun`, `victory`, `jump`, `strafe_l`, `strafe_r`, `run_back` (manifest `WIZARD_CLIPS`;
+  exact names first, then substrings). Missing clips are fine: no strafe clips means the run plays
+  with the hips turned toward the travel, no `run_back` plays the run backwards, no `roll`/`defeat`
+  keeps the procedural flip and topple, no `jump` holds a slowed run in the air. `rigged.skipClips`
+  turns clips off per model (Tinubu: no `roll` or `jump`, his rigid wings and robe go through the
+  floor). Rates: roll is stretched to the 0.34 s dodge (~2.9x), jump to the 0.68 s airtime (~0.83x,
+  the game's arc drives the height), run, strafes and run_back share one phase paced by speed.
+- **Root motion is removed at load** (`src/assets/rig.ts`): every clip's `Hips` horizontal track is
+  replaced by the constant that centres the clip's feet on the collider (height kept), so the body
+  never drifts off its hitbox; `defeat` keeps its travel (the body falls away backwards).
+- **Cast timing**: the release is ~0.45 s into `cast` and ~0.62 s into `cast_big` (override per
+  model with `rigged.castPeak` / `castBigPeak`). Windups are scrubbed so that moment lands exactly on
+  the spell's release; bolts snap in just before it.
+- **Facing**: the library's mocap stands turned (idle about -25° at the hips, a hit about -60°). At
+  load the game measures each clip's average chest yaw against the run (straight ahead) and turns
+  the hips of idle, hit, cast_big, stun and victory back by it; a look-at then turns the chest,
+  neck and head back toward the target in every clip but roll and defeat. The plain `cast` keeps
+  its side-on body (its staff thrust aims at the target) with the eyes on the target.
+- **Wings** split onto their own bones without clip channels (Tinubu's `LeftWing`/`RightWing`
+  under `Spine`, bind axes = model axes) flap procedurally about their forward axis, faster during
+  casts and transformations.
+- Skinned meshes are never frustum culled, and each copy's skeleton is freed when a stage swaps.
+
+**Muzzle sockets** (visual only): `rigged.sockets` puts a muzzle point (`staff`, `phoneR`, `phoneL`,
+`vape`, `gun`, `hand`, `mouth`, matching the muzzle names below) on a bone,
+`{ bone, offset, glowOffset? }` in that bone's local centimetres: `offset` is the game's muzzle
+point, `glowOffset` the gem's or flame's centre where the glow sits (defaults to `offset`). The
+rigging tooling measures them into a `sockets.json`; paste its entries into `RIG_SOCKETS` in
+`src/assets/manifest.ts` (keyed by manifest key, then muzzle name). The muzzle's glows, charge glow,
+light and cast effects then ride the animated prop. Spells still spawn from the measured muzzle
+point (`Wizard.castPoint`), the deterministic gameplay origin. Measured so far: the player, Sahil
+1-3 (staff on `RightHand`) and Tinubu 1-3 (hand on `RightHand`, mouth on `Head`).
+
+Check a new file with `await __duel.qa.runAll('anim.')` (rigged preferred, clips found, root
+pinned, sockets on their bones, swaps leak nothing) and `runAll('muzzles.')`.
 
 ### Shrinking files
 
@@ -171,8 +220,9 @@ points for one cast alternate shot by shot. Without a GLB, the primitive placeho
 matching code-built prop (`PLACEHOLDER_MUZZLES`). A model with no muzzle data casts from a generic
 wand point in front of the right hand.
 
-Boss models are static meshes (the game animates them procedurally), ≤ 9k triangles each. Generate
-concepts in a wide standing stance rather than a T-pose, since there is no rig: whole body, front
+Boss models are static meshes (the game animates them procedurally; their rigged versions in
+`models/rigged/` take over when present, see *Rigged characters*), ≤ 9k triangles each. Generate
+concepts in a wide standing stance rather than a T-pose: whole body, front
 view, plain background, one character, few detached floating objects. Projectiles are built in code
 (`skins` in `levels.ts`).
 
