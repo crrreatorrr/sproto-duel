@@ -97,6 +97,8 @@ export class AIController implements TickController {
   private lastHurtAt = -1e9;
   /** Boss reward spells (only if this AI's wizard learned some: the soak's reference player). */
   private rewardCheck = 0;
+  /** Use learned reward spells at all (off for the menu's background duel). */
+  useRewards = true;
   /** When an enemy last fired a signature volley within range. */
   private volleyAlertAt = -1e9;
   /** Seconds the target has been strafing across our line of fire (Lock-On). */
@@ -279,7 +281,7 @@ export class AIController implements TickController {
    */
   private thinkRewards(dt: number, toTarget: THREE.Vector3, dist: number): void {
     const w = this.self;
-    if (w.learned.size === 0) return;
+    if (!this.useRewards || w.learned.size === 0) return;
     const t = this.target;
     // How fast the target crosses our line of fire.
     const lateral = Math.abs(t.vel.x * -toTarget.z + t.vel.z * toTarget.x);
@@ -611,7 +613,7 @@ export class AIController implements TickController {
     // On the carpet: get away fast, sideways and back (a life pack goal above still wins).
     if (w.riding && !goal) move.copy(toTarget).multiplyScalar(-0.55).addScaledVector(strafe, 1);
     // Hurt, in our own vape cloud: stay inside it (healing, hidden) and keep moving within it.
-    const smoke = w.learned.has('vape') && w.health < w.maxHealth * RAI.vapeStayHealth ? this.arena.smokeAt(w.pos.x, w.pos.z, w) ?? this.ownSmokeNear() : null;
+    const smoke = this.useRewards && w.learned.has('vape') && w.health < w.maxHealth * RAI.vapeStayHealth ? this.arena.smokeAt(w.pos.x, w.pos.z, w) ?? this.ownSmokeNear() : null;
     if (smoke && this.state !== 'evade' && !goal) {
       const dx = smoke.x - w.pos.x, dz = smoke.z - w.pos.z;
       const d = Math.hypot(dx, dz);
@@ -774,7 +776,7 @@ export class AIController implements TickController {
     }
     if (this.burstLeft <= 0) {
       // Pump It before a burst, if it was learned and there is mana to spare for the burst.
-      if (w.learned.has('pump') && this.spells.rewards.ready(w, 'pump') && w.mana >= RS.pump.manaCost + RAI.pumpManaSpare) {
+      if (this.useRewards && w.learned.has('pump') && this.spells.rewards.ready(w, 'pump') && w.mana >= RS.pump.manaCost + RAI.pumpManaSpare) {
         intent.press('pump');
       }
       this.burstLeft = randInt(p.burst[0], p.burst[1]) + (this.punishTimer > 0 ? 2 : 0);

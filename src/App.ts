@@ -93,6 +93,7 @@ export class App {
       },
     };
     this.attract = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');
+    this.attract.useRewards = false; // the menu's background duel never shows off learned spells
     game.onTick((dt) => this.attractTick(dt));
 
     this.hud = new HUD(game.ui, game, this.match);
