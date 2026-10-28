@@ -211,6 +211,8 @@ export class Animator {
    * chest still faces the target.
    */
   private hipYaw = 0;
+  /** State saved by poseRelease() for restorePose(). */
+  private saved: { legs: Float32Array; arms: Float32Array; clock: Float32Array; hipYaw: number } | null = null;
   private hips: THREE.Object3D | null;
   private spine: THREE.Object3D | null;
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -398,6 +400,37 @@ export class Animator {
     this.legs.step(t);
     this.arms.step(t);
     this.advance(w, t, inp);
+    this.apply();
+  }
+
+  /**
+   * Pose the skeleton exactly as `clip` looks at its release peak, on both layers and facing forward
+   * (the stance fix applies; no strafe hip turn), so a caller can measure where a prop is when a
+   * spell leaves it (WizardVisual's release points). Returns false without that clip. Always pair
+   * with restorePose().
+   */
+  poseRelease(clip: 'cast' | 'castBig'): boolean {
+    const slot = this.byClip.get(clip);
+    if (!slot) return false;
+    this.saved = { legs: Float32Array.from(this.legs.w), arms: Float32Array.from(this.arms.w), clock: Float32Array.from(this.clock), hipYaw: this.hipYaw };
+    this.legs.w.fill(0);
+    this.arms.w.fill(0);
+    this.legs.w[slot.src] = this.arms.w[slot.src] = 1;
+    this.clock[slot.src] = this.peakOf(slot.src);
+    this.hipYaw = 0;
+    this.apply();
+    return true;
+  }
+
+  /** Undo poseRelease(): back to the pose and weights from before it. */
+  restorePose(): void {
+    const s = this.saved;
+    if (!s) return;
+    this.legs.w.set(s.legs);
+    this.arms.w.set(s.arms);
+    this.clock.set(s.clock);
+    this.hipYaw = s.hipYaw;
+    this.saved = null;
     this.apply();
   }
 

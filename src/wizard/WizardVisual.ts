@@ -101,6 +101,12 @@ interface MuzzleSlot {
   readonly home: THREE.Vector3;
   /** Rigged look: an empty riding the socket's bone, which the anchor follows. */
   socket: THREE.Object3D | null;
+  /**
+   * Rigged look: where the socket is (feet frame) at the release peak of the cast clips, so spells
+   * leave the animated prop (Wizard.castPoint). Measured once per look from the clip data, so the
+   * simulation stays deterministic. null: use `home`.
+   */
+  release: { cast: THREE.Vector3 | null; castBig: THREE.Vector3 | null } | null;
   readonly glow: THREE.Sprite;
   readonly flash: THREE.Sprite;
   /** A code-built phone for an empty fist (MuzzlePoint.prop). */
@@ -434,6 +440,7 @@ export class WizardVisual {
       this.fxScale = height / 2;
       this.applyMuzzles(set ? resolveMuzzles(set, height) : null);
       this.attachSockets(model);
+      this.measureRelease(model);
     } else {
       this.usesModel = false;
       this.rigged = false;
@@ -467,6 +474,28 @@ export class WizardVisual {
       bone.add(socket);
       this.slots[i].socket = socket;
     });
+  }
+
+  /**
+   * Rigged look: pose each cast clip at its release peak and record where every socketed muzzle is
+   * (in the look's feet frame), so projectiles spawn from the animated staff, phone or vape instead
+   * of where the prop sits in the static model.
+   */
+  private measureRelease(model: ModelInstance): void {
+    const anim = this.animator;
+    if (!anim) return;
+    const points = this.slots.map((s) => (s.socket ? { cast: null as THREE.Vector3 | null, castBig: null as THREE.Vector3 | null } : null));
+    if (!points.some(Boolean)) return;
+    for (const clip of ['cast', 'castBig'] as const) {
+      if (!anim.poseRelease(clip)) continue;
+      model.root.updateMatrixWorld(true);
+      this.slots.forEach((s, i) => {
+        const r = points[i];
+        if (r && s.socket) r[clip] = model.root.worldToLocal(s.socket.getWorldPosition(new THREE.Vector3()));
+      });
+      anim.restorePose();
+    }
+    this.slots.forEach((s, i) => (s.release = points[i]));
   }
 
   /** Lean-lift footprint and camera-fade radius of a GLB look, from its vertices (once per swap). */
@@ -503,6 +532,7 @@ export class WizardVisual {
       slot.flare = slot.charge = 0;
       slot.flash.visible = false;
       slot.socket = null;
+      slot.release = null;
       if (!m) continue;
       slot.home.copy(m.local);
       slot.anchor.position.copy(m.local);
@@ -547,7 +577,7 @@ export class WizardVisual {
     anchor.add(glow, flash, phone);
     this.muzzleRoot.add(anchor);
     return {
-      anchor, home: new THREE.Vector3(), socket: null, glow, flash, phone,
+      anchor, home: new THREE.Vector3(), socket: null, release: null, glow, flash, phone,
       color: new THREE.Color(), flashColor: new THREE.Color(), type: 'staff', size: 1, flare: 0, charge: 0,
     };
   }
@@ -560,9 +590,20 @@ export class WizardVisual {
     return list ? list[turn % list.length] : -1;
   }
 
-  /** Muzzle `index`'s point in the look's feet frame (meters, before the root's scale and yaw). */
-  muzzlePoint(index: number, out: THREE.Vector3): THREE.Vector3 {
-    return out.copy(this.muzzles!.points[index].local);
+  /**
+   * Muzzle `index`'s point in the look's feet frame (meters, before the root's scale and yaw). On a
+   * rigged look, `kind` picks the prop's position at that spell's release (cast or cast_big clip).
+   */
+  muzzlePoint(index: number, out: THREE.Vector3, kind?: CastKind): THREE.Vector3 {
+    const rel = kind ? this.slots[index]?.release : null;
+    const at = rel ? (kind === 'blast' || kind === 'ultimate' ? rel.castBig ?? rel.cast : rel.cast ?? rel.castBig) : null;
+    return out.copy(at ?? this.muzzles!.points[index].local);
+  }
+
+  /** Muzzle `index` fires from its animated prop's release position (rigged look with a socket). */
+  muzzleReleased(index: number): boolean {
+    const rel = this.slots[index]?.release;
+    return !!rel && !!(rel.cast || rel.castBig);
   }
 
   /** The type of muzzle `index` ('staff' for the generic wand). */
@@ -699,7 +740,10 @@ export class WizardVisual {
     this.animator?.dispose();
     this.animator = null;
     this.wings.length = 0;
-    for (const s of this.slots) s.socket = null;
+    for (const s of this.slots) {
+      s.socket = null;
+      s.release = null;
+    }
     this.armPivot.clear();
     this.body.clear();
     for (const r of this.owned) r.dispose();

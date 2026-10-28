@@ -60,7 +60,13 @@ function toLocal(w: Wizard, p: THREE.Vector3, out: THREE.Vector3): THREE.Vector3
 }
 
 /** Where stage `stage` of `fighter`'s data says point `name` is, in world space on `w` (root scale included). */
-function dataPoint(w: Wizard, fighter: BossFighter, stage: number, name: string, out: THREE.Vector3, pos?: THREE.Vector3): THREE.Vector3 {
+function dataPoint(w: Wizard, fighter: BossFighter, stage: number, name: string, out: THREE.Vector3, pos?: THREE.Vector3, spell: Spell = 'bolt'): THREE.Vector3 {
+  // A rigged look fires from its animated prop at the cast's release (WizardVisual.measureRelease).
+  const idx = w.visual.muzzles?.points.findIndex((p) => p.name === name) ?? -1;
+  if (idx >= 0 && w.visual.muzzleReleased(idx)) {
+    w.visual.muzzlePoint(idx, out, spell).multiplyScalar(w.visual.root.scale.x);
+    return toWorld(w, out, out, pos);
+  }
   const st = fighter.stages[stage];
   muzzleLocal(st.muzzle.points[name].at, MODELS[st.model].fitHeight!, w.visual.root.scale.x, out);
   return toWorld(w, out, out, pos);
@@ -206,12 +212,14 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
               // The render pose's measured point agrees with the simulation point (a rigged look's glow
               // rides its bone socket instead: animScenarios checks that).
               settle(w);
-              w.visual.muzzleHomeWorld(idx, anchor);
-              w.castPoint(spell, got, idx);
-              c.expect(anchor.distanceTo(got) < POSE, `${f.id} stage ${stage + 1}: muzzle anchor ${anchor.distanceTo(got).toFixed(3)} m from castPoint`);
+              if (!w.visual.muzzleReleased(idx)) {
+                w.visual.muzzleHomeWorld(idx, anchor);
+                w.castPoint(spell, got, idx);
+                c.expect(anchor.distanceTo(got) < POSE, `${f.id} stage ${stage + 1}: muzzle anchor ${anchor.distanceTo(got).toFixed(3)} m from castPoint`);
+              }
               const from = castFrom(c, w, spell);
               c.expect(!!from, `${f.id} stage ${stage + 1}: no ${spell}`);
-              dataPoint(w, f, stage, name, exp);
+              dataPoint(w, f, stage, name, exp, undefined, spell);
               const d = from!.distanceTo(exp);
               worst = Math.max(worst, d);
               c.expect(d < TIGHT, `${f.id} stage ${stage + 1}: ${spell} left ${d.toFixed(3)} m from its ${name}`);
@@ -245,8 +253,8 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
         place(game, w, 0, 6, Math.PI + 0.3, p);
         const pts = w.visual.muzzles!.points;
         const hand = pts.findIndex((q) => q.name === 'hand'), mouth = pts.findIndex((q) => q.name === 'mouth');
-        const check = (label: string, from: THREE.Vector3 | null, name: string) => {
-          dataPoint(w, boss, stage, name, exp);
+        const check = (label: Spell, from: THREE.Vector3 | null, name: string) => {
+          dataPoint(w, boss, stage, name, exp, undefined, label);
           c.expect(!!from && from.distanceTo(exp) < TIGHT, `stage ${stage + 1}: ${label} ${from ? from.distanceTo(exp).toFixed(3) : 'none'} m from the ${name}`);
         };
         check('bolt', castFrom(c, w, 'bolt'), 'hand');
@@ -262,7 +270,7 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
         } finally {
           off();
         }
-        dataPoint(w, boss, stage, 'mouth', exp);
+        dataPoint(w, boss, stage, 'mouth', exp, undefined, 'bolt'); // volleys release like bolts (the cast clip)
         c.expect(shots.length === 3 && shots.every((s) => s.distanceTo(exp) < TIGHT), `stage ${stage + 1}: volley shots not from the mouth (${shots.length})`);
         // The Ultimate flares the palm and the mouth together.
         w.ult = S.ultimate.chargeMax;
@@ -289,7 +297,8 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
       dataPoint(q, partner, 0, 'phone', exp);
       c.expect(!!from && from.distanceTo(exp) < TIGHT, `Midget stage 1: bolt ${from ? from.distanceTo(exp).toFixed(3) : 'none'} m from his phone`);
       toLocal(q, from!, local);
-      c.expect(local.x > 0.2 && local.y > 0.6 && local.y < 1.0, `Midget stage 1: bolt at local (${local.x.toFixed(2)}, ${local.y.toFixed(2)}): not his left hand's phone`);
+      // His left hand (+x), at hand height of a 1.25 m man (lower at the cast's release than at rest).
+      c.expect(local.x > 0.2 && local.y > 0.4 && local.y < 1.0, `Midget stage 1: bolt at local (${local.x.toFixed(2)}, ${local.y.toFixed(2)}): not his left hand's phone`);
       c.expect(q.visual.muzzleType(q.muzzleIndex('bolt')) === 'phone', 'Midget muzzle is not a phone');
     });
     // Stages 2 and 3: a phone in each hand, shots alternate; stage 3's are drawn in his fists.
@@ -692,7 +701,8 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
         };
         e.vel.set(0, 0, 0);
         const still = pose() - floor(0, 0);
-        c.expect(Math.abs(still) < 0.03, `${id}: standing, its lowest point is at ${still.toFixed(3)} m`);
+        // A rigged idle plants its feet by itself, within a few cm (Broccoli Head stage 3 sits ~3 cm deep).
+        c.expect(Math.abs(still) < (vis.rigged ? 0.04 : 0.03), `${id}: standing, its lowest point is at ${still.toFixed(3)} m`);
         let worst = Infinity, lift = 0;
         // Sprinting every way, and a knockback slide faster than a sprint.
         for (const [vx, vz] of [[0, 9.6], [0, -9.6], [9.6, 0], [-9.6, 0], [6.8, 6.8], [-6.8, -6.8], [0, 15], [15, 0]]) {
