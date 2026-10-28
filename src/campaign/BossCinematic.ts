@@ -939,7 +939,7 @@ export class BossCinematic {
     const rise = K.rise[s.tier];
     const tB = K.burstAt * D, tS = K.slamAt * D;
     const beats: [number, number, number][] = [
-      [0.3 * D, h0, rise], [tB, h0, rise], [tB, h1, rise], [tB + 0.15, h0, rise], [tB + 0.15, h1, rise],
+      [0.3 * D, h0, rise], [tB, h0, rise], [tB, h1, rise], [tB + 0.15, h0, rise], [tB + 0.15, h1, rise], [tB + 0.3, h1, rise],
       [(tB + tS) / 2, h1, rise], [tS, h1, 0], [Math.min(tS + 0.12, K.returnAt * D), h1, 0],
     ];
     const defStart = s.orbitStart;

@@ -117,7 +117,7 @@ export class Game {
    * warm looks just before the offscreen draw, returns the undo.
    */
   readonly warmHooks: ((looks: readonly THREE.Object3D[]) => () => void)[] = [];
-  /** The fight (boss, partner, arena theme) the last warm-up covered; a change runs one before the next frame. */
+  /** What the last warm-up covered (fightKey); a change runs one before the next frame is drawn. */
   private warmKey = '';
   /**
    * One hidden copy of every boss stage model warmed so far (out of the scene except while a warm-up
@@ -125,7 +125,7 @@ export class Game {
    * session, so a stage swap mid-fight never compiles or uploads anything.
    */
   private readonly warmLooks = new Map<ModelKey, WizardVisual>();
-  /** Programs the last warm-up compiled and how long it took (ms), for QA and the perf overlay. */
+  /** Programs the last warm-up compiled, how long it took (ms) and what it covered (QA). */
   readonly lastWarmUp = { programs: 0, ms: 0, key: '' };
   /** Total simulated time. */
   simTime = 0;
@@ -562,9 +562,13 @@ export class Game {
     this.renderer.render();
   }
 
-  /** The boss, its partner and the arena theme: what a warm-up depends on. */
+  /**
+   * What a warm-up depends on: the boss and its partner, the arena theme (and its asset files,
+   * which arrive after it is applied), and the shadow setting (it changes every lit program).
+   */
   private fightKey(): string {
-    return `${this.boss?.id ?? 'rival'}|${this.partnerActive ? this.partner.name : ''}|${this.arena.theme}`;
+    const shadows = this.renderer.renderer.shadowMap.enabled ? 'shadows' : 'flat';
+    return `${this.boss?.id ?? 'rival'}|${this.partnerActive ? this.partner.name : ''}|${this.arena.theme}|${this.arena.version}|${shadows}`;
   }
 
   /**

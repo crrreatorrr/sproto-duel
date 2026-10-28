@@ -16,8 +16,9 @@ export class Renderer {
   /** Extra bloom on top of CONFIG.render.bloomStrength (a boss transformation; negative turns it down). */
   bloomBoost = 0;
   private resizeListeners: (() => void)[] = [];
-  /** Offscreen target of `precompile`. */
+  /** Offscreen target of `precompile`, and its shadow-pass depth materials (one per variant, kept). */
   private warmTarget: THREE.WebGLRenderTarget | null = null;
+  private readonly depthWarm = new Map<string, THREE.MeshDepthMaterial>();
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
@@ -120,6 +121,7 @@ export class Renderer {
     try {
       r.setRenderTarget(this.warmTarget);
       r.render(this.scene, this.camera);
+      if (r.shadowMap.enabled) this.precompileShadowDepth();
     } finally {
       r.setRenderTarget(prev);
       for (let i = 0; i < objects.length; i++) {
@@ -129,4 +131,63 @@ export class Renderer {
     }
     return this.programCount - before;
   }
+
+  /**
+   * The shadow pass draws most casters with one shared depth material that re-picks its program
+   * only when the kind of object changes (skinned, instanced...), from whichever caster comes next:
+   * so which of its variants (map or not, flipped or double-sided) one draw builds depends on draw
+   * order, and a caster first seen later (a life pack, the carpet) can still compile one mid-fight.
+   * Build every variant the scene's casters can ask for, each held by a depth material of our own
+   * (kept, so the program stays cached). Called by `precompile` with its render target and forced
+   * visibility in place (the light setup must match the real shadow pass).
+   */
+  private precompileShadowDepth(): void {
+    const reps = new Map<string, [THREE.Mesh, THREE.Material]>();
+    this.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.castShadow || m.customDepthMaterial) return;
+      const g = m.geometry;
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        // Casters with alpha cut-outs or displacement get their own depth material (built by the draw).
+        if (((sm.map || sm.alphaMap) && sm.alphaTest > 0) || (sm.displacementMap && sm.displacementScale !== 0) || sm.alphaToCoverage) continue;
+        const side = sm.shadowSide ?? SHADOW_SIDE[sm.side];
+        const im = m as unknown as THREE.InstancedMesh;
+        const key = [
+          (m as THREE.SkinnedMesh).isSkinnedMesh ? 's' : '', im.isInstancedMesh ? `i${im.instanceColor ? 'c' : ''}${im.morphTexture ? 'm' : ''}` : '',
+          Object.keys(g.morphAttributes).join('+'), side, sm.map ? `map${sm.map.channel}` : '', sm.alphaMap ? `amap${sm.alphaMap.channel}` : '', sm.wireframe ? 'w' : '',
+        ].join('|');
+        if (!reps.has(key)) reps.set(key, [m, mat]);
+      }
+    });
+    // The shadow pass draws with an empty scene (no fog: fog is part of the key) and the real lights.
+    const fog = this.scene.fog;
+    this.scene.fog = null;
+    try {
+      for (const [key, [mesh, mat]] of reps) this.compileDepth(key, mesh, mat);
+    } finally {
+      this.scene.fog = fog;
+    }
+  }
+
+  /** Compile the shared depth material's variant for `mat` on `mesh`, held by a depth material of our own. */
+  private compileDepth(key: string, mesh: THREE.Mesh, mat: THREE.Material): void {
+    let dm = this.depthWarm.get(key);
+    if (!dm) this.depthWarm.set(key, (dm = new THREE.MeshDepthMaterial()));
+    const sm = mat as THREE.MeshStandardMaterial;
+    dm.side = sm.shadowSide ?? SHADOW_SIDE[sm.side];
+    dm.map = sm.map;
+    dm.alphaMap = sm.alphaMap;
+    dm.wireframe = sm.wireframe;
+    const own = mesh.material;
+    mesh.material = dm;
+    try {
+      this.renderer.compile(mesh, this.camera, this.scene);
+    } finally {
+      mesh.material = own;
+    }
+  }
 }
+
+/** The side three's shadow pass draws a material's caster with (WebGLShadowMap). */
+const SHADOW_SIDE: Record<THREE.Side, THREE.Side> = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };

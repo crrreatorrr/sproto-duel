@@ -94,7 +94,8 @@ export function registerRenderScenarios(qa: QAHarness, game: Game, app: App): vo
 
   qa.add('wizard.no_white_silhouette_under_breath', (c) => {
     // Tinubu in stage 3 at 4.5 m, under the player's Hellfire Breath and bolts, seen over the
-    // player's shoulder: his silhouette is not blown out to white and the cone of fire reads.
+    // player's shoulder: his silhouette is not blown out to white (before: 45% of it on average,
+    // up to all of it, mean luminance 0.88) and he stays lit in the fire's colours.
     withLiveFight(c, game, app, 4, () => {
       const e = game.enemy, p = game.player;
       jump(game.stages, 2);
@@ -124,7 +125,8 @@ export function registerRenderScenarios(qa: QAHarness, game: Game, app: App): vo
             const s = lookPixels(game, e);
             rows.push(`${(s.blown * 100).toFixed(0)}%/${s.mean.toFixed(2)}`);
             c.expect(s.pixels > 400, `Tinubu is not on screen (${s.pixels} px)`);
-            c.expect(s.blown <= 0.15, `${(s.blown * 100).toFixed(0)}% of Tinubu is blown out to white under the breath (mean ${s.mean.toFixed(2)})`);
+            c.expect(s.blown <= 0.08, `${(s.blown * 100).toFixed(0)}% of Tinubu is blown out to white under the breath (mean ${s.mean.toFixed(2)})`);
+            c.expect(s.mean <= 0.8, `Tinubu is washed out under the breath (mean luminance ${s.mean.toFixed(2)})`);
             c.expect(e.visual.hitGlowLevel <= G.peak + 1e-6, `flash ${e.visual.hitGlowLevel.toFixed(2)} over the cap`);
           }
         }
@@ -163,7 +165,7 @@ export function registerRenderScenarios(qa: QAHarness, game: Game, app: App): vo
           game.inSandbox = true;
         }
         const warm = { ...game.lastWarmUp };
-        c.expect(warm.key.startsWith(`${boss.id}|`) && warm.key.endsWith(`|${boss.theme}`), `${boss.id}: no warm-up behind the card (${warm.key})`);
+        c.expect(warm.key.startsWith(`${boss.id}|`) && warm.key.includes(`|${boss.theme}|`), `${boss.id}: no warm-up behind the card (${warm.key})`);
         // Structural: everything in the scene has a compiled program.
         const missing = new Set<string>();
         game.renderer.scene.traverse((o) => {
