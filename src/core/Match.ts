@@ -45,15 +45,32 @@ export class Match {
     return side === 0 ? this.game.player : this.game.enemy;
   }
 
+  /** The player's side is out: the enemies take the round. */
+  playerDown(): boolean {
+    return !this.game.player.alive;
+  }
+
+  /** Every enemy in the fight is out (both bosses of a double fight): the player takes the round. */
+  enemiesDown(): boolean {
+    return this.game.enemies.every((w) => !w.alive);
+  }
+
+  /**
+   * The side that has won by knockout (0 the player, 1 the enemies), or -1 while both still stand.
+   * Rounds end on this; a single-round mode can reuse it as is.
+   */
+  koWinnerSide(): number {
+    return this.playerDown() ? 1 : this.enemiesDown() ? 0 : -1;
+  }
+
   /** A KO mid-fight: the round ends once a whole side is down; a lone fallen boss is called out. */
   private onKO(loser: Wizard): void {
-    const g = this.game;
-    const team = loser.side === 0 ? [g.player] : g.enemies;
-    if (team.some((w) => w.alive)) {
-      events.emit('callout', { pos: loser.chest(new Vector3()).setY(loser.pos.y + loser.tagHeight), text: `${loser.name} is down!`, style: 'boss' });
+    const side = this.koWinnerSide();
+    if (side >= 0) {
+      this.endRound(this.leader(side), 'ko');
       return;
     }
-    this.endRound(this.leader(1 - loser.side), 'ko');
+    events.emit('callout', { pos: loser.chest(new Vector3()).setY(loser.pos.y + loser.tagHeight), text: `${loser.name} is down!`, style: 'boss' });
   }
 
   /**

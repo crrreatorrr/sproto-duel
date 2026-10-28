@@ -215,6 +215,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(!e.alive && q.alive && phaseOf(m) === 'fight' && ends().length === 0, `round ended when only Obama fell (phase ${m.phase})`);
       c.expect(popupShown(game, 'Bitcoin Obama is down!'), 'no "Bitcoin Obama is down!" callout');
       c.expect(m.wins[0] === 0 && m.wins[1] === 0, `wins ${m.wins}`);
+      c.expect(m.koWinnerSide() === -1 && !m.enemiesDown() && !m.playerDown(), 'side-down helpers with one boss left');
       // The fallen boss stays down and doesn't block shots: a bolt at The Midget passes through the body.
       c.step(C.evolveTime + 0.1); // The Midget's enrage transformation
       c.expect(!e.alive && e.health === 0, 'Obama got back up');
@@ -231,6 +232,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       const end = last();
       c.expect(phaseOf(m) === 'roundEnd' && end.length === 1 && end[0].winner === p && end[0].reason === 'ko', `phase ${m.phase}, roundEnd ${end.length}`);
       c.expect(m.wins[0] === 1 && m.wins[1] === 0 && m.lastWinner === p, `wins ${m.wins}`);
+      c.expect(m.enemiesDown() && m.koWinnerSide() === 0, 'enemiesDown/koWinnerSide after both fell');
     } finally {
       app.toMenu();
       game.setupEnemy(prev);
@@ -248,6 +250,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       withMatchFlow(game, () => ko(game, p, q));
       c.expect(phaseOf(m) === 'roundEnd' && m.wins.length === 2 && m.wins[1] === 1 && m.wins[0] === 0, `phase ${m.phase} wins ${m.wins}`);
       c.expect(m.lastWinner === e && m.roundWinners[0] === e, `round winner ${m.lastWinner?.name}`);
+      c.expect(m.playerDown() && m.koWinnerSide() === 1, 'playerDown/koWinnerSide after the player fell');
       c.expect(e.alive && q.alive, 'a boss went down with the player');
       // A second time decides the match for the enemies.
       m.startRound();

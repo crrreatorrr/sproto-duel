@@ -262,12 +262,23 @@ export class BossStages {
     else if (this.auraLevel > 0 && e.alive) this.emitMotes(boss, dt);
   }
 
+  /**
+   * The stage this boss belongs in right now, never below the current one. The single place a
+   * stage change is decided: today its health against CONFIG.campaign.stageThresholds on one bar.
+   * (A per-stage-bar mode would decide here instead; `enrage` is the only other trigger.)
+   */
+  desiredStage(): number {
+    const e = this.owner;
+    return Math.max(this.stage, stageForHealth(e.health / e.maxHealth));
+  }
+
   // ------------------------------------------------------------------ internals
 
+  /** After every hit on the owner: transform if it now belongs in a later stage. */
   private checkHealth(): void {
     const e = this.owner;
     if (!this.active || !e.alive || e.evolving) return;
-    const target = stageForHealth(e.health / e.maxHealth);
+    const target = this.desiredStage();
     if (target > this.stage) this.evolveTo(target);
   }
 
