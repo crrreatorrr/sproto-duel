@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 
-export type PopupStyle = 'dmg' | 'dmgBig' | 'dmgSelf' | 'perfect' | 'info' | 'stun' | 'block' | 'burn';
+/** `boss`: a campaign boss naming its signature attack, in the boss palette. */
+export type PopupStyle = 'dmg' | 'dmgBig' | 'dmgSelf' | 'perfect' | 'info' | 'stun' | 'block' | 'burn' | 'boss';
 
 interface Popup {
   el: HTMLDivElement;
@@ -43,8 +44,8 @@ export class DamageNumbers {
     p.pos.y += 0.3 + Math.random() * 0.3;
     p.vx = (Math.random() - 0.5) * 40;
     p.vy = -70 - Math.random() * 20;
-    p.maxLife = p.life = style === 'perfect' || style === 'stun' ? CONFIG.ui.damageNumberLife * 1.4 : CONFIG.ui.damageNumberLife;
-    p.scale = style === 'dmgBig' || style === 'perfect' ? 1.5 : style === 'info' || style === 'burn' ? 0.85 : 1;
+    p.maxLife = p.life = style === 'perfect' || style === 'stun' || style === 'boss' ? CONFIG.ui.damageNumberLife * 1.4 : CONFIG.ui.damageNumberLife;
+    p.scale = style === 'dmgBig' || style === 'perfect' || style === 'boss' ? 1.5 : style === 'info' || style === 'burn' ? 0.85 : 1;
     p.el.textContent = text;
     p.el.className = `popup popup-${style}`;
   }

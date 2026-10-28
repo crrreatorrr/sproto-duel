@@ -1,7 +1,7 @@
 import type { Vector3 } from 'three';
 import type { Wizard } from '../wizard/Wizard';
 import type { SpellId } from '../spells/types';
-import type { ProjectileSkin } from '../campaign/levels';
+import type { BossDef, ProjectileSkin } from '../campaign/levels';
 
 export type DamageKind = SpellId | 'fire' | 'splash';
 
@@ -41,8 +41,17 @@ export interface GameEvents {
   roundEnd: { winner: Wizard | null; reason: 'ko' | 'time' };
   matchEnd: { winner: Wizard | null };
   suddenDeath: Record<string, never>;
+  /**
+   * A campaign boss's stage was set: 0 at every round start, 1 or 2 when it evolves. `boss` is null
+   * (stage 0) when the rival stops being a boss. The AI and HUD follow it. See BossStages.
+   */
+  bossStage: { wizard: Wizard; boss: BossDef | null; stage: number };
+  /** A campaign boss starts transforming from stage `from` into `stage` (a big hit can skip one). */
+  bossEvolve: { wizard: Wizard; boss: BossDef; stage: number; from: number; pos: Vector3 };
+  /** A boss fired its signature multi-shot (levels.ts VolleyDef). */
+  volley: { wizard: Wizard; name: string; count: number; pos: Vector3 };
   /** Text popup without damage, e.g. "PERFECT!" or "DODGE". */
-  callout: { pos: Vector3; text: string; style: 'perfect' | 'info' | 'stun' | 'block' };
+  callout: { pos: Vector3; text: string; style: 'perfect' | 'info' | 'stun' | 'block' | 'boss' };
 }
 
 type Handler<T> = (payload: T) => void;

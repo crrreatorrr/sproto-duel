@@ -404,14 +404,40 @@ export const CONFIG = {
     /** Outward push on the player when the boss evolves, and its reach in meters. */
     evolveKnockback: 14,
     evolveRadius: 9,
-    /** AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile. */
+    /** Share of evolveTime after which the next stage's look (model, size, aura) appears. */
+    evolveSwapAt: 0.45,
+    /** Transformation juice: freeze on the burst, screen flash strength, camera trauma. */
+    evolveHitStopMs: 140,
+    evolveFlash: 0.4,
+    evolveShake: 0.75,
+    /** The pillar of light engulfing the boss: height and beam width (m), and seconds until it has faded (the new form shows through). */
+    pillarHeight: 26,
+    pillarWidth: 0.3,
+    pillarTime: 0.85,
+    /** Without a stage GLB the placeholder grows instead (stage 1, 2, 3); with partial GLBs, relative to the shown one. */
+    placeholderScale: [1, 1.12, 1.25] as [number, number, number],
+    /** Stage aura around the boss (glow, ground ring, rising motes): 0 = none, 1 = full. */
+    aura: [0, 0.55, 1] as [number, number, number],
+    /** AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile. Chances are capped at maxChance. */
     stageAI: {
       reactionTime: [1, 0.88, 0.76],
       aimError: [1, 0.88, 0.75],
       burstBonus: [0, 1, 2],
       burstPause: [1, 0.85, 0.7],
       strafeSpeed: [1, 1.08, 1.16],
+      dodgeChance: [1, 1.15, 1.55],
+      perfectShieldChance: [1, 1.3, 2.0],
+      maxChance: 0.95,
     },
+    /** Multiplies the boss's damage per stage, on top of BossDef.damageMultiplier. */
+    stageDamage: [1, 1.1, 1.25] as [number, number, number],
+    /** Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after a stage begins (x cooldown). */
+    volley: { manaCost: 8, range: 22, firstDelay: 0.35 },
+    /**
+     * Sidekick bolts (stages with `sidekickFires`), off for now: Obama's partner is to become a full
+     * wizard of his own. Seconds between throws, damage vs a bolt, aim (lead 0..1, error in radians).
+     */
+    sidekick: { enabled: false, interval: [1.6, 2.4] as [number, number], damageScale: 0.75, lead: 0.3, aimError: 0.06 },
   },
 
   /**

@@ -5,6 +5,7 @@ import { feel } from '../core/feel';
 import { clamp, lerp, segmentSphere } from '../core/math';
 import { GROUP, type ColliderTag, type Physics, type QueryHit } from '../physics/Physics';
 import type { Arena } from '../arena/Arena';
+import type { VolleyDef } from '../campaign/levels';
 import type { Pillar } from '../arena/Pillar';
 import type { Effects } from '../fx/Effects';
 import { SpellFx, type WaveFx } from '../fx/SpellFx';
@@ -17,6 +18,17 @@ const PROJECTILE_MASK = GROUP.WORLD | GROUP.WIZARD | GROUP.GROUND;
 /** Clash detection is a little generous so mid-air collisions actually happen. */
 const CLASH_RADIUS_SCALE = 1.6;
 const SHIELD_CENTER_Y = 1.0;
+
+/** A burst volley still firing (VolleyDef.interval > 0). */
+interface PendingVolley {
+  active: boolean;
+  wizard: Wizard | null;
+  def: VolleyDef | null;
+  /** Shots fired so far. */
+  fired: number;
+  /** Seconds until the next shot. */
+  timer: number;
+}
 
 interface UltWave {
   owner: Wizard;
@@ -34,6 +46,8 @@ const tmpCenter = new THREE.Vector3();
 const tmpNormal = new THREE.Vector3();
 const tmpTarget = new THREE.Vector3();
 const tmpColor = new THREE.Color();
+const tmpFrom = new THREE.Vector3();
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /**
  * Owns casting rules (mana, cooldowns, windups), projectiles and every spell interaction:
@@ -44,6 +58,8 @@ export class SpellSystem {
   readonly pool: ProjectilePool;
   readonly spellFx: SpellFx;
   private readonly waves: UltWave[] = [];
+  /** Burst volleys in flight, matched by caster (one per caster at a time); grows only if every slot is busy. */
+  private readonly volleys: PendingVolley[];
 
   constructor(
     scene: THREE.Scene,
@@ -54,6 +70,7 @@ export class SpellSystem {
   ) {
     this.pool = new ProjectilePool(scene, fx);
     this.spellFx = new SpellFx(scene);
+    this.volleys = wizards.map(() => this.newVolleySlot());
   }
 
   /** Projectiles and beams pass through rolling (i-frames) and knocked-out wizards. */
@@ -65,6 +82,7 @@ export class SpellSystem {
       this.updateCast(w, dt);
       this.handleIntents(w);
     }
+    this.updateVolleys(dt);
     this.updateProjectiles(dt);
     this.resolveClashes();
     this.updateWaves(dt);
@@ -74,6 +92,7 @@ export class SpellSystem {
     this.pool.releaseAll();
     for (const w of this.waves) if (w.fx) this.spellFx.releaseWave(w.fx);
     this.waves.length = 0;
+    for (const v of this.volleys) v.active = false;
     this.spellFx.clear();
   }
 
@@ -90,7 +109,7 @@ export class SpellSystem {
   // =================================================================== casting
 
   private handleIntents(w: Wizard): void {
-    if (!w.alive || w.stunned) return;
+    if (!w.alive || w.stunned || w.evolving) return;
     const intent = w.intent;
 
     // Shield is the panic button: it may interrupt a windup, but not a roll.
@@ -144,7 +163,7 @@ export class SpellSystem {
   private updateCast(w: Wizard, dt: number): void {
     const c = w.cast;
     if (!c) return;
-    if (!w.alive || w.stunned) {
+    if (!w.alive || w.stunned || w.evolving) {
       w.cast = null;
       return;
     }
@@ -165,23 +184,106 @@ export class SpellSystem {
       return true;
     }
     w.cd.bolt = B.fireInterval;
+    w.wandTip(tmpFrom);
+    if (this.launchBolt(w, tmpFrom, this.aimDirection(w, tmpFrom, tmpDir), B.damage)) w.castPulse = 1;
+    return true;
+  }
+
+  /**
+   * Spawn one bolt owned by `w` from `from` along unit `dir`. Every bolt goes through here (held fire,
+   * volleys, sidekick throws), so they all clash, reflect, pool and skin the same way.
+   */
+  private launchBolt(w: Wizard, from: THREE.Vector3, dir: THREE.Vector3, damage: number): Projectile | null {
+    const B = S.bolt;
     const p = this.pool.spawn('bolt');
-    if (!p) return true;
-    w.wandTip(p.pos);
-    p.prevPos.copy(p.pos);
-    this.aimDirection(w, p.pos, tmpDir);
-    p.vel.copy(tmpDir).multiplyScalar(B.speed);
+    if (!p) return null;
+    p.pos.copy(from);
+    p.prevPos.copy(from);
+    p.vel.copy(dir).multiplyScalar(B.speed);
     p.owner = p.caster = w;
     p.radius = B.radius;
-    p.damage = B.damage;
+    p.damage = damage;
     p.power = p.basePower = B.power * w.clashPowerMultiplier;
     p.life = B.lifetime;
     p.refreshLook();
-    w.castPulse = 1;
     w.stats.casts++;
-    this.fx.muzzle(p.pos, tmpDir, w.team.spell, 0.8);
+    this.fx.muzzle(p.pos, dir, w.team.spell, 0.8);
     events.emit('cast', { wizard: w, spell: 'bolt', pos: p.pos });
+    return p;
+  }
+
+  /**
+   * A boss's signature multi-shot: `def.count` bolts at `def.damageScale` x bolt damage (the caster's
+   * damage multiplier applies on hit, as for every spell). With `interval` 0 they leave at once,
+   * fanned evenly across `spreadDeg`; otherwise one every `interval` s, sweeping across the spread
+   * and re-aimed each shot. Needs a free caster (no windup, roll, stun or transformation) and
+   * CONFIG.campaign.volley.manaCost. The AI owns the cooldown. Returns true if it started.
+   */
+  castVolley(w: Wizard, def: VolleyDef): boolean {
+    if (!w.canAct || this.volleyFiring(w) || def.count < 1) return false;
+    if (!w.spendMana(CONFIG.campaign.volley.manaCost)) return false;
+    w.castPulse = 1;
+    w.chest(tmpPoint);
+    events.emit('volley', { wizard: w, name: def.name, count: def.count, pos: tmpPoint });
+    if (def.interval <= 0) {
+      for (let i = 0; i < def.count; i++) this.volleyShot(w, def, i);
+      return true;
+    }
+    this.volleyShot(w, def, 0);
+    if (def.count > 1) {
+      let slot = this.volleys.find((v) => !v.active);
+      if (!slot) this.volleys.push((slot = this.newVolleySlot()));
+      slot.active = true;
+      slot.wizard = w;
+      slot.def = def;
+      slot.fired = 1;
+      slot.timer = def.interval;
+    }
     return true;
+  }
+
+  /** The caster's burst volley is still firing. */
+  volleyFiring(w: Wizard): boolean {
+    for (const v of this.volleys) if (v.active && v.wizard === w) return true;
+    return false;
+  }
+
+  private newVolleySlot(): PendingVolley {
+    return { active: false, wizard: null, def: null, fired: 0, timer: 0 };
+  }
+
+  private updateVolleys(dt: number): void {
+    for (const v of this.volleys) {
+      if (!v.active) continue;
+      const w = v.wizard!, def = v.def!;
+      // A stun, a KO or a transformation cuts the burst short.
+      if (!w.alive || w.stunned || w.evolving) {
+        v.active = false;
+        continue;
+      }
+      v.timer -= dt;
+      while (v.timer <= 1e-9 && v.fired < def.count) {
+        this.volleyShot(w, def, v.fired++);
+        v.timer += def.interval;
+      }
+      if (v.fired >= def.count) v.active = false;
+    }
+  }
+
+  /** Shot `i` of a volley: aimed like a bolt, then turned across the spread (left to right). */
+  private volleyShot(w: Wizard, def: VolleyDef, i: number): void {
+    const t = def.count > 1 ? i / (def.count - 1) - 0.5 : 0;
+    w.wandTip(tmpFrom);
+    this.aimDirection(w, tmpFrom, tmpDir).applyAxisAngle(Y_AXIS, -t * THREE.MathUtils.degToRad(def.spreadDeg));
+    this.launchBolt(w, tmpFrom, tmpDir, S.bolt.damage * def.damageScale);
+  }
+
+  /**
+   * A bolt thrown by a boss's sidekick from `from` along unit `dir`. It is the boss's own bolt
+   * (owner, colours, damage multiplier) at CONFIG.campaign.sidekick.damageScale, and costs nothing.
+   */
+  castSidekickBolt(owner: Wizard, from: THREE.Vector3, dir: THREE.Vector3): Projectile | null {
+    return this.launchBolt(owner, from, dir, S.bolt.damage * CONFIG.campaign.sidekick.damageScale);
   }
 
   private releaseBlast(w: Wizard): void {
@@ -296,12 +398,14 @@ export class SpellSystem {
     if (!hit) return;
     if (hit.tag.kind === 'wizard') {
       const target = hit.tag.wizard;
+      const stuns = !target.evolving; // a transforming boss shrugs it off ("IMMUNE")
       target.applyStun(St.duration);
       this.dealDamage(target, caster, St.damage, end, 'stun');
       this.fx.impact(end, hit.normal, color, 1.2);
       this.fx.flash(end, color, 1.4, 0.12);
       feel.freeze(St.hitStopMs);
       feel.shakeAt(end, 0.35);
+      if (!stuns) return;
       events.emit('stunned', { wizard: target });
       this.callout(target.chest(tmpPoint), 'STUNNED', 'stun');
     } else if (hit.tag.kind === 'pillar') {
@@ -707,11 +811,12 @@ export class SpellSystem {
   ): number {
     if (!target.alive) return 0;
     if (source && source !== target) amount *= source.damageMultiplier;
-    if (target.immune) {
-      // God mode: the hit still reads (flash, knockback, sound, "IMMUNE" popup) but removes no HP.
+    if (target.immune || target.evolving) {
+      // God mode or a transforming boss: the hit still reads (flash, sound, "IMMUNE" popup) but
+      // removes no HP. God mode still takes the knockback; a transforming boss stands its ground.
       target.hitFlash = CONFIG.wizard.hitFlashTime;
       if (source && source !== target) source.stats.hits++;
-      if (knockDir && knockback > 0) target.addKnockback(knockDir.x, knockDir.z, knockback);
+      if (knockDir && knockback > 0 && !target.evolving) target.addKnockback(knockDir.x, knockDir.z, knockback);
       events.emit('damage', { target, source, amount: 0, point: point.clone(), kind });
       return 0;
     }
