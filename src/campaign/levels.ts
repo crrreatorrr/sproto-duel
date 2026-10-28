@@ -83,7 +83,9 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
 /**
  * The boss ladder, easiest first. Fight 1 is deliberately gentle (slower and less accurate than
  * the old Apprentice difficulty); each fight after it is a clear step up. Within a fight, every
- * boss evolves twice and unlocks more attacks each time.
+ * boss evolves twice and unlocks more attacks each time. `ai` is stage 1: CONFIG.campaign.stageAI
+ * sharpens it (aim, tempo, dodging, perfect shields) and stageDamage raises its damage for stages 2
+ * and 3, so the later bosses open softer than they finish. Tuned with `__duel.qa.campaignSoak`.
  */
 export const BOSSES: BossDef[] = [
   boss({
@@ -143,7 +145,7 @@ export const BOSSES: BossDef[] = [
     ai: {
       label: 'Bitcoin Obama',
       reactionTime: 0.45,
-      aimError: 0.15,
+      aimError: 0.13,
       leadFactor: 0.15,
       dodgeChance: 0.25,
       shieldPreference: 0.3,
@@ -157,7 +159,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [10, 15],
     },
     healthMultiplier: 0.9,
-    damageMultiplier: 0.8,
+    damageMultiplier: 1.0,
   }),
   boss({
     id: 'broccoli',
@@ -179,12 +181,12 @@ export const BOSSES: BossDef[] = [
     ai: {
       label: 'Broccoli Head',
       reactionTime: 0.28,
-      aimError: 0.09,
+      aimError: 0.13,
       leadFactor: 0.45,
-      dodgeChance: 0.5,
+      dodgeChance: 0.4,
       shieldPreference: 0.45,
-      perfectShieldChance: 0.25,
-      burst: [3, 4],
+      perfectShieldChance: 0.15,
+      burst: [2, 4],
       burstPause: [0.7, 1.2],
       blastChance: 0.3,
       stunChance: 0.6,
@@ -192,8 +194,8 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.85,
       preferredRange: [9, 14],
     },
-    healthMultiplier: 1.0,
-    damageMultiplier: 1.0,
+    healthMultiplier: 0.95,
+    damageMultiplier: 0.9,
   }),
   boss({
     id: 'agent',
@@ -206,34 +208,34 @@ export const BOSSES: BossDef[] = [
       {
         name: 'Armed Response',
         model: 'bossAgent2',
-        attacks: { blast: true, stun: false, ultimate: false, volley: { name: 'Burst Fire', count: 3, spreadDeg: 3, interval: 0.09, cooldown: 3.5, damageScale: 0.6 } },
+        attacks: { blast: true, stun: false, ultimate: false, volley: { name: 'Burst Fire', count: 3, spreadDeg: 3, interval: 0.09, cooldown: 4.5, damageScale: 0.6 } },
       },
       {
         name: 'Black Ops',
         model: 'bossAgent3',
-        attacks: { ...ALL, volley: { name: 'Full Auto', count: 7, spreadDeg: 7, interval: 0.07, cooldown: 4.5, damageScale: 0.5 } },
+        attacks: { ...ALL, volley: { name: 'Full Auto', count: 7, spreadDeg: 7, interval: 0.07, cooldown: 5, damageScale: 0.4 } },
       },
     ],
     skins: { bolt: 'bullet', blast: 'grenade' },
     palette: { name: 'The Agent', robe: 0x16181d, trim: 0xd8dde6, spell: 0xffd27a, blast: 0xff5a2a, stun: 0xbfe8ff, ultimate: 0xff3030 },
     ai: {
       label: 'The Agent',
-      reactionTime: 0.2,
-      aimError: 0.06,
-      leadFactor: 0.7,
-      dodgeChance: 0.65,
-      shieldPreference: 0.5,
-      perfectShieldChance: 0.45,
-      burst: [4, 5],
-      burstPause: [0.5, 0.9],
+      reactionTime: 0.26,
+      aimError: 0.13,
+      leadFactor: 0.6,
+      dodgeChance: 0.42,
+      shieldPreference: 0.45,
+      perfectShieldChance: 0.18,
+      burst: [2, 4],
+      burstPause: [0.8, 1.2],
       blastChance: 0.6,
       stunChance: 0.45,
       punishChance: 0.85,
       strafeSpeed: 0.95,
       preferredRange: [8, 13],
     },
-    healthMultiplier: 1.05,
-    damageMultiplier: 1.0,
+    healthMultiplier: 0.9,
+    damageMultiplier: 0.9,
   }),
   boss({
     id: 'tinubu',
@@ -258,22 +260,22 @@ export const BOSSES: BossDef[] = [
     palette: { name: 'Tinubu', robe: 0xe9dcc0, trim: 0xd4a017, spell: 0xff3a1a, blast: 0xff7a00, stun: 0xffd0c0, ultimate: 0xff2000 },
     ai: {
       label: 'Tinubu',
-      reactionTime: 0.13,
-      aimError: 0.04,
-      leadFactor: 0.9,
-      dodgeChance: 0.82,
-      shieldPreference: 0.55,
-      perfectShieldChance: 0.7,
-      burst: [4, 7],
-      burstPause: [0.3, 0.7],
-      blastChance: 0.7,
+      reactionTime: 0.2,
+      aimError: 0.1,
+      leadFactor: 0.7,
+      dodgeChance: 0.45,
+      shieldPreference: 0.45,
+      perfectShieldChance: 0.3,
+      burst: [3, 4],
+      burstPause: [0.7, 1.1],
+      blastChance: 0.4,
       stunChance: 0.6,
       punishChance: 1.0,
       strafeSpeed: 1.05,
       preferredRange: [8, 13],
     },
-    healthMultiplier: 1.15,
-    damageMultiplier: 1.05,
+    healthMultiplier: 1.0,
+    damageMultiplier: 1.1,
   }),
 ];
 

@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
 import { MODELS, type ModelKey } from '../assets/manifest';
 import type { BossDef } from '../campaign/levels';
+import { BossStages } from '../campaign/BossStages';
 import { Arena } from '../arena/Arena';
 import { FireRing } from '../arena/FireRing';
 import { CameraRig } from '../camera/CameraRig';
@@ -42,6 +43,8 @@ export class Game {
   enemyController: TickController | null = null;
   /** The campaign boss the rival is dressed as, or null for the default rival. */
   boss: BossDef | null = null;
+  /** The boss's three in-round stages (evolution, stage looks and attacks). Idle without a boss. */
+  readonly stages: BossStages;
   private enemyLook = 'rival';
 
   /** False while paused or in menus: the simulation doesn't advance. */
@@ -102,6 +105,7 @@ export class Game {
     this.spells = new SpellSystem(scene, physics, this.fx, this.wizards, this.arena);
     this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemy);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
+    this.stages = new BossStages(this, this.enemy, this.player);
 
     const syncPointScale = () => {
       this.fx.setPointScale(this.renderer.pointScale);
@@ -121,7 +125,7 @@ export class Game {
     events.on('jump', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), 2, 0.5));
     events.on('land', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), Math.round(2 + e.speed * 0.6), 1.1));
     events.on('damage', (e) => {
-      if (e.target.immune && e.amount <= 0) {
+      if ((e.target.immune || e.target.evolving) && e.amount <= 0) {
         this.popups.spawn(e.target.chest(tmp), 'IMMUNE', 'block');
         return;
       }
@@ -143,6 +147,7 @@ export class Game {
     this.popups.clear();
     feel.reset();
     this.accumulator = 0;
+    this.stages.reset();
   }
 
   /**
@@ -165,6 +170,7 @@ export class Game {
       this.enemyLook = look;
       e.visual.setAppearance(team, this.assets.instantiate(modelKey), MODELS[modelKey], boss ? boss.id : 'wizard');
     }
+    this.stages.setBoss(boss);
   }
 
   /** God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash power. */
@@ -180,8 +186,8 @@ export class Game {
   }
 
   /**
-   * Give both wizards default combat stats until the returned function is called (QA scenarios
-   * assume stock health and damage, whatever boss or god mode is active).
+   * Give both wizards default combat stats, and suspend boss stages, until the returned function is
+   * called (QA scenarios assume stock health and damage, whatever boss or god mode is active).
    */
   useDefaultStats(): () => void {
     const saved = this.wizards.map((w) => ({
@@ -192,6 +198,8 @@ export class Game {
       w.damageMultiplier = w.clashPowerMultiplier = 1;
       w.immune = w.infiniteMana = false;
     }
+    const stagesSuspended = this.stages.suspended;
+    this.stages.suspended = true;
     return () => {
       for (const s of saved) {
         s.w.maxHealth = s.max;
@@ -201,6 +209,7 @@ export class Game {
         s.w.immune = s.immune;
         s.w.infiniteMana = s.mana;
       }
+      this.stages.suspended = stagesSuspended;
     };
   }
 
@@ -273,6 +282,7 @@ export class Game {
       this.enemyController?.update(dt);
     }
     for (const w of this.wizards) w.updateTimers(dt);
+    this.stages.update(dt);
     this.spells.update(dt);
     for (const w of this.wizards) w.updateMovement(dt, this.physics);
     this.physics.step();

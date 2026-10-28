@@ -169,6 +169,11 @@ export class AudioManager {
     on('stunned', (e) => this.play('stunHit', { pos: e.wizard.pos }));
     on('burn', (e) => this.play('fireBurn', { pos: e.wizard.pos }));
     on('pillarBreak', (e) => this.play('pillarCrumble', { pos: e.pos }));
+    // Boss evolution (no dedicated sound yet): a deep ultimate charge over the shockwave's boom.
+    on('bossEvolve', (e) => {
+      this.play('ultCharge', { rate: 0.8, exactPitch: true });
+      this.play('blastExplode', { pos: e.pos, rate: 0.7 });
+    });
     on('ultReady', (e) => {
       if (isPlayer(e.wizard)) this.play('ultReady', { exactPitch: true });
     });

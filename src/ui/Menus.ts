@@ -1,6 +1,9 @@
 import { CONFIG } from '../config';
 import { padGlyph, type PadStyle } from '../core/Gamepad';
 import { MenuNav } from './MenuNav';
+import { resolveImage } from '../assets/AssetLoader';
+import { bossStagePortrait } from '../assets/manifest';
+import { STAGE_COUNT, stageAttackSummary } from '../campaign/BossStages';
 import { ARENA_NAMES, BOSSES, type BossDef } from '../campaign/levels';
 import { bossPortraitHtml, bossStyleVars } from '../campaign/portrait';
 
@@ -82,6 +85,15 @@ export interface BossIntro {
   index: number;
   total: number;
 }
+
+/** A boss's current stage, for the pause screen. */
+export interface StageInfo {
+  /** 0-based stage. */
+  index: number;
+  name: string;
+}
+
+const NUMERALS = ['I', 'II', 'III'];
 
 /** Saved gauntlet progress, for the main menu. */
 export interface GauntletStatus {
@@ -323,12 +335,14 @@ export class Menus {
     this.on(s, '[data-act="back"]', back);
   }
 
-  /** `subtitle`: e.g. the boss being fought in the gauntlet. */
-  showPause(subtitle = ''): void {
+  /** `subtitle`: e.g. the boss being fought in the gauntlet; `stage`: that boss's current stage. */
+  showPause(subtitle = '', stage: StageInfo | null = null): void {
+    const pips = stage ? Array.from({ length: STAGE_COUNT }, (_, i) => `<i class="${i < stage.index ? 'done' : i === stage.index ? 'on' : ''}"></i>`).join('') : '';
     const s = this.mount(`
       <div class="menu-panel pause">
         <h2>Paused</h2>
         ${subtitle ? `<p class="note pause-sub">${subtitle}</p>` : ''}
+        ${stage ? `<p class="pause-stage"><span class="stage-pips">${pips}</span>Stage ${stage.index + 1} of ${STAGE_COUNT} · ${stage.name}</p>` : ''}
         <button class="primary" data-act="resume">Resume</button>
         <button data-act="restart">Restart Match</button>
         <button data-act="howto">How to Play</button>
@@ -337,8 +351,8 @@ export class Menus {
       </div>`, 'pause');
     this.on(s, '[data-act="resume"]', () => this.h.resume());
     this.on(s, '[data-act="restart"]', () => this.h.restart());
-    this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle)));
-    this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle)));
+    this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stage)));
+    this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stage)));
     this.on(s, '[data-act="quit"]', () => this.h.quit());
   }
 
@@ -350,7 +364,16 @@ export class Menus {
     }).join('')}</ol>`;
   }
 
-  /** Pre-fight card: portrait, name, title, intro line, fight number. */
+  /** The boss's three stages: concept art (or a numeral), name, and what each one unlocks. */
+  private stagesHtml(b: BossDef): string {
+    return `<ol class="boss-stages">${b.stages.map((st, i) => {
+      const art = resolveImage(bossStagePortrait(b.id, i));
+      return `<li><div class="stage-art">${art ? `<img src="${art}" alt="${st.name}" draggable="false">` : NUMERALS[i]}</div>
+        <b><i>${NUMERALS[i]}</i>${st.name}</b><small>${stageAttackSummary(b, i)}</small></li>`;
+    }).join('')}</ol>`;
+  }
+
+  /** Pre-fight card: portrait, name, title, intro line, fight number, and the three stages. */
   showBossIntro(info: BossIntro, actions: { begin(): void; back(): void }): void {
     const b = info.boss;
     const hp = Math.round(CONFIG.wizard.maxHealth * b.healthMultiplier);
@@ -372,6 +395,7 @@ export class Menus {
             </dl>
           </div>
         </div>
+        ${this.stagesHtml(b)}
         <button class="primary" data-act="begin">Begin</button>
         <button class="ghost" data-act="menu">Main Menu</button>
       </div>`, 'boss');

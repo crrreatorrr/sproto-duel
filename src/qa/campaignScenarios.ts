@@ -3,6 +3,7 @@ import { CONFIG, type AIProfile } from '../config';
 import type { App } from '../App';
 import { resolveAsset } from '../assets/AssetLoader';
 import { MODELS } from '../assets/manifest';
+import { STAGE_COUNT, stageProfile } from '../campaign/BossStages';
 import { CAMPAIGN_STORAGE_KEY, Campaign } from '../campaign/Campaign';
 import { BOSSES, type BossDef } from '../campaign/levels';
 import { events } from '../core/events';
@@ -55,14 +56,20 @@ export function withSeededRandom<T>(seed: number, fn: () => T): T {
 /**
  * Headless difficulty probe for one opponent: (1) its AI attacks a target strafing left/right
  * that never shoots back, (2) a scripted shooter fires perfectly-led bolts at it. The rival is
- * dressed with `boss` (null = default rival stats).
+ * dressed with `boss` (null = default rival stats). With `stage`, the boss fights as that stage:
+ * its scaled profile, gated attacks and stage damage (`profile` is then ignored).
  */
-export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile: AIProfile, seconds = 12, trials = 2): ThreatSample {
+export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile: AIProfile, seconds = 12, trials = 2, stage?: number): ThreatSample {
   const prevBoss = game.boss;
   game.setupEnemy(boss);
   const p = game.player, e = game.enemy;
   const ai = new AIController(e, p, game.spells, game.physics, game.arena, 'normal');
-  ai.setProfile(profile);
+  const staged = boss && stage !== undefined;
+  ai.setProfile(staged ? stageProfile(boss, stage) : profile);
+  if (staged) {
+    ai.attacks = boss.stages[stage].attacks;
+    e.damageMultiplier = boss.damageMultiplier * CONFIG.campaign.stageDamage[stage];
+  }
   let dmg = 0;
   let time = 0;
   const off = events.on('damage', (ev) => {
@@ -115,6 +122,16 @@ export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile:
   return { name: boss?.name ?? profile.label, dps, hitRate, killsYouIn, youKillIn, threat: youKillIn / killsYouIn };
 }
 
+/** A boss over its whole fight: each stage probed in turn, damage and hit rate averaged across the stages. */
+function measureBossThreat(c: Ctx, game: Game, boss: BossDef, seed: number, seconds: number, trials: number): ThreatSample {
+  const per = Array.from({ length: STAGE_COUNT }, (_, s) => withSeededRandom(seed + s * 101, () => measureThreat(c, game, boss, boss.ai, seconds, trials, s)));
+  const dps = per.reduce((a, x) => a + x.dps, 0) / per.length;
+  const hitRate = per.reduce((a, x) => a + x.hitRate, 0) / per.length;
+  const killsYouIn = W.maxHealth / Math.max(0.01, dps);
+  const youKillIn = Math.round(W.maxHealth * boss.healthMultiplier) / Math.max(0.01, SUSTAINED_BOLT_DPS * hitRate);
+  return { name: boss.name, dps, hitRate, killsYouIn, youKillIn, threat: youKillIn / killsYouIn };
+}
+
 const fmt = (s: ThreatSample) => `${s.name}: ${s.dps.toFixed(1)}dps hit${(s.hitRate * 100).toFixed(0)}% threat=${s.threat.toFixed(2)}`;
 
 /** Run `fn` with the real campaign save stashed away, then put it back. */
@@ -156,8 +173,9 @@ const button = (app: App, act: string) => app.menus.root.querySelector<HTMLButto
 export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): void {
   qa.add('campaign.ladder_escalates', (c) => {
     // Fight 1 must be clearly easier than fight 5 (and easier than the Apprentice quick duel).
-    // Seeded so the AI's dice rolls repeat between runs; 4 trials of 12 s + 9 s per opponent.
-    const samples = BOSSES.map((b, i) => withSeededRandom(1000 + i, () => measureThreat(c, game, b, b.ai, 12, 4)));
+    // Each boss is measured over its three stages (stage profile, attacks and damage), averaged.
+    // Seeded so the AI's dice rolls repeat between runs; 3 trials of 12 s + 9 s per stage.
+    const samples = BOSSES.map((b, i) => measureBossThreat(c, game, b, 1000 + i, 12, 3));
     const apprentice = withSeededRandom(999, () => measureThreat(c, game, null, CONFIG.ai.difficulty.easy, 12, 4));
     c.note(samples.map(fmt).join(' | '));
     c.note(`ref ${fmt(apprentice)}`);
@@ -192,7 +210,10 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
         const before = game.player.health;
         game.spells.dealDamage(game.player, e, 10, game.player.pos, 'bolt');
         c.near(before - game.player.health, 10 * boss.damageMultiplier, 1e-6, `${boss.id} dmg`);
-        const hasGlb = resolveAsset(MODELS[boss.model].path) !== null;
+        // Each round opens in stage 1, in stage 1's model (later stages swap in their own, see stages.*).
+        const stage1 = boss.stages[0].model;
+        c.expect(boss.model === stage1 && boss.stages.every((s) => s.model in MODELS), `${boss.id}: stage model keys ${boss.stages.map((s) => s.model)}`);
+        const hasGlb = resolveAsset(MODELS[stage1].path) !== null;
         c.expect(e.visual.usesModel === hasGlb, `${boss.id}: usesModel=${e.visual.usesModel} but GLB ${hasGlb ? 'exists' : 'missing'}`);
         if (!hasGlb) {
           let robe = false;
@@ -203,7 +224,7 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
           c.expect(robe, `${boss.id}: placeholder not in the boss palette`);
         }
       }
-      c.note(`models: ${BOSSES.map((b) => `${b.id}=${resolveAsset(MODELS[b.model].path) ? 'glb' : 'placeholder'}`).join(' ')}`);
+      c.note(`stage models: ${BOSSES.map((b) => `${b.id}=${b.stages.map((s) => (resolveAsset(MODELS[s.model].path) ? 'glb' : '-')).join('/')}`).join(' ')}`);
     } finally {
       game.setupEnemy(prev);
     }
