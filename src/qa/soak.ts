@@ -94,6 +94,9 @@ export interface FightResult {
   damageTaken: number;
   /** That damage by kind (bolt, blast, stun, ultimate, fire...). */
   byKind: Record<string, number>;
+  /** Health checks over a long fight: a NaN position ended it; the most projectiles and tickets alive at once. */
+  nan: boolean;
+  peak: { projectiles: number; tickets: number };
 }
 
 /**
@@ -112,6 +115,7 @@ function playFight(game: Game, player: AIController, enemies: AIController[], im
   const out: FightResult = {
     seconds: 0, won: false, capped: false, stageCapped: 0, stages: [], stageSeconds: [], stageDamage: [0, 0, 0], stageTime: [0, 0, 0],
     packsSpawned: 0, packsCollected: 0, healed: 0, damageTaken: 0, byKind: {},
+    nan: false, peak: { projectiles: 0, tickets: 0 },
   };
   let stageStart = 0;
   let t = 0;
@@ -144,9 +148,16 @@ function playFight(game: Game, player: AIController, enemies: AIController[], im
       for (const b of brains) b.update(DT);
       game.tick(DT);
       t += DT;
-      game.arena.fireRadius = clock.update(DT, game.furthestStage());
+      game.arena.fireRadius = clock.update(DT, game.fightProgress());
       if (!e.evolving && e.alive && p.alive) out.stageTime[st.stage] += DT;
       if (clock.stageCapped) out.stageCapped += DT;
+      const pk = out.peak;
+      pk.projectiles = Math.max(pk.projectiles, game.spells.pool.active.length);
+      pk.tickets = Math.max(pk.tickets, game.tickets.activeCount);
+      if (!game.wizards.every((w) => Number.isFinite(w.pos.x + w.pos.z + w.health))) {
+        out.nan = true;
+        break;
+      }
       // Immortal: back to full every tick, so the bosses' damage still counts (per stage) but never kills.
       if (immortal) p.health = p.maxHealth;
     }
@@ -192,6 +203,9 @@ export interface BossSoakRow {
   capped: number;
   /** Share of the damage the player took, by kind. */
   damageShare: string;
+  /** Fights that hit a NaN, and the busiest any fight got (projectiles / tickets alive). */
+  nan: number;
+  peak: string;
 }
 
 const avgOf = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
@@ -226,6 +240,8 @@ export function summarizeFights(boss: BossDef, results: FightResult[]): BossSoak
     allPacks: `${Math.round((results.filter((r) => r.packsCollected >= max).length / n) * 100)}%`,
     savedByPacks: results.filter((r) => r.won && r.damageTaken >= CONFIG.wizard.maxHealth).length,
     capped: results.filter((r) => r.capped).length,
+    nan: results.filter((r) => r.nan).length,
+    peak: ['projectiles', 'tickets'].map((k) => Math.max(...results.map((r) => r.peak[k as keyof FightResult['peak']]))).join(' / '),
     damageShare: (() => {
       const tot: Record<string, number> = {};
       for (const r of results) for (const [k, v] of Object.entries(r.byKind)) tot[k] = (tot[k] ?? 0) + v;
@@ -293,7 +309,7 @@ export interface CampaignSoakOptions {
  * the real single-life fight: one life, every stage's own health bar, the boss's stage AI, attacks
  * and damage, life packs and golden tickets, in the boss's own arena, until one side is out (or the
  * safety cap closes the ring). A double fight runs both bosses (the reference AI targets the nearest
- * standing one). Each fight runs in its own sandbox, yielding between fights, so long runs keep the
+ * standing one). Fights run a few to a sandbox, yielding about every second, so long runs keep the
  * page alive. Reports per boss: win rate, fight length, stage reached, minutes per stage, the
  * bosses' damage per second per stage, life pack use, wins the packs saved, capped fights.
  * `await __duel.qa.campaignSoak(12)`.
@@ -310,12 +326,19 @@ export async function campaignSoak(qa: QAHarness, game: Game, fights = 4, opts: 
       arena.devTheme = null;
       await arena.applyTheme(boss.theme);
       const results: FightResult[] = [];
-      for (let f = 0; f < fights; f++) {
+      let f = 0;
+      while (f < fights) {
+        // A few fights per sandbox (about a second of work), then yield so the page stays alive.
         await qa.sandbox(() => {
-          const run = () => fightBoss(qa, game, boss, opts.reference ?? 'normal', opts.immortal);
-          const r = opts.seed !== undefined ? withSeededRandom(opts.seed + bi * 1000 + f, run) : run();
-          results.push(r);
-          opts.progress?.(boss, f + 1, r);
+          const t0 = performance.now();
+          do {
+            const n = f;
+            const run = () => fightBoss(qa, game, boss, opts.reference ?? 'normal', opts.immortal);
+            const r = opts.seed !== undefined ? withSeededRandom(opts.seed + bi * 1000 + n, run) : run();
+            results.push(r);
+            f++;
+            opts.progress?.(boss, f, r);
+          } while (f < fights && performance.now() - t0 < 1000);
         });
       }
       rows.push(summarizeFights(boss, results));

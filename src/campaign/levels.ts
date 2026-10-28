@@ -115,12 +115,15 @@ const SPELLS: StageAttacks = { blast: true, stun: true, ultimate: false };
 const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
 
 /**
- * The boss ladder, easiest first. Fight 1 is deliberately gentle (slower and less accurate than
- * the old Apprentice difficulty); each fight after it is a clear step up. Within a fight, every
- * boss evolves twice and unlocks more attacks each time. `ai` is stage 1: CONFIG.campaign.stageAI
- * sharpens it (aim, tempo, dodging, perfect shields) and stageDamage raises its damage for stages 2
- * and 3, so the later bosses open softer than they finish. Fight 2 is a double fight (`partner`):
- * the pair together is tuned as one step on the ladder. Tuned with `__duel.qa.campaignSoak`.
+ * The boss ladder, easiest first. A gauntlet fight is one life against all three stages, each with
+ * its own health bar (`stageHealth`, sized for about five minutes a stage), so a fight runs 15+
+ * minutes. Bosses hit hard (`damageMultiplier`, raised again per stage by stageDamage) but pick
+ * their moments: slow bursts, wide aim and rare big spells keep the damage per second low enough
+ * for one health bar and three life packs to last. Within a fight every boss evolves twice and
+ * unlocks more attacks each time; `ai` is stage 1 and CONFIG.campaign.stageAI sharpens it. Fight 1
+ * is very easy; each fight after it is a clear step up, and Tinubu is close to impossible. Fight 2
+ * is a double fight (`partner`): the pair together is tuned as one step on the ladder.
+ * Tuned with `__duel.qa.campaignSoak` (reference win rates: README / the final report).
  */
 export const BOSSES: BossDef[] = [
   boss({
@@ -145,21 +148,21 @@ export const BOSSES: BossDef[] = [
     ai: {
       label: 'Sahil',
       reactionTime: 0.85,
-      aimError: 0.26,
+      aimError: 0.34,
       leadFactor: 0,
       dodgeChance: 0.08,
       shieldPreference: 0.2,
       perfectShieldChance: 0,
       burst: [1, 2],
-      burstPause: [1.8, 2.8],
-      blastChance: 0.12,
-      stunChance: 0.04,
-      punishChance: 0.05,
+      burstPause: [2.3, 3.6],
+      blastChance: 0.02,
+      stunChance: 0.008,
+      punishChance: 0.02,
       strafeSpeed: 0.4,
       preferredRange: [10, 15],
     },
-    stageHealth: [1420, 1460, 1500],
-    damageMultiplier: 0.55,
+    stageHealth: [1490, 1660, 1710],
+    damageMultiplier: 0.77,
   }),
   boss({
     // A double fight: Bitcoin Obama (tall) and The Midget at the same time, each with his own
@@ -190,23 +193,24 @@ export const BOSSES: BossDef[] = [
     ai: {
       label: 'Bitcoin Obama',
       reactionTime: 0.45,
-      aimError: 0.13,
-      leadFactor: 0.15,
+      aimError: 0.45,
+      leadFactor: 0.05,
       dodgeChance: 0.25,
       shieldPreference: 0.3,
       perfectShieldChance: 0.05,
-      burst: [2, 3],
-      burstPause: [1.0, 1.7],
-      blastChance: 0.5,
-      stunChance: 0.12,
-      punishChance: 0.25,
+      burst: [1, 2],
+      burstPause: [2.8, 4],
+      blastChance: 0.015,
+      stunChance: 0.008,
+      punishChance: 0.04,
       strafeSpeed: 0.65,
       preferredRange: [10, 15],
     },
-    // As a pair: Obama is the glass cannon (88 HP, hits hardest), The Midget the tank (123 HP, closes
-    // in). Knock out the nearest first and you face an enraged Obama; a sharp player drops Obama first.
-    stageHealth: [390, 430, 470],
-    damageMultiplier: 0.66,
+    // As a pair: Obama is the glass cannon (smaller bars, hits hardest), The Midget the tank (bigger
+    // bars, closes in). Knock out the nearest first and you face an enraged Obama; a sharp player
+    // drops Obama first.
+    stageHealth: [380, 440, 500],
+    damageMultiplier: 0.98,
     partner: {
       // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
       id: 'midget',
@@ -232,22 +236,22 @@ export const BOSSES: BossDef[] = [
       ai: {
         label: 'The Midget',
         reactionTime: 0.38,
-        aimError: 0.16,
-        leadFactor: 0.1,
+        aimError: 0.47,
+        leadFactor: 0.04,
         dodgeChance: 0.3,
         shieldPreference: 0.15,
         perfectShieldChance: 0.03,
-        burst: [2, 3],
-        burstPause: [1.0, 1.6],
-        blastChance: 0.35,
-        stunChance: 0.1,
-        punishChance: 0.3,
+        burst: [1, 2],
+        burstPause: [2.6, 3.8],
+        blastChance: 0.015,
+        stunChance: 0.008,
+        punishChance: 0.05,
         strafeSpeed: 0.85,
         preferredRange: [7, 12],
         hopRate: 0.45,
       },
-      stageHealth: [510, 550, 590],
-      damageMultiplier: 0.52,
+      stageHealth: [500, 570, 625],
+      damageMultiplier: 0.77,
       hitbox: { radius: 0.32, height: 1.25 },
     },
   }),
@@ -273,21 +277,21 @@ export const BOSSES: BossDef[] = [
     ai: {
       label: 'Broccoli Head',
       reactionTime: 0.28,
-      aimError: 0.13,
-      leadFactor: 0.45,
+      aimError: 0.75,
+      leadFactor: 0.12,
       dodgeChance: 0.4,
       shieldPreference: 0.45,
       perfectShieldChance: 0.15,
-      burst: [2, 4],
-      burstPause: [0.7, 1.2],
-      blastChance: 0.3,
-      stunChance: 0.6,
-      punishChance: 0.6,
+      burst: [1, 3],
+      burstPause: [2.6, 4.1],
+      blastChance: 0.012,
+      stunChance: 0.012,
+      punishChance: 0.04,
       strafeSpeed: 0.85,
       preferredRange: [9, 14],
     },
-    stageHealth: [700, 720, 740],
-    damageMultiplier: 0.9,
+    stageHealth: [880, 900, 1000],
+    damageMultiplier: 1.03,
   }),
   boss({
     id: 'agent',
@@ -316,21 +320,21 @@ export const BOSSES: BossDef[] = [
     ai: {
       label: 'Glowie',
       reactionTime: 0.26,
-      aimError: 0.13,
-      leadFactor: 0.6,
+      aimError: 0.7,
+      leadFactor: 0.16,
       dodgeChance: 0.42,
       shieldPreference: 0.45,
       perfectShieldChance: 0.18,
-      burst: [2, 4],
-      burstPause: [0.8, 1.2],
-      blastChance: 0.6,
-      stunChance: 0.45,
-      punishChance: 0.85,
+      burst: [1, 3],
+      burstPause: [3, 4.3],
+      blastChance: 0.022,
+      stunChance: 0.01,
+      punishChance: 0.05,
       strafeSpeed: 0.95,
       preferredRange: [8, 13],
     },
-    stageHealth: [830, 850, 870],
-    damageMultiplier: 0.9,
+    stageHealth: [1015, 1035, 1180],
+    damageMultiplier: 0.98,
   }),
   boss({
     id: 'tinubu',
@@ -364,21 +368,21 @@ export const BOSSES: BossDef[] = [
     ai: {
       label: 'Tinubu',
       reactionTime: 0.2,
-      aimError: 0.1,
-      leadFactor: 0.7,
+      aimError: 0.45,
+      leadFactor: 0.2,
       dodgeChance: 0.45,
       shieldPreference: 0.45,
       perfectShieldChance: 0.3,
-      burst: [3, 4],
-      burstPause: [0.7, 1.1],
-      blastChance: 0.4,
-      stunChance: 0.6,
-      punishChance: 1.0,
+      burst: [2, 3],
+      burstPause: [3, 4.2],
+      blastChance: 0.025,
+      stunChance: 0.02,
+      punishChance: 0.1,
       strafeSpeed: 1.05,
       preferredRange: [8, 13],
     },
-    stageHealth: [900, 920, 940],
-    damageMultiplier: 1.1,
+    stageHealth: [1000, 1010, 1020],
+    damageMultiplier: 1.27,
   }),
 ];
 

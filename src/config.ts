@@ -617,7 +617,7 @@ export const CONFIG = {
     lifetime: 40,
     blinkTime: 5,
     /** Fraction of max health restored. */
-    heal: 0.4,
+    heal: 0.5,
     /** Spawn spots: distance from the player [min, max] (reachable but a dash away) and from each boss (min). */
     playerDistance: [7, 17] as [number, number],
     bossDistance: 7,
@@ -780,13 +780,13 @@ export const CONFIG = {
      * A Boss Gauntlet fight is one round and you have one life (Match). Every boss stage has its own
      * health bar (levels.ts `stageHealth`); there is no round timer (the HUD clock counts up). Two
      * safety caps keep a stalemate from lasting forever (GauntletClock):
-     * - `stageCap`: a stage still going after this many seconds pulls the fire ring in to
-     *   `stageCapRadius` over `capCloseTime` (close quarters, like Quick Duel's sudden death); it
-     *   opens again (`reopenSpeed` m/s) once the stage ends.
+     * - `stageCap`: a stage still going after this many seconds (no boss transformed or fell)
+     *   pulls the fire ring in to `stageCapRadius` over `capCloseTime` (close quarters); it opens
+     *   again (`reopenSpeed` m/s) once a boss transforms or falls.
      * - `safetyCap`: past this many seconds of fighting the ring closes all the way
      *   (`capMinRadius`) over `capCloseTime`, so the fight always ends.
      */
-    fight: { stageCap: 9 * 60, stageCapRadius: 9, safetyCap: 35 * 60, capMinRadius: 0, capCloseTime: 60, reopenSpeed: 6 },
+    fight: { stageCap: 9 * 60, stageCapRadius: 14, safetyCap: 35 * 60, capMinRadius: 0, capCloseTime: 60, reopenSpeed: 6 },
     /**
      * Headless transformations (QA, soaks; the real game plays `cinematic` instead, with the
      * simulation frozen): seconds the boss is invulnerable and frozen while it transforms.
@@ -860,15 +860,16 @@ export const CONFIG = {
     aura: [0, 0.55, 1] as [number, number, number],
     /**
      * AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile: quicker,
-     * sharper, longer bursts, faster tempo, more dodging, perfect shields and punishing. Chances are
-     * capped at maxChance.
+     * sharper, faster tempo, better leads, more dodging, perfect shields, spells and punishing.
+     * Mild on purpose: each stage's attack unlocks and stageDamage already make it much harder, and
+     * a stage lasts five minutes. Chances are capped at maxChance.
      */
     stageAI: {
       reactionTime: [1, 0.92, 0.85],
-      aimError: [1, 0.95, 0.9],
+      aimError: [1, 0.95, 0.92],
       leadBonus: [0, 0.03, 0.06],
-      burstBonus: [0, 0, 1],
-      burstPause: [1, 0.95, 0.88],
+      burstBonus: [0, 0, 0],
+      burstPause: [1, 0.95, 0.92],
       strafeSpeed: [1, 1.1, 1.2],
       dodgeChance: [1, 1.06, 1.15],
       perfectShieldChance: [1, 1.15, 1.35],
@@ -883,7 +884,7 @@ export const CONFIG = {
      * Ultimate charge rate for bosses. Their stage bars hold several times a wizard's health, and
      * charge comes from damage taken and dealt, so at full rate they would cast it every minute.
      */
-    ultCharge: 0.4,
+    ultCharge: 0.25,
     /**
      * Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after
      * a stage begins (x cooldown), and a multiplier on every VolleyDef cooldown (fights are long

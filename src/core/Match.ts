@@ -20,7 +20,7 @@ const F = CONFIG.campaign.fight;
  */
 export class GauntletClock {
   elapsed = 0;
-  /** Seconds since the furthest boss stage last changed. */
+  /** Seconds since a boss last transformed or fell (Game.fightProgress changed). */
   stageElapsed = 0;
   /** Fire ring radius now. */
   radius: number = A.fireRadius;
@@ -42,7 +42,7 @@ export class GauntletClock {
     return this.elapsed > F.safetyCap;
   }
 
-  /** Advance one fight tick at boss stage `stage` (the furthest any boss has reached); returns the ring radius. */
+  /** Advance one fight tick; `stage` is Game.fightProgress (any change restarts the stage clock). Returns the ring radius. */
   update(dt: number, stage: number): number {
     this.elapsed += dt;
     if (stage !== this.stage) {
@@ -233,7 +233,7 @@ export class Match {
       case 'fight': {
         if (this.single) {
           // No round clock: a stage (or the fight) past its safety cap pulls the fire ring in.
-          g.arena.fireRadius = this.clock.update(dt, g.furthestStage());
+          g.arena.fireRadius = this.clock.update(dt, g.fightProgress());
           if (this.capped !== this.capAnnounced) {
             this.capAnnounced = this.capped;
             if (this.capped) events.emit('fightCap', {});

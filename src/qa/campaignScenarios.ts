@@ -248,7 +248,8 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
     c.expect(first.dps < last.dps * 0.5, `fight 1 deals ${first.dps.toFixed(1)} dps vs fight 5 ${last.dps.toFixed(1)}: not clearly gentler`);
     c.expect(first.hitRate > last.hitRate * 1.3, `fight 1 is hit ${(first.hitRate * 100).toFixed(0)}% vs fight 5 ${(last.hitRate * 100).toFixed(0)}%`);
     c.expect(last.threat > first.threat * 4, `threat only rises ${(last.threat / first.threat).toFixed(1)}x over the ladder`);
-    c.expect(first.threat < apprentice.threat, `fight 1 (threat ${first.threat.toFixed(2)}) is not easier than the Apprentice (${apprentice.threat.toFixed(2)})`);
+    // Fights are long now (one life, five-minute stages), so compare the pressure per second.
+    c.expect(first.dps < apprentice.dps, `fight 1 (${first.dps.toFixed(2)} dps) hits harder than the Apprentice (${apprentice.dps.toFixed(2)} dps)`);
     for (let i = 1; i < samples.length; i++) {
       // Allow sampling noise, but each fight must not be meaningfully easier than the one before.
       c.expect(samples[i].threat > samples[i - 1].threat * 0.9, `${samples[i].name} is easier than ${samples[i - 1].name}`);
@@ -327,7 +328,7 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       game.stages.evolveTo(1);
       game.stages.release(0);
       withMatchFlow(game, () => c.step(5));
-      c.expect(game.arena.fireRadius > F.stageCapRadius + 20 && !m.capped, `ring did not reopen (${game.arena.fireRadius.toFixed(1)})`);
+      c.expect(game.arena.fireRadius > A.fireRadius - 1 && !m.capped, `ring did not reopen (${game.arena.fireRadius.toFixed(1)})`);
       // Past the fight's safety cap it closes completely, and the fight ends.
       m.clock.elapsed = F.safetyCap + F.capCloseTime;
       p.health = 30;

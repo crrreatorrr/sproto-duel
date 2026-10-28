@@ -257,6 +257,16 @@ export class Game {
     return this.enemies.length > 1;
   }
 
+  /**
+   * How far the fight has come: every boss's stage plus one per boss knocked out. It changes on
+   * every transformation and KO (the gauntlet's stage cap restarts then).
+   */
+  fightProgress(): number {
+    let n = 0;
+    for (const w of this.enemies) n += (this.stagesOf(w)?.stage ?? 0) + (w.alive ? 0 : 1);
+    return n;
+  }
+
   /** The furthest stage (0..2) any boss of this fight has reached (life packs unlock one per stage). */
   furthestStage(): number {
     return this.partnerActive ? Math.max(this.stages.stage, this.partnerStages.stage) : this.stages.stage;
