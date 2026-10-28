@@ -11,6 +11,8 @@ const G = CONFIG.gamepad;
 const PB = G.bindings;
 const AA = G.aimAssist;
 const AIM_RANGE = 90;
+/** Another enemy must be this much nearer the crosshair (degrees) to take over as the assist target. */
+const TARGET_HYSTERESIS_DEG = 3;
 
 /** Controller options from the Settings screen. */
 export interface PadSettings {
@@ -33,6 +35,12 @@ export class PlayerController {
   private readonly camFwd = new THREE.Vector3();
   private readonly toEnemy = new THREE.Vector3();
   private readonly enemyChest = new THREE.Vector3();
+  private readonly lookDir = new THREE.Vector3();
+  /**
+   * The enemy aim assist and magnetism work on: the alive one nearest the crosshair (by angle), kept
+   * until another is clearly nearer (TARGET_HYSTERESIS_DEG). Null when nobody is standing.
+   */
+  target: Wizard | null = null;
   private padSensitivity = 1;
   private padInvertY = false;
   private aimAssist: number = AA.strength;
@@ -47,8 +55,35 @@ export class PlayerController {
     private readonly rig: CameraRig,
     private readonly wizard: Wizard,
     private readonly physics: Physics,
-    private readonly getOpponent: () => Wizard | null,
+    /** The player's opponents (Game.enemies: one, or two in a double fight). */
+    private readonly getOpponents: () => readonly Wizard[],
   ) {}
+
+  /** Angle (radians) between the crosshair ray and the direction from the camera to `w`'s chest. */
+  private angleTo(w: Wizard, dir: THREE.Vector3): number {
+    const cam = this.rig.camera.position;
+    w.chest(this.enemyChest).sub(cam);
+    const len = this.enemyChest.length();
+    return len < 1e-6 ? 0 : Math.acos(clamp(this.enemyChest.dot(dir) / len, -1, 1));
+  }
+
+  /** Pick the assist target (see `target`) for the current camera direction. */
+  selectTarget(): Wizard | null {
+    const dir = this.rig.getForward(this.lookDir);
+    const current = this.target && this.target.alive && this.getOpponents().includes(this.target) ? this.target : null;
+    let best = current;
+    let bestAngle = current ? this.angleTo(current, dir) - THREE.MathUtils.degToRad(TARGET_HYSTERESIS_DEG) : Infinity;
+    for (const w of this.getOpponents()) {
+      if (!w.alive || w === current) continue;
+      const a = this.angleTo(w, dir);
+      if (a < bestAngle) {
+        bestAngle = a;
+        best = w;
+      }
+    }
+    this.target = best;
+    return best;
+  }
 
   get padSettings(): PadSettings {
     return { padSensitivity: this.padSensitivity, padInvertY: this.padInvertY, aimAssist: this.aimAssist, rumble: this.input.pad.rumbleEnabled };
@@ -132,12 +167,12 @@ export class PlayerController {
 
   /**
    * Gamepad camera magnetism: inside a small cone around the crosshair, ease the view toward the
-   * opponent's chest, strongest mid-cone and fading to nothing at the center and the edge. Only
+   * target's chest, strongest mid-cone and fading to nothing at the center and the edge. Only
    * while the player is moving or looking, so the camera never drifts on its own.
    */
   private magnetism(dt: number, padActive: boolean, hasInput: boolean): void {
     this.onTarget = 0;
-    const enemy = this.getOpponent();
+    const enemy = this.selectTarget();
     if (!padActive || this.aimAssist <= 0 || !enemy || !enemy.alive || dt <= 0) return;
     const cam = this.rig.camera.position;
     enemy.chest(this.enemyChest);
@@ -164,7 +199,7 @@ export class PlayerController {
     return THREE.MathUtils.degToRad(Math.max(0, deg));
   }
 
-  /** Raycast through the crosshair; nudge toward the opponent inside the aim-assist cone. */
+  /** Raycast through the crosshair; nudge toward the target (see selectTarget) inside the aim-assist cone. */
   private updateAim(pad: boolean): void {
     const cam = this.rig.camera;
     const dir = this.rig.getForward(this.camFwd);
@@ -173,7 +208,7 @@ export class PlayerController {
     if (hit) aim.copy(hit.point);
     else aim.copy(cam.position).addScaledVector(dir, AIM_RANGE);
 
-    const enemy = this.getOpponent();
+    const enemy = this.selectTarget();
     if (!enemy || !enemy.alive) return;
     enemy.chest(this.enemyChest);
     this.toEnemy.subVectors(this.enemyChest, cam.position);

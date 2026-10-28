@@ -33,6 +33,11 @@ export interface AIProfile {
   strafeSpeed: number;
   /** Preferred distance band to the player. */
   preferredRange: [number, number];
+  /**
+   * Hops per second while strafing. Unset: derived from dodgeChance (CONFIG.wizard.jump.aiHopRate,
+   * none at or below aiHopMinSkill). Set it for a jumpy fighter regardless of skill.
+   */
+  hopRate?: number;
 }
 
 export const CONFIG = {
@@ -434,10 +439,11 @@ export const CONFIG = {
     /** Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after a stage begins (x cooldown). */
     volley: { manaCost: 8, range: 22, firstDelay: 0.35 },
     /**
-     * Sidekick bolts (stages with `sidekickFires`), off for now: Obama's partner is to become a full
-     * wizard of his own. Seconds between throws, damage vs a bolt, aim (lead 0..1, error in radians).
+     * Double fights (a boss with a `partner`, levels.ts): the pair spawn `spawnSpacing` m apart on
+     * the enemy spawn line. Their AIs keep `spacing` m between them (push strength `spacingWeight`)
+     * and drift apart around the player until `flankDegrees` separate them (`flankWeight`).
      */
-    sidekick: { enabled: false, interval: [1.6, 2.4] as [number, number], damageScale: 0.75, lead: 0.3, aimError: 0.06 },
+    duo: { spawnSpacing: 5, spacing: 4.5, spacingWeight: 0.9, flankDegrees: 50, flankWeight: 0.45 },
   },
 
   /**

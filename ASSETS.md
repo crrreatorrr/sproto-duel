@@ -119,10 +119,15 @@ any of them by replacing the file.
 | Boss | Models (`models/bosses/<id>/`) | Portraits (`ui/bosses/`) | Arena theme | Projectiles |
 |---|---|---|---|---|
 | 1. Sahil, the RugMaster | `sahil/stage1..3.glb` (2.0 / 2.25 / 2.55 m) | `sahil.png`, `sahil_stage2.png`, `sahil_stage3.png` | `desert` | rolled rugs, flying carpets |
-| 2. Bitcoin Obama and The Midget (two enemies) | `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m), `midget/stage1..3.glb` (The Midget) | `obama.png`, `obama_stage2.png`, `obama_stage3.png` | `void` | phones, carpets |
+| 2. Bitcoin Obama & The Midget (a double fight) | Obama: `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m) | `obama.png` (the pair, used on cards), `obama_stage2.png`, `obama_stage3.png` | `void` | phones, pigs |
+| 2b. The Midget (Obama's partner, fought at the same time) | `midget/stage1..3.glb` (1.25 / 1.4 / 1.6 m): stage 2 laser eyes, Bitcoin chain, phones in hand; stage 3 gold top hat, candlestick-chart robe | `midget.png`, `midget_stage2.png`, `midget_stage3.png` (his stage banners) | | phones, pigs |
 | 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `grove` | florets, whole broccoli |
 | 4. The Agent | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `glacier` | bullets, grenades |
 | 5. Tinubu, the Unshackled Demon | `tinubu/stage1..3.glb` (2.1 / 2.45 / 2.9 m) | `tinubu.png`, `tinubu_stage2.png`, `tinubu_stage3.png` | `volcano` | hellfire, burning skulls |
+
+The Midget is a second boss wizard in fight 2 with his own short hitbox (1.25 m), so his models
+are fitted to 1.25-1.6 m rather than ~2 m (manifest keys `bossMidget1..3`). Without his GLBs he is a
+scaled-down placeholder wizard in royal blue and bronze with a small gold top hat.
 
 Boss models are static meshes (the game animates them procedurally), ≤ 9k triangles each. Generate
 concepts in a wide standing stance rather than a T-pose, since there is no rig: whole body, front

@@ -10,7 +10,6 @@ export type ProjectileSkin =
   | 'orb' // the default glowing spell orb
   | 'rugRoll' // a rolled-up carpet, tumbling
   | 'carpet' // an unrolled flying carpet, rippling
-  | 'pig' // a chubby pink pig, legs flailing
   | 'phone' // a spinning smartphone with a lit screen
   | 'pig' // a chubby pink pig, legs flailing
   | 'floret' // a broccoli floret
@@ -38,8 +37,6 @@ export interface StageAttacks {
   stun: boolean;
   ultimate: boolean;
   volley?: VolleyDef;
-  /** The boss's sidekick (if any) also throws bolts. */
-  sidekickFires?: boolean;
 }
 
 /** One of a boss's three forms. Stage 1 starts each round; 2 and 3 begin at CONFIG.campaign.stageThresholds. */
@@ -49,22 +46,17 @@ export interface BossStage {
   attacks: StageAttacks;
 }
 
-/** One campaign fight: who you face, where, and how hard they are. */
-export interface BossDef {
+/**
+ * One boss wizard: look, stages, spells, AI and stats. Every BossDef is one, and so is a BossDef's
+ * `partner` (the second boss of a double fight). BossStages runs on any of them.
+ */
+export interface BossFighter {
+  /** Portrait / placeholder id (`ui/bosses/<id>.png`, `<id>_stage2.png`...). */
   id: BossId;
   name: string;
-  /** Epithet shown under the name, e.g. "the RugMaster". */
-  title: string;
-  /** One line for the pre-fight card. */
-  intro: string;
-  theme: ArenaThemeId;
-  /** Stage 1's model (same as `stages[0].model`). */
-  model: ModelKey;
   stages: [BossStage, BossStage, BossStage];
   /** Projectile looks for bolts (and volleys) and blasts. Stun and Ultimate keep the spell effects. */
   skins: { bolt: ProjectileSkin; blast: ProjectileSkin };
-  /** A smaller companion who follows the boss around (purely visual unless a stage sets `sidekickFires`). */
-  sidekick?: { name: string; model: ModelKey };
   /** Robe and spell colours used by the placeholder model and the boss's spells. */
   palette: TeamPalette;
   /** Base AI for stage 1; later stages scale it by CONFIG.campaign.stageAI. */
@@ -74,6 +66,34 @@ export interface BossDef {
   /** Multiplies all damage the boss deals. */
   damageMultiplier: number;
 }
+
+/**
+ * The second boss of a double fight (Bitcoin Obama's The Midget). A full wizard of its own
+ * (Game.partner): its own health bar, stages, AI, skins and palette, fighting alongside the boss.
+ */
+export interface BossPartner extends BossFighter {
+  /** Collision capsule in meters. Spells aim at (and hit) this body: chest, wand and HUD tag follow its height. */
+  hitbox: { radius: number; height: number };
+}
+
+/** One campaign fight: who you face, where, and how hard they are. */
+export interface BossDef extends BossFighter {
+  /** Epithet shown under the name, e.g. "the RugMaster". */
+  title: string;
+  /** One line for the pre-fight card. */
+  intro: string;
+  theme: ArenaThemeId;
+  /** Stage 1's model (same as `stages[0].model`). */
+  model: ModelKey;
+  /** A second boss fought at the same time (a double fight): the round is won once both are down. */
+  partner?: BossPartner;
+}
+
+/** Everyone the player faces in this fight: the boss, then its partner if any. */
+export const bossFighters = (boss: BossDef): BossFighter[] => (boss.partner ? [boss, boss.partner] : [boss]);
+
+/** The fight's name for cards, banners and results: "Sahil", or "Bitcoin Obama & The Midget". */
+export const bossDisplayName = (boss: BossDef): string => (boss.partner ? `${boss.name} & ${boss.partner.name}` : boss.name);
 
 type BossInput = Omit<BossDef, 'model'>;
 const boss = (b: BossInput): BossDef => ({ ...b, model: b.stages[0].model });
@@ -87,7 +107,8 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
  * the old Apprentice difficulty); each fight after it is a clear step up. Within a fight, every
  * boss evolves twice and unlocks more attacks each time. `ai` is stage 1: CONFIG.campaign.stageAI
  * sharpens it (aim, tempo, dodging, perfect shields) and stageDamage raises its damage for stages 2
- * and 3, so the later bosses open softer than they finish. Tuned with `__duel.qa.campaignSoak`.
+ * and 3, so the later bosses open softer than they finish. Fight 2 is a double fight (`partner`):
+ * the pair together is tuned as one step on the ladder. Tuned with `__duel.qa.campaignSoak`.
  */
 export const BOSSES: BossDef[] = [
   boss({
@@ -127,22 +148,23 @@ export const BOSSES: BossDef[] = [
     damageMultiplier: 0.55,
   }),
   boss({
+    // A double fight: Bitcoin Obama (tall) and The Midget at the same time, each with his own
+    // health bar and stages. Tuned as a pair to sit between Sahil and Broccoli Head.
     id: 'obama',
     name: 'Bitcoin Obama',
-    title: 'and The Midget',
+    title: 'the Pump & Dump Duo',
     intro: 'Shiller shills',
     theme: 'void',
     stages: [
       { name: 'Pump', model: 'bossObama1', attacks: NONE },
-      { name: 'Hype Cycle', model: 'bossObama2', attacks: { blast: true, stun: false, ultimate: false, sidekickFires: true } },
+      { name: 'Hype Cycle', model: 'bossObama2', attacks: { blast: true, stun: false, ultimate: false } },
       {
         name: 'Dump',
         model: 'bossObama3',
-        attacks: { ...ALL, sidekickFires: true, volley: { name: 'Pump & Dump', count: 4, spreadDeg: 30, interval: 0, cooldown: 4.5, damageScale: 0.7 } },
+        attacks: { ...ALL, volley: { name: 'Pump & Dump', count: 4, spreadDeg: 30, interval: 0, cooldown: 4.5, damageScale: 0.7 } },
       },
     ],
     skins: { bolt: 'phone', blast: 'pig' },
-    sidekick: { name: 'The Midget', model: 'bossObamaSidekick' },
     palette: { name: 'Bitcoin Obama', robe: 0x18181f, trim: 0xe0b23a, spell: 0xf7931a, blast: 0x3fb8ff, stun: 0xfff0c0, ultimate: 0xf7931a },
     ai: {
       label: 'Bitcoin Obama',
@@ -160,8 +182,46 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.65,
       preferredRange: [10, 15],
     },
-    healthMultiplier: 0.9,
-    damageMultiplier: 1.0,
+    // As a pair: Obama is the glass cannon (84 HP, hits hardest), The Midget the tank (132 HP, closes
+    // in). Knock out the nearest first and you face an enraged Obama; a sharp player drops Obama first.
+    healthMultiplier: 0.38,
+    damageMultiplier: 0.72,
+    partner: {
+      // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
+      id: 'midget',
+      name: 'The Midget',
+      stages: [
+        { name: 'Small Cap', model: 'bossMidget1', attacks: NONE },
+        { name: 'To the Moon', model: 'bossMidget2', attacks: { blast: true, stun: false, ultimate: false } },
+        {
+          name: 'Short Squeeze',
+          model: 'bossMidget3',
+          attacks: { blast: true, stun: true, ultimate: false, volley: { name: 'Moon Shot', count: 3, spreadDeg: 4, interval: 0.1, cooldown: 5, damageScale: 0.6 } },
+        },
+      ],
+      skins: { bolt: 'phone', blast: 'pig' },
+      palette: { name: 'The Midget', robe: 0x1f3f9a, trim: 0xc08a3e, spell: 0x4f86ff, blast: 0xd09a4a, stun: 0xd8e6ff, ultimate: 0x6fa0ff },
+      ai: {
+        label: 'The Midget',
+        reactionTime: 0.38,
+        aimError: 0.16,
+        leadFactor: 0.1,
+        dodgeChance: 0.3,
+        shieldPreference: 0.15,
+        perfectShieldChance: 0.03,
+        burst: [2, 3],
+        burstPause: [1.0, 1.6],
+        blastChance: 0.35,
+        stunChance: 0.1,
+        punishChance: 0.3,
+        strafeSpeed: 0.85,
+        preferredRange: [7, 12],
+        hopRate: 0.45,
+      },
+      healthMultiplier: 0.6,
+      damageMultiplier: 0.55,
+      hitbox: { radius: 0.32, height: 1.25 },
+    },
   }),
   boss({
     id: 'broccoli',

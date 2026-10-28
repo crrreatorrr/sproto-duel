@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, type AIProfile, type Difficulty } from '../config';
 import { events } from '../core/events';
 import type { TickController } from '../core/Game';
-import { chance, clamp, rand, randInt } from '../core/math';
+import { chance, clamp, rand, randInt, wrapAngle } from '../core/math';
 import type { Physics } from '../physics/Physics';
 import type { Arena } from '../arena/Arena';
 import { stageProfile } from '../campaign/BossStages';
@@ -21,6 +21,7 @@ interface Reaction {
 const AI = CONFIG.ai;
 const SP = CONFIG.spells;
 const VOLLEY = CONFIG.campaign.volley;
+const DUO = CONFIG.campaign.duo;
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -30,7 +31,8 @@ const tmpC = new THREE.Vector3();
  * Enemy wizard brain. A small state machine (approach, attack, evade, retreat) that only writes
  * to the wizard's intent, exactly like the player controller. Difficulty is a tuning profile.
  * Campaign bosses follow their stage (the `bossStage` event): a scaled profile, gated attacks and
- * the stage's signature volley, cast through SpellSystem.castVolley.
+ * the stage's signature volley, cast through SpellSystem.castVolley. In a double fight each boss
+ * has its own controller; `allies` keeps the pair spread out and flanking the player.
  */
 export class AIController implements TickController {
   state: AIState = 'approach';
@@ -62,10 +64,15 @@ export class AIController implements TickController {
   /** Seconds before the AI may start another retreat (prevents retreat loops). */
   private retreatCooldown = 0;
   private readonly unsubs: (() => void)[] = [];
+  /**
+   * Teammates (e.g. Game.enemies, which includes this AI's own wizard): stay `spacing` apart from
+   * them and circle away from them around the target (CONFIG.campaign.duo). Empty: fights alone.
+   */
+  allies: readonly Wizard[] = [];
 
   constructor(
     private readonly self: Wizard,
-    private readonly target: Wizard,
+    private target: Wizard,
     private readonly spells: SpellSystem,
     private readonly physics: Physics,
     private readonly arena: Arena,
@@ -73,6 +80,20 @@ export class AIController implements TickController {
   ) {
     this.profile = AI.difficulty[difficulty];
     this.listen();
+  }
+
+  /** Who this AI fights (the soak's reference player switches to the nearest standing enemy). */
+  get opponent(): Wizard {
+    return this.target;
+  }
+
+  setTarget(w: Wizard): void {
+    if (w === this.target) return;
+    this.target = w;
+    this.ultWatch = -1;
+    this.punishTimer = 0;
+    this.comboBlastAt = -1;
+    this.losTimer = 0;
   }
 
   setDifficulty(d: Difficulty): void {
@@ -191,7 +212,8 @@ export class AIController implements TickController {
     const chest = w.chest(tmpB);
     for (const proj of this.spells.pool.active) {
       const bit = 1 << w.index;
-      if (proj.owner === w || proj.seenMask & bit) continue;
+      // Our own side's spells pass through us harmlessly.
+      if (proj.owner.side === w.side || proj.seenMask & bit) continue;
       // Closest approach of the projectile to our chest, assuming we stand still.
       const rx = proj.pos.x - chest.x, ry = proj.pos.y - chest.y, rz = proj.pos.z - chest.z;
       const v2 = proj.vel.lengthSq();
@@ -371,7 +393,8 @@ export class AIController implements TickController {
         // Skilled duelists hop now and then mid-strafe (it also slips bolts aimed at the chest).
         const J = CONFIG.wizard.jump;
         const hopSkill = clamp((p.dodgeChance - J.aiHopMinSkill) / (1 - J.aiHopMinSkill), 0, 1);
-        if (hopSkill > 0 && w.grounded && !w.cast && chance(J.aiHopRate * hopSkill * dt)) w.intent.press('jump');
+        const hopRate = p.hopRate ?? J.aiHopRate * hopSkill;
+        if (hopRate > 0 && w.grounded && !w.cast && chance(hopRate * dt)) w.intent.press('jump');
         break;
       }
       case 'retreat': {
@@ -388,6 +411,7 @@ export class AIController implements TickController {
         move.copy(this.desiredMove);
         break;
     }
+    if (this.state !== 'evade') this.keepFormation(move);
 
     // Stay out of the fire.
     const r = Math.hypot(w.pos.x, w.pos.z);
@@ -404,6 +428,41 @@ export class AIController implements TickController {
     if (this.state !== 'evade') this.desiredMove.lerp(move, 1 - Math.exp(-10 * dt));
     w.intent.move.copy(this.desiredMove);
     w.intent.sprint = sprint;
+  }
+
+  /**
+   * Double fights: push away from allies closer than CONFIG.campaign.duo.spacing, and drift around
+   * the target away from an ally until flankDegrees separate the two (so one can't be watched
+   * without losing sight of the other). Mild: added on top of the state's own movement.
+   */
+  private keepFormation(move: THREE.Vector3): void {
+    const w = this.self, t = this.target;
+    const flank = THREE.MathUtils.degToRad(DUO.flankDegrees);
+    for (const a of this.allies) {
+      if (a === w || !a.alive) continue;
+      const dx = w.pos.x - a.pos.x, dz = w.pos.z - a.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < DUO.spacing) {
+        const push = (1 - d / DUO.spacing) * DUO.spacingWeight;
+        if (d > 1e-3) {
+          move.x += (dx / d) * push;
+          move.z += (dz / d) * push;
+        } else {
+          move.x += push * (w.index % 2 ? 1 : -1);
+        }
+      }
+      // Angular separation around the target, + when we are counter-clockwise of the ally.
+      const sep = wrapAngle(Math.atan2(w.pos.x - t.pos.x, w.pos.z - t.pos.z) - Math.atan2(a.pos.x - t.pos.x, a.pos.z - t.pos.z));
+      if (Math.abs(sep) < flank) {
+        const sign = Math.abs(sep) > 1e-3 ? Math.sign(sep) : w.index % 2 ? 1 : -1;
+        const rx = w.pos.x - t.pos.x, rz = w.pos.z - t.pos.z;
+        const r = Math.hypot(rx, rz) || 1;
+        // Tangent pointing toward larger angles: d(atan2(x, z)) > 0 along (rz, -rx).
+        const k = (1 - Math.abs(sep) / flank) * DUO.flankWeight * sign;
+        move.x += (rz / r) * k;
+        move.z += (-rx / r) * k;
+      }
+    }
   }
 
   private aimAndAttack(dt: number, dist: number): void {

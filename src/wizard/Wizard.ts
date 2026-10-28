@@ -116,7 +116,14 @@ export class Wizard {
   readonly intent = new WizardIntent();
   readonly body: RAPIER.RigidBody;
   readonly collider: RAPIER.Collider;
-  private readonly centerY: number;
+  private centerY: number;
+  /** Collision capsule (m). CONFIG.wizard's for everyone but short bosses (see setHitbox). */
+  radius: number = W.radius;
+  height: number = W.height;
+  /** Whether the collider currently blocks anything (a KO'd wizard doesn't). */
+  private solid = true;
+  /** False while this wizard sits out the fight (a boss partner outside its double fight). */
+  private enabled = true;
 
   readonly stats = { damageDealt: 0, casts: 0, hits: 0, perfects: 0, dodges: 0 };
 
@@ -138,11 +145,16 @@ export class Wizard {
 
   constructor(
     readonly index: number,
+    /**
+     * Team: 0 the player, 1 the enemies (the rival, or both bosses of a double fight). Spells never
+     * hurt, stun, push, block or clash with their own side.
+     */
+    readonly side: 0 | 1,
     /** Robe and spell colours. Mutable: campaign bosses re-skin the rival (see Game.setupEnemy). */
     public team: TeamPalette,
     public name: string,
     readonly visual: WizardVisual,
-    physics: Physics,
+    private readonly physics: Physics,
   ) {
     const p = physics.addWizard(W.radius, W.height, this);
     this.body = p.body;
@@ -179,17 +191,75 @@ export class Wizard {
     return this.alive && !this.stunned && !this.evolving && !this.dodging && this.cast === null;
   }
 
+  /** Height relative to a standard wizard (1 = CONFIG.wizard.height). Aim points scale with it. */
+  get sizeScale(): number {
+    return this.height / W.height;
+  }
+
+  /** Centre of the body: where spells aim and popups spawn (1.2 m up on a standard wizard). */
   chest(out: Vector3): Vector3 {
-    return out.set(this.pos.x, this.pos.y + 1.2, this.pos.z);
+    return out.set(this.pos.x, this.pos.y + 1.2 * this.sizeScale, this.pos.z);
+  }
+
+  /** Height of the shield bubble's centre above the feet. */
+  get shieldCenterY(): number {
+    return 1.0 * this.sizeScale;
+  }
+
+  /** Lowest height above the feet for the HUD health tag (it also clears the model's top). */
+  get tagHeight(): number {
+    return 2.45 * this.sizeScale;
+  }
+
+  /**
+   * Resize the collision capsule (a short boss partner). Chest, wand tip, shield and HUD tag
+   * follow `height`; every spell and the character controller use the new capsule.
+   */
+  setHitbox(radius: number, height: number): void {
+    if (radius === this.radius && height === this.height) return;
+    this.radius = radius;
+    this.height = height;
+    this.centerY = this.physics.resizeWizard(this.collider, radius, height);
+    this.placeBody();
+  }
+
+  /** In the fight, or parked (a boss partner between double fights): a parked wizard collides with nothing. */
+  get active(): boolean {
+    return this.enabled;
+  }
+
+  setEnabled(on: boolean): void {
+    this.enabled = on;
+    if (!on) {
+      this.alive = false;
+      this.cast = null;
+      this.shieldTime = this.stunTime = this.evolveTime = 0;
+      this.intent.clear();
+      this.pos.set(0, -50, 0);
+      this.prevPos.copy(this.pos);
+      this.vel.set(0, 0, 0);
+      this.knock.set(0, 0, 0);
+      this.placeBody();
+    }
+    this.syncSolid();
+  }
+
+  /** Keep the collider in step with alive/enabled: KO'd wizards don't block shots or movement. */
+  private syncSolid(): void {
+    const solid = this.alive && this.enabled;
+    if (solid === this.solid && this.collider.isEnabled() === this.enabled) return;
+    this.solid = solid;
+    this.physics.setWizardSolid(this.collider, solid, this.enabled);
   }
 
   forward(out: Vector3): Vector3 {
     return out.set(Math.sin(this.facing), 0, Math.cos(this.facing));
   }
 
-  /** Wand tip in world space (right hand, in front of the chest). */
+  /** Wand tip in world space (right hand, in front of the chest), scaled with the body. */
   wandTip(out: Vector3): Vector3 {
-    const lx = -0.34, ly = 1.36, lz = 0.72;
+    const k = this.sizeScale;
+    const lx = -0.34 * k, ly = 1.36 * k, lz = 0.72 * k;
     const s = Math.sin(this.facing), c = Math.cos(this.facing);
     return out.set(this.pos.x + lx * c + lz * s, this.pos.y + ly, this.pos.z - lx * s + lz * c);
   }
@@ -220,6 +290,7 @@ export class Wizard {
     this.sprintExhausted = false;
     this.alive = true;
     this.intent.clear();
+    this.syncSolid();
   }
 
   resetStats(): void {
@@ -255,6 +326,7 @@ export class Wizard {
       this.alive = false;
       this.cast = null;
       this.shieldTime = 0;
+      this.syncSolid();
     }
     return dealt;
   }
@@ -426,7 +498,7 @@ export class Wizard {
     } else {
       // Walking off a ledge starts the fall from rest; the coyote window counts down.
       if (this.coyote > 0) this.coyote = Math.max(0, this.coyote - dt);
-      this.groundY = physics.groundHeightBelow(this.pos, W.radius * 0.9);
+      this.groundY = physics.groundHeightBelow(this.pos, this.radius * 0.9);
     }
   }
 

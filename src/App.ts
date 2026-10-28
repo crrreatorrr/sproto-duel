@@ -2,15 +2,15 @@ import * as THREE from 'three';
 import { CONFIG, type TeamPalette } from './config';
 import { AudioManager } from './audio/AudioManager';
 import { Campaign } from './campaign/Campaign';
-import { BOSSES, type BossDef } from './campaign/levels';
+import { BOSSES, bossDisplayName, type BossDef } from './campaign/levels';
 import { DoubleTap } from './core/DoubleTap';
 import { events } from './core/events';
 import { bindRumble, spellLabels } from './core/Gamepad';
-import type { Game } from './core/Game';
+import { nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
-import { Menus, loadSettings, saveSettings, type ResultData, type Settings } from './ui/Menus';
+import { Menus, loadSettings, saveSettings, type ResultData, type Settings, type StageInfo } from './ui/Menus';
 import type { Wizard } from './wizard/Wizard';
 
 type AppState = 'menu' | 'playing' | 'paused' | 'results';
@@ -36,7 +36,10 @@ export class App {
   readonly hud: HUD;
   readonly menus: Menus;
   readonly audio: AudioManager;
+  /** The rival's AI (Quick Duel opponent or campaign boss). */
   readonly ai: AIController;
+  /** A double fight's partner's AI (Game.partner); idle outside one. */
+  readonly partnerAi: AIController;
   private settings: Settings;
   /** Drives the player's wizard in the menu background (attract mode). */
   private readonly attract: AIController;
@@ -64,7 +67,20 @@ export class App {
     this.audio = new AudioManager();
     this.audio.bind(game);
     this.ai = new AIController(game.enemy, game.player, game.spells, game.physics, game.arena, 'normal');
-    game.enemyController = this.ai;
+    this.partnerAi = new AIController(game.partner, game.player, game.spells, game.physics, game.arena, 'normal');
+    // Both bosses of a double fight keep apart and flank; alone, the rival has nobody to space from.
+    this.ai.allies = this.partnerAi.allies = game.enemies;
+    const ai = this.ai, partnerAi = this.partnerAi;
+    game.enemyController = {
+      update(dt) {
+        ai.update(dt);
+        if (game.partnerActive) partnerAi.update(dt);
+      },
+      reset() {
+        ai.reset();
+        partnerAi.reset();
+      },
+    };
     this.attract = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');
     game.onTick((dt) => this.attractTick(dt));
 
@@ -192,8 +208,10 @@ export class App {
     if (this.state !== 'menu') return;
     const g = this.game;
     g.actionsLocked = false;
+    const foe = nearestStanding(g.player, g.enemies);
+    if (foe) this.attract.setTarget(foe);
     this.attract.update(dt);
-    if (!g.player.alive || !g.enemy.alive) {
+    if (!g.player.alive || !foe) {
       this.attractReset += dt;
       if (this.attractReset > 2.5) this.resetAttract();
     }
@@ -206,6 +224,8 @@ export class App {
     for (const w of g.wizards) w.resetForRound(false);
     g.spawnWizards();
     this.ai.reset();
+    this.partnerAi.reset();
+    this.attract.setTarget(g.enemy);
     this.attract.reset();
   }
 
@@ -247,7 +267,9 @@ export class App {
     const boss = this.campaign.boss;
     this.mode = 'gauntlet';
     this.dressEnemy(boss);
-    this.hud.setNames(['You', boss.name], ['', boss.title]);
+    const names = ['You', boss.name], titles = ['', boss.title];
+    if (boss.partner) names.push(boss.partner.name);
+    this.hud.setNames(names, titles);
     this.beginMatch(boss);
   }
 
@@ -274,7 +296,9 @@ export class App {
     const theme = boss ? boss.theme : 'moonlit';
     if (g.arena.theme !== theme) g.arena.applyTheme(theme);
     if (boss) this.ai.setProfile(boss.ai);
+    if (boss?.partner) this.partnerAi.setProfile(boss.partner.ai);
     this.applyRivalColors(boss ? boss.palette : null);
+    this.hud.setPartnerColors(boss?.partner?.palette ?? null);
   }
 
   /** HUD/menu accents for the rival (health bar, pips, arrow, results) follow the boss palette. */
@@ -318,11 +342,16 @@ export class App {
     this.game.simulating = false;
     this.game.input.releaseLock();
     const boss = this.match.boss;
-    const stage = this.game.stages.current;
-    this.menus.showPause(
-      boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${boss.name}, ${boss.title}` : '',
-      boss && stage ? { index: this.game.stages.stage, name: stage.name } : null,
-    );
+    const g = this.game;
+    // Each boss's current stage (both in a double fight).
+    const stages: StageInfo[] = [];
+    if (boss) {
+      for (const w of g.enemies) {
+        const st = g.stagesOf(w);
+        if (st?.current) stages.push({ index: st.stage, name: st.current.name, who: boss.partner ? w.name : '', down: !w.alive });
+      }
+    }
+    this.menus.showPause(boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${bossDisplayName(boss)}, ${boss.title}` : '', stages);
     this.audio.setPaused(true);
   }
 
@@ -393,7 +422,13 @@ export class App {
     this.hud.show(false);
     const rounds = this.match.roundWinners.map((w) => (w === g.player ? 'win' : w ? 'lose' : 'draw') as 'win' | 'lose' | 'draw');
     const p1Won = this.match.wins[0] > this.match.wins[1];
-    const stats = { player: { ...g.player.stats }, enemy: { ...g.enemy.stats } };
+    // A double fight's two bosses share one column.
+    const enemy = { ...g.enemy.stats };
+    for (const w of g.enemies) {
+      if (w === g.enemy) continue;
+      for (const k of Object.keys(enemy) as (keyof typeof enemy)[]) enemy[k] += w.stats[k];
+    }
+    const stats = { player: { ...g.player.stats }, enemy };
     const boss = this.match.boss;
     let data: ResultData;
     if (boss) {
@@ -403,15 +438,17 @@ export class App {
         ? { label: 'Retry', action: () => this.startBossFight() }
         : this.gauntletOutcome === 'complete' || !next
           ? { label: 'Claim Victory', action: () => this.showCampaignComplete() }
-          : { label: `Next: ${next.name}`, action: () => (c.advance(), this.showBossCard()) };
+          : { label: `Next: ${bossDisplayName(next)}`, action: () => (c.advance(), this.showBossCard()) };
+      const name = bossDisplayName(boss);
+      const pair = !!boss.partner;
       data = {
         title: p1Won ? 'Victory' : 'Defeat',
-        subtitle: p1Won ? `${boss.name}, ${boss.title}, falls.` : `${boss.name}, ${boss.title}, wins this time.`,
+        subtitle: p1Won ? `${name}, ${boss.title}, ${pair ? 'fall' : 'falls'}.` : `${name}, ${boss.title}, ${pair ? 'win' : 'wins'} this time.`,
         eyebrow: `Fight ${this.match.bossIndex + 1} of ${BOSSES.length}${p1Won ? ' cleared' : ''}`,
         boss,
         primary,
         victory: p1Won,
-        names: ['You', boss.name],
+        names: ['You', name],
         rounds,
         ...stats,
       };

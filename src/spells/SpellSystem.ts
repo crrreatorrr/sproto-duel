@@ -17,7 +17,6 @@ const S = CONFIG.spells;
 const PROJECTILE_MASK = GROUP.WORLD | GROUP.WIZARD | GROUP.GROUND;
 /** Clash detection is a little generous so mid-air collisions actually happen. */
 const CLASH_RADIUS_SCALE = 1.6;
-const SHIELD_CENTER_Y = 1.0;
 
 /** A burst volley still firing (VolleyDef.interval > 0). */
 interface PendingVolley {
@@ -53,6 +52,11 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
  * Owns casting rules (mana, cooldowns, windups), projectiles and every spell interaction:
  * shields, reflects, clashes, beams, explosions and the ultimate wave.
  * Controllers only set intents; this turns intents into spells.
+ *
+ * Teams (Wizard.side): nothing hurts, stuns, pushes or blocks its own side. Bolts, blasts and beams
+ * pass through allies, splash and the Ultimate wave skip them, an ally's shield ignores your
+ * spells, and same-side projectiles never clash. A reflect hands the spell to the shielder's side.
+ * `wizards` is Game.wizards, shared by reference (a double fight's partner joins it while active).
  */
 export class SpellSystem {
   readonly pool: ProjectilePool;
@@ -73,9 +77,11 @@ export class SpellSystem {
     this.volleys = wizards.map(() => this.newVolleySlot());
   }
 
-  /** Projectiles and beams pass through rolling (i-frames) and knocked-out wizards. */
-  private readonly skipInvulnerable = (tag: ColliderTag) =>
-    tag.kind === 'wizard' && (tag.wizard.invulnerable || !tag.wizard.alive);
+  /** Side of the spell being traced (`skipQuery`): allies on that side are passed through. */
+  private querySide = -1;
+  /** Projectiles and beams pass through rolling (i-frames) and knocked-out wizards, and their own side. */
+  private readonly skipQuery = (tag: ColliderTag) =>
+    tag.kind === 'wizard' && (tag.wizard.invulnerable || !tag.wizard.alive || tag.wizard.side === this.querySide);
 
   update(dt: number): void {
     for (const w of this.wizards) {
@@ -94,6 +100,19 @@ export class SpellSystem {
     this.waves.length = 0;
     for (const v of this.volleys) v.active = false;
     this.spellFx.clear();
+  }
+
+  /** Remove everything `w` has in flight (a boss partner leaving the fight). */
+  releaseOwned(w: Wizard): void {
+    const list = this.pool.active;
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].owner === w) this.pool.release(list[i]);
+    for (let i = this.waves.length - 1; i >= 0; i--) {
+      const wave = this.waves[i];
+      if (wave.owner !== w) continue;
+      if (wave.fx) this.spellFx.releaseWave(wave.fx);
+      this.waves.splice(i, 1);
+    }
+    for (const v of this.volleys) if (v.wizard === w) v.active = false;
   }
 
   /** Render-time sync (interpolation, shader time). */
@@ -190,8 +209,8 @@ export class SpellSystem {
   }
 
   /**
-   * Spawn one bolt owned by `w` from `from` along unit `dir`. Every bolt goes through here (held fire,
-   * volleys, sidekick throws), so they all clash, reflect, pool and skin the same way.
+   * Spawn one bolt owned by `w` from `from` along unit `dir`. Every bolt goes through here (held fire
+   * and volleys), so they all clash, reflect, pool and skin the same way.
    */
   private launchBolt(w: Wizard, from: THREE.Vector3, dir: THREE.Vector3, damage: number): Projectile | null {
     const B = S.bolt;
@@ -278,14 +297,6 @@ export class SpellSystem {
     this.launchBolt(w, tmpFrom, tmpDir, S.bolt.damage * def.damageScale);
   }
 
-  /**
-   * A bolt thrown by a boss's sidekick from `from` along unit `dir`. It is the boss's own bolt
-   * (owner, colours, damage multiplier) at CONFIG.campaign.sidekick.damageScale, and costs nothing.
-   */
-  castSidekickBolt(owner: Wizard, from: THREE.Vector3, dir: THREE.Vector3): Projectile | null {
-    return this.launchBolt(owner, from, dir, S.bolt.damage * CONFIG.campaign.sidekick.damageScale);
-  }
-
   private releaseBlast(w: Wizard): void {
     const B = S.blast;
     if (!w.spendMana(B.manaCost)) {
@@ -354,22 +365,23 @@ export class SpellSystem {
     let shieldDist = Infinity;
     let shieldOwner: Wizard | null = null;
     for (const o of this.wizards) {
-      if (o === caster || !o.alive || !o.shielded) continue;
-      tmpCenter.set(o.pos.x, o.pos.y + SHIELD_CENTER_Y, o.pos.z);
+      if (o.side === caster.side || !o.alive || !o.shielded) continue;
+      tmpCenter.set(o.pos.x, o.pos.y + o.shieldCenterY, o.pos.z);
       const t = segmentSphere(origin, span, tmpCenter, S.shield.radius);
       if (t >= 0 && t * range < shieldDist) {
         shieldDist = t * range;
         shieldOwner = o;
       }
     }
-    const hit = this.physics.raycast(origin, dir, range, PROJECTILE_MASK, caster.collider, this.skipInvulnerable);
+    this.querySide = caster.side;
+    const hit = this.physics.raycast(origin, dir, range, PROJECTILE_MASK, caster.collider, this.skipQuery);
     const hitDist = hit ? hit.distance : range;
     const reach = Math.min(hitDist, shieldDist);
 
     // Rolling through the beam.
     span.copy(dir).multiplyScalar(reach);
     for (const o of this.wizards) {
-      if (o === caster || !o.alive || !o.invulnerable) continue;
+      if (o.side === caster.side || !o.alive || !o.invulnerable) continue;
       if (segmentSphere(origin, span, o.chest(tmpCenter), 0.8) >= 0) {
         this.callout(tmpCenter, 'DODGE', 'info');
         events.emit('dodgeEvade', { wizard: o, pos: tmpCenter.clone() });
@@ -467,7 +479,8 @@ export class SpellSystem {
       if (this.checkShields(p, tmpMotion)) continue;
       this.checkEvade(p, tmpMotion);
 
-      const hit = this.physics.sphereCast(p.pos, tmpMotion, p.radius, PROJECTILE_MASK, p.owner.collider, this.skipInvulnerable);
+      this.querySide = p.owner.side;
+      const hit = this.physics.sphereCast(p.pos, tmpMotion, p.radius, PROJECTILE_MASK, p.owner.collider, this.skipQuery);
       if (hit) {
         p.pos.addScaledVector(tmpMotion.normalize(), hit.distance);
         this.impact(p, hit);
@@ -497,8 +510,8 @@ export class SpellSystem {
   /** Returns true if the projectile hit a shield this tick (it was reflected, deflected or absorbed). */
   private checkShields(p: Projectile, motion: THREE.Vector3): boolean {
     for (const o of this.wizards) {
-      if (o === p.owner || !o.alive || !o.shielded) continue;
-      tmpCenter.set(o.pos.x, o.pos.y + SHIELD_CENTER_Y, o.pos.z);
+      if (o.side === p.owner.side || !o.alive || !o.shielded) continue;
+      tmpCenter.set(o.pos.x, o.pos.y + o.shieldCenterY, o.pos.z);
       const t = segmentSphere(p.pos, motion, tmpCenter, S.shield.radius + p.radius);
       if (t < 0) continue;
       tmpPoint.copy(p.pos).addScaledVector(motion, t);
@@ -570,7 +583,7 @@ export class SpellSystem {
   /** "DODGE" when a projectile passes through a rolling wizard. */
   private checkEvade(p: Projectile, motion: THREE.Vector3): void {
     for (const o of this.wizards) {
-      if (o === p.owner || !o.invulnerable || p.evaded === o || !o.alive) continue;
+      if (o.side === p.owner.side || !o.invulnerable || p.evaded === o || !o.alive) continue;
       if (segmentSphere(p.pos, motion, o.chest(tmpCenter), 0.75 + p.radius) < 0) continue;
       p.evaded = o;
       this.callout(tmpCenter, 'DODGE', 'info');
@@ -615,11 +628,11 @@ export class SpellSystem {
     let hitAny = false;
     const origin = new THREE.Vector3(pos.x, Math.max(pos.y, 0.4), pos.z);
     for (const o of this.wizards) {
-      if (!o.alive || o === owner || o === ignore) continue;
+      if (!o.alive || o.side === owner.side || o === ignore) continue;
       // Distance to the wizard's vertical body segment.
-      const y = clamp(origin.y, o.pos.y + 0.3, o.pos.y + 1.6);
+      const y = clamp(origin.y, o.pos.y + 0.3 * o.sizeScale, o.pos.y + 1.6 * o.sizeScale);
       tmpTarget.set(o.pos.x, y, o.pos.z);
-      const d = Math.max(0, origin.distanceTo(tmpTarget) - CONFIG.wizard.radius);
+      const d = Math.max(0, origin.distanceTo(tmpTarget) - o.radius);
       if (d > radius) continue;
       o.chest(tmpCenter);
       if (o.invulnerable) {
@@ -661,7 +674,7 @@ export class SpellSystem {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i];
         const b = list[j];
-        if (a.owner === b.owner) continue;
+        if (a.owner.side === b.owner.side) continue;
         // Closest approach of the two swept paths over this tick.
         const rx = a.prevPos.x - b.prevPos.x, ry = a.prevPos.y - b.prevPos.y, rz = a.prevPos.z - b.prevPos.z;
         const dx = a.pos.x - a.prevPos.x - (b.pos.x - b.prevPos.x);
@@ -726,8 +739,8 @@ export class SpellSystem {
       }
 
       for (const o of this.wizards) {
-        if (o === wave.owner || !o.alive || wave.hitWizards.has(o)) continue;
-        const d = Math.hypot(o.pos.x - wave.origin.x, o.pos.z - wave.origin.z) - CONFIG.wizard.radius;
+        if (o.side === wave.owner.side || !o.alive || wave.hitWizards.has(o)) continue;
+        const d = Math.hypot(o.pos.x - wave.origin.x, o.pos.z - wave.origin.z) - o.radius;
         if (d > wave.radius) continue;
         wave.hitWizards.add(o);
         this.waveHit(wave, o);
@@ -737,7 +750,7 @@ export class SpellSystem {
       const list = this.pool.active;
       for (let k = list.length - 1; k >= 0; k--) {
         const p = list[k];
-        if (p.owner === wave.owner) continue;
+        if (p.owner.side === wave.owner.side) continue;
         const d = Math.hypot(p.pos.x - wave.origin.x, p.pos.z - wave.origin.z);
         if (d > wave.radius + 0.3 || d < prev - 1.5) continue;
         this.fx.clash(p.pos, p.color, wave.owner.team.ultimate, 0.8);
@@ -798,7 +811,8 @@ export class SpellSystem {
 
   /**
    * The single place damage is applied: source multiplier (boss tuning, god mode), immunity,
-   * stats, ult charge, knockback, events, KO.
+   * stats, ult charge, knockback, events, KO. Never between allies (a source on the target's side
+   * other than the target itself deals nothing, with no event).
    */
   dealDamage(
     target: Wizard,
@@ -810,6 +824,7 @@ export class SpellSystem {
     knockback = 0,
   ): number {
     if (!target.alive) return 0;
+    if (source && source !== target && source.side === target.side) return 0;
     if (source && source !== target) amount *= source.damageMultiplier;
     if (target.immune || target.evolving) {
       // God mode or a transforming boss: the hit still reads (flash, sound, "IMMUNE" popup) but

@@ -1,6 +1,7 @@
 import { CONFIG, type Difficulty } from '../config';
 import type { Game } from '../core/Game';
 import { AIController } from '../enemy/AIController';
+import { withSeededRandom } from './campaignScenarios';
 import type { QAHarness } from './QAHarness';
 
 const DT = CONFIG.sim.fixedDt;
@@ -80,7 +81,8 @@ export function registerAIScenarios(qa: QAHarness, game: Game): void {
   qa.add('ai.uses_its_states', (c) => {
     c.setup({ player: [0, -14], enemy: [0, 14] });
     const seen = new Set<string>();
-    withAI(game, 'hard', (ai) =>
+    // Seeded: unseeded, a rare run spent the whole 15 s evading and retreating.
+    withSeededRandom(80, () => withAI(game, 'hard', (ai) =>
       c.step(15, () => {
         ai.update(DT);
         seen.add(ai.state);
@@ -91,7 +93,7 @@ export function registerAIScenarios(qa: QAHarness, game: Game): void {
         c.enemy.chest(c.player.aimPoint);
         c.player.intent.holdBolt = true;
       }),
-    );
+    ));
     c.note(`states=${[...seen].join(',')}`);
     for (const s of ['approach', 'attack', 'evade']) c.expect(seen.has(s), `never entered ${s}`);
   });

@@ -1,11 +1,11 @@
 import { resolveImage } from '../assets/AssetLoader';
 import { BOSS_PORTRAITS } from '../assets/manifest';
-import type { BossDef, BossId } from './levels';
+import type { BossDef, BossFighter, BossId } from './levels';
 
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
 /** CSS custom properties carrying a boss palette, for cards, ladders and portraits. */
-export function bossStyleVars(boss: BossDef): string {
+export function bossStyleVars(boss: BossFighter): string {
   const p = boss.palette;
   return `--boss-robe:${hex(p.robe)};--boss-trim:${hex(p.trim)};--boss-spell:${hex(p.spell)};--boss-blast:${hex(p.blast)}`;
 }
@@ -66,6 +66,7 @@ function silhouetteSvg(boss: BossDef): string {
 const FACES: Record<BossId, string> = {
   sahil: '#2a1810',
   obama: '#1c120c',
+  midget: '#2a1a12',
   broccoli: '#86ad55',
   agent: '#241a18',
   tinubu: '#1e100a',
@@ -109,6 +110,12 @@ function headgear(id: BossId, robe: string, trim: string, spell: string, blast: 
         <path d="M50 33 Q56 34 57 40" fill="none" stroke="#1a1010" stroke-width="0.9"/>
         <circle cx="57" cy="40.5" r="1.3" fill="${spell}"/>`;
     }
+    case 'midget':
+      // A short gold top hat.
+      return `
+        <ellipse cx="50" cy="45" rx="17" ry="3.4" fill="${trim}"/>
+        <path d="M41 45 L42 30 L58 30 L59 45 Z" fill="${trim}"/>
+        <path d="M41.6 41 L58.4 41 L58.8 44.4 L41.2 44.4 Z" fill="${robe}"/>`;
     case 'obama':
       // Mustard wide-brim hat.
       return `

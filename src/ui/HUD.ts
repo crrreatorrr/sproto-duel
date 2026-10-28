@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config';
+import { CONFIG, type TeamPalette } from '../config';
 import { resolveImage } from '../assets/AssetLoader';
 import { bossStagePortrait } from '../assets/manifest';
 import { STAGE_COUNT } from '../campaign/BossStages';
-import { BOSSES } from '../campaign/levels';
+import { BOSSES, bossDisplayName } from '../campaign/levels';
 import { events } from '../core/events';
 import { feel } from '../core/feel';
 import type { Game } from '../core/Game';
@@ -44,9 +44,35 @@ const SLOTS: { spell: SpellId; label: string }[] = [
 /** Key label per slot (mouse + keyboard). */
 const KEY_LABELS = ['LMB', 'RMB', 'Q', 'E', 'R'];
 
-const tmp = new THREE.Vector3();
+/** Over-the-head health tag and its off-screen arrow, one per enemy (the rival, and a double fight's partner). */
+interface EnemyTag {
+  tag: HTMLElement;
+  fill: HTMLElement;
+  arrow: HTMLElement;
+}
 
-/** In-match HUD. Built once; per-frame updates only touch transforms, classes and changed text. */
+const tmp = new THREE.Vector3();
+const tmpColor = new THREE.Color();
+const WHITE = new THREE.Color(1, 1, 1);
+
+/** The HUD accent variables (--rival, --rival-hi, --rival-lo) for a palette, as [name, value] pairs. */
+export function rivalAccent(team: TeamPalette): [string, string][] {
+  const c = tmpColor.setHex(team.spell);
+  const hi = c.clone().lerp(WHITE, 0.5);
+  const lo = c.clone().multiplyScalar(0.75);
+  return [['--rival', `#${c.getHexString()}`], ['--rival-hi', `#${hi.getHexString()}`], ['--rival-lo', `#${lo.getHexString()}`]];
+}
+
+function setAccent(el: HTMLElement, team: TeamPalette | null): void {
+  if (!team) for (const k of ['--rival', '--rival-hi', '--rival-lo']) el.style.removeProperty(k);
+  else for (const [k, v] of rivalAccent(team)) el.style.setProperty(k, v);
+}
+
+/**
+ * In-match HUD. Built once; per-frame updates only touch transforms, classes and changed text.
+ * Plates: 0 the player (left), 1 the rival (right), 2 a double fight's partner (right, under the
+ * rival, a little smaller, shown only while the partner fights), each enemy in its own palette.
+ */
 export class HUD {
   readonly root: HTMLElement;
   private readonly plates: Plate[];
@@ -58,17 +84,16 @@ export class HUD {
   private readonly banner: HTMLElement;
   private readonly bannerSub: HTMLElement;
   private readonly bannerArt: HTMLImageElement;
-  /** Boss stage pips and stage name on the rival plate. */
-  private readonly stagePips: HTMLElement[] = [];
-  private readonly stageName: HTMLElement;
+  /** Boss stage pips and stage name on the enemy plates (indexed by plate; 0 is unused). */
+  private readonly stagePips: HTMLElement[][] = [[], [], []];
+  private readonly stageNames: HTMLElement[] = [];
   private readonly flash: HTMLElement;
   private readonly ultDim: HTMLElement;
   private dim = 0;
   private readonly vignette: HTMLElement;
   private readonly crosshair: HTMLElement;
-  private readonly enemyTag: HTMLElement;
-  private readonly enemyTagFill: HTMLElement;
-  private readonly arrow: HTMLElement;
+  /** [rival, partner]. */
+  private readonly tags: EnemyTag[] = [];
   private readonly godBadge: HTMLElement;
   private readonly dodge: HTMLElement;
   private readonly cache = new Map<string, string>();
@@ -88,11 +113,16 @@ export class HUD {
           <div class="pips"><span class="pip-row" data-side="0"></span><div class="timer">80</div><span class="pip-row" data-side="1"></span></div>
           <div class="round-label">Round 1</div>
         </div>
-        ${this.plateHtml('right')}
+        <div class="plates-right">
+          ${this.plateHtml('right')}
+          ${this.plateHtml('right', true)}
+        </div>
       </div>
       <div class="crosshair"><i></i><i></i><i></i><i></i></div>
-      <div class="enemy-tag"><div class="enemy-tag-fill"></div></div>
-      <div class="offscreen-arrow"></div>
+      <div class="enemy-tag" data-i="0"><div class="enemy-tag-fill"></div></div>
+      <div class="enemy-tag partner" data-i="1"><div class="enemy-tag-fill"></div></div>
+      <div class="offscreen-arrow" data-i="0"></div>
+      <div class="offscreen-arrow partner" data-i="1"></div>
       <div class="god-badge" title="God mode: no damage, unlimited mana, no cooldowns, ${CONFIG.debug.godPowerMultiplier}× damage (99 or ${CONFIG.debug.godHotkey} toggles)">God Mode</div>
       <div class="banner"><img class="banner-art" alt="" draggable="false"><div class="banner-main"></div><div class="banner-sub"></div></div>
       <div class="hud-bottom">
@@ -102,8 +132,8 @@ export class HUD {
     parent.appendChild(this.root);
     const q = <T extends HTMLElement>(sel: string, el: ParentNode = this.root) => el.querySelector(sel) as T;
 
-    this.plates = (['left', 'right'] as const).map((side) => {
-      const root = q(`.plate-${side}`);
+    this.plates = ['.plate-left', '.plate-right:not(.plate-partner)', '.plate-partner'].map((sel) => {
+      const root = q(sel);
       return {
         root,
         hp: q('.hp-fill', root),
@@ -129,16 +159,20 @@ export class HUD {
     this.banner = q('.banner-main');
     this.bannerSub = q('.banner-sub');
     this.bannerArt = q('.banner-art');
-    const stageRow = q('.plate-right .stage-pips');
-    for (let i = 0; i < STAGE_COUNT; i++) this.stagePips.push(stageRow.appendChild(document.createElement('i')));
-    this.stageName = q('.plate-right .stage-name');
+    for (const i of [1, 2]) {
+      const plate = this.plates[i].root;
+      const row = q('.stage-pips', plate);
+      for (let k = 0; k < STAGE_COUNT; k++) this.stagePips[i].push(row.appendChild(document.createElement('i')));
+      this.stageNames[i] = q('.stage-name', plate);
+    }
     this.flash = q('.screen-flash');
     this.ultDim = q('.ult-dim');
     this.vignette = q('.vignette');
     this.crosshair = q('.crosshair');
-    this.enemyTag = q('.enemy-tag');
-    this.enemyTagFill = q('.enemy-tag-fill');
-    this.arrow = q('.offscreen-arrow');
+    for (const i of [0, 1]) {
+      const tag = q(`.enemy-tag[data-i="${i}"]`);
+      this.tags.push({ tag, fill: q('.enemy-tag-fill', tag), arrow: q(`.offscreen-arrow[data-i="${i}"]`) });
+    }
     this.godBadge = q('.god-badge');
     this.dodge = q('.dodge-fill');
 
@@ -154,9 +188,9 @@ export class HUD {
     this.bindEvents();
   }
 
-  private plateHtml(side: 'left' | 'right'): string {
+  private plateHtml(side: 'left' | 'right', partner = false): string {
     return `
-      <div class="plate plate-${side}">
+      <div class="plate plate-${side}${partner ? ' plate-partner' : ''}">
         <div class="plate-head"><span class="plate-id"><span class="plate-name">Rival</span><small class="plate-title"></small></span><span class="hp-text">150</span></div>
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
         <div class="bar mana"><div class="mana-fill"></div></div>
@@ -165,12 +199,22 @@ export class HUD {
       </div>`;
   }
 
-  /** Names (and optional epithets, e.g. a boss title) on the two health plates. */
-  setNames(names: [string, string], titles: [string, string] = ['', '']): void {
+  /**
+   * Names (and optional epithets, e.g. a boss title) on the health plates: player, rival, and a
+   * double fight's partner. Missing entries are blank.
+   */
+  setNames(names: readonly string[], titles: readonly string[] = []): void {
     this.plates.forEach((p, i) => {
-      p.root.querySelector('.plate-name')!.textContent = names[i];
-      p.root.querySelector('.plate-title')!.textContent = titles[i];
+      p.root.querySelector('.plate-name')!.textContent = names[i] ?? '';
+      p.root.querySelector('.plate-title')!.textContent = titles[i] ?? '';
     });
+  }
+
+  /** The partner's plate, tag and arrow in its own palette (null: back to the rival's). */
+  setPartnerColors(team: TeamPalette | null): void {
+    setAccent(this.plates[2].root, team);
+    setAccent(this.tags[1].tag, team);
+    setAccent(this.tags[1].arrow, team);
   }
 
   /** Relabel the spell slots, e.g. with controller buttons when a gamepad is in use. */
@@ -207,19 +251,20 @@ export class HUD {
         feel.screenFlash(0xffffff, Math.min(0.2, 0.06 + e.amount / 150));
       }
     });
-    // Campaign fights name the boss on the round banners.
-    const bossLine = () => (this.match.boss ? `${this.match.boss.name}, ${this.match.boss.title}` : '');
+    // Campaign fights name the boss (both, in a double fight) on the round banners.
+    const bossLine = () => (this.match.boss ? `${bossDisplayName(this.match.boss)}, ${this.match.boss.title}` : '');
     events.on('roundIntro', (e) => {
       const last = this.match.wins.some((w) => w === CONFIG.match.roundsToWin - 1) && this.match.wins[0] === this.match.wins[1];
       this.showBanner(last ? 'Final Round' : `Round ${e.round}`, bossLine(), 'round', CONFIG.match.introTime);
     });
     events.on('countdown', (e) => this.showBanner(String(e.value), bossLine(), 'count', 0.7));
-    events.on('roundStart', () => this.showBanner('Duel!', this.match.boss ? `vs ${this.match.boss.name}` : '', 'fight', 0.9));
+    events.on('roundStart', () => this.showBanner('Duel!', this.match.boss ? `vs ${bossDisplayName(this.match.boss)}` : '', 'fight', 0.9));
     events.on('suddenDeath', () => this.showBanner('Sudden Death', 'The fire closes in', 'danger', 1.6));
     events.on('roundEnd', (e) => {
       const won = e.winner === g.player;
       const main = e.reason === 'time' ? 'Time!' : 'K.O.';
-      const sub = !e.winner ? 'Draw' : won ? 'You take the round' : `${e.winner.name} takes the round`;
+      const pair = this.match.boss?.partner ? bossDisplayName(this.match.boss) : '';
+      const sub = !e.winner ? 'Draw' : won ? 'You take the round' : pair ? `${pair} take the round` : `${e.winner.name} takes the round`;
       this.showBanner(main, sub, won ? 'win' : e.winner ? 'lose' : 'round', CONFIG.match.roundEndTime);
     });
     events.on('castStart', (e) => {
@@ -231,13 +276,22 @@ export class HUD {
       if (e.wizard === g.player) this.showBanner('Ultimate Ready', `Press ${this.slotKeys[4].textContent}`, 'ult', 1.1);
     });
     // Boss evolution: "STAGE 2" and the stage's name in the boss palette, over its concept art if any.
+    // An enraged survivor of a double fight says so instead ("The Midget is enraged!").
     events.on('bossEvolve', (e) => {
       const art = resolveImage(bossStagePortrait(e.boss.id, e.stage));
-      this.showBanner(`Stage ${e.stage + 1}`, e.boss.stages[e.stage].name, 'stage', CONFIG.campaign.evolveTime + 0.6, art);
+      const box = this.banner.parentElement!;
+      setAccent(box, e.wizard === g.partner ? e.boss.palette : null);
+      const stage = e.boss.stages[e.stage].name;
+      if (e.enraged) this.showBanner(`${e.wizard.name} is enraged!`, `Stage ${e.stage + 1} · ${stage}`, 'stage enrage', CONFIG.campaign.evolveTime + 0.9, art);
+      else this.showBanner(`Stage ${e.stage + 1}`, stage, 'stage', CONFIG.campaign.evolveTime + 0.6, art);
     });
+    // Every other banner is in the rival's colours.
+    for (const ev of ['roundIntro', 'roundStart', 'roundEnd', 'suddenDeath', 'ultReady'] as const) {
+      events.on(ev, () => setAccent(this.banner.parentElement!, null));
+    }
     // A boss names its signature volley over its head.
     events.on('volley', (e) => {
-      if (e.wizard === g.enemy) g.popups.spawn(tmp.copy(e.pos).setY(e.pos.y + 0.6), `${e.name}!`, 'boss');
+      if (e.wizard.side === 1) g.popups.spawn(tmp.copy(e.pos).setY(e.pos.y + 0.6), `${e.name}!`, 'boss');
     });
     events.on('noMana', (e) => {
       if (e.wizard !== g.player) return;
@@ -260,8 +314,15 @@ export class HUD {
 
   update(dt: number): void {
     const g = this.game;
+    const duo = g.partnerActive;
+    if (this.cache.get('duo') !== String(duo)) {
+      this.cache.set('duo', String(duo));
+      this.root.classList.toggle('duo', duo);
+    }
     this.updatePlate(0, g.player, dt);
     this.updatePlate(1, g.enemy, dt);
+    if (duo) this.updatePlate(2, g.partner, dt);
+    else this.set('plate2', this.plates[2].root, 'class', 'plate plate-right plate-partner');
 
     // Timer + rounds.
     const t = Math.ceil(this.match.timer);
@@ -298,7 +359,8 @@ export class HUD {
     this.set('vig', this.vignette, 'class', p.stunned ? 'vignette stun' : 'vignette');
     if (p.stunned) this.vignette.style.opacity = '0.8';
 
-    this.updateEnemyTag();
+    this.updateEnemyTag(0, g.enemy);
+    this.updateEnemyTag(1, duo ? g.partner : null);
   }
 
   private updatePlate(i: number, w: Wizard, dt: number): void {
@@ -319,19 +381,20 @@ export class HUD {
     this.set(`mana${i}`, plate.mana, 'transform', `scaleX(${(w.mana / W.maxMana).toFixed(4)})`);
     const ult = w.ult / S.ultimate.chargeMax;
     this.set(`ult${i}`, plate.ult, 'transform', `scaleX(${ult.toFixed(4)})`);
-    const staged = i === 1 && this.updateStages();
-    const cls = `plate plate-${i === 0 ? 'left' : 'right'}${hp < 0.3 ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}`;
+    const staged = i > 0 && this.updateStages(i, w);
+    const side = i === 0 ? 'left' : i === 1 ? 'right' : 'right plate-partner';
+    const cls = `plate plate-${side}${hp < 0.3 ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${w.alive ? '' : ' down'}`;
     this.set(`plate${i}`, plate.root, 'class', cls);
   }
 
-  /** Stage pips (passed, current, still to come) and the stage name under the boss's bars. False without a boss. */
-  private updateStages(): boolean {
-    const st = this.game.stages;
-    const stage = st.current;
-    if (!this.match.boss || !stage) return false;
+  /** Stage pips (passed, current, still to come) and the stage name under a boss's bars. False without a boss. */
+  private updateStages(i: number, w: Wizard): boolean {
+    const st = this.game.stagesOf(w);
+    const stage = st?.current;
+    if (!this.match.boss || !st || !stage) return false;
     const evolving = st.evolving ? ' evolving' : '';
-    this.stagePips.forEach((pip, i) => this.set(`spip${i}`, pip, 'class', i < st.stage ? 'done' : i === st.stage ? `on${evolving}` : ''));
-    this.set('stagename', this.stageName, 'text', stage.name);
+    this.stagePips[i].forEach((pip, k) => this.set(`spip${i}${k}`, pip, 'class', k < st.stage ? 'done' : k === st.stage ? `on${evolving}` : ''));
+    this.set(`stagename${i}`, this.stageNames[i], 'text', stage.name);
     return true;
   }
 
@@ -360,28 +423,34 @@ export class HUD {
     }
   }
 
-  /** Small health bar over the rival, plus an edge arrow when they're off-screen. */
-  private updateEnemyTag(): void {
+  /** Small health bar over enemy `k` (0 the rival, 1 the partner), plus an edge arrow when off-screen. */
+  private updateEnemyTag(k: number, e: Wizard | null): void {
     const g = this.game;
-    const e = g.enemy;
+    const { tag, fill, arrow } = this.tags[k];
+    const base = k === 0 ? '' : ' partner';
+    if (!e) {
+      this.set(`tagv${k}`, tag, 'class', `enemy-tag${base}`);
+      this.set(`arrv${k}`, arrow, 'class', `offscreen-arrow${base}`);
+      return;
+    }
     const cam = g.renderer.camera;
     tmp.copy(e.visual.root.position);
     // The tag rides above the current look, including a boss stage's growth (visual root scale).
-    tmp.y += Math.max(2.45, e.visual.topHeight * e.visual.root.scale.y + 0.25);
+    tmp.y += Math.max(e.tagHeight, e.visual.topHeight * e.visual.root.scale.y + 0.25);
     tmp.project(cam);
     const w = window.innerWidth, h = window.innerHeight;
     const behind = tmp.z > 1;
     const onScreen = !behind && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     const showTag = onScreen && e.alive;
-    this.set('tagv', this.enemyTag, 'class', showTag ? 'enemy-tag on' : 'enemy-tag');
+    this.set(`tagv${k}`, tag, 'class', `enemy-tag${base}${showTag ? ' on' : ''}`);
     if (showTag) {
       const x = (tmp.x * 0.5 + 0.5) * w;
       const y = (-tmp.y * 0.5 + 0.5) * h;
-      this.enemyTag.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
-      this.set('tagf', this.enemyTagFill, 'transform', `scaleX(${(e.health / e.maxHealth).toFixed(4)})`);
+      tag.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
+      this.set(`tagf${k}`, fill, 'transform', `scaleX(${(e.health / e.maxHealth).toFixed(4)})`);
     }
     const showArrow = !onScreen && e.alive && this.match.phase === 'fight';
-    this.set('arrv', this.arrow, 'class', showArrow ? 'offscreen-arrow on' : 'offscreen-arrow');
+    this.set(`arrv${k}`, arrow, 'class', `offscreen-arrow${base}${showArrow ? ' on' : ''}`);
     if (showArrow) {
       let x = tmp.x, y = tmp.y;
       if (behind) {
@@ -392,7 +461,7 @@ export class HUD {
       const r = Math.min(w, h) * 0.42;
       const ax = w / 2 + Math.cos(a) * r;
       const ay = h / 2 - Math.sin(a) * r;
-      this.arrow.style.transform = `translate3d(${ax.toFixed(1)}px, ${ay.toFixed(1)}px, 0) translate(-50%, -50%) rotate(${(-a).toFixed(3)}rad)`;
+      arrow.style.transform = `translate3d(${ax.toFixed(1)}px, ${ay.toFixed(1)}px, 0) translate(-50%, -50%) rotate(${(-a).toFixed(3)}rad)`;
     }
   }
 }

@@ -490,3 +490,35 @@ html, body {
 
 /* Pause: the boss's current stage. */
 .pause-stage { display: flex; align-items: center; gap: 10px; margin: -4px 0 4px; font-weight: 700; font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--rival-hi, var(--ink)); }
+
+/* ---------------------------------------------------------- double fights */
+/* Bitcoin Obama & The Midget: the partner's plate sits under the rival's, a little smaller, in its own palette. */
+.plates-right { display: grid; gap: 10px; min-width: 0; }
+.plate-partner { display: none; }
+.hud.duo .plate-partner { display: grid; width: 86%; justify-self: end; gap: 4px; }
+.plate-partner .plate-name { font-size: 14px; }
+.plate-partner .hp-text { font-size: 15px; }
+.plate-partner .bar.hp { height: 14px; }
+.plate-partner .bar.mana { height: 5px; }
+.plate-partner .bar.ult { height: 4px; }
+.plate-partner .plate-stage { font-size: 11px; }
+.plate.down { opacity: 0.45; filter: grayscale(0.7); }
+.enemy-tag.partner { width: 54px; }
+.banner.enrage .banner-main { font-size: clamp(30px, 6.5vw, 64px); }
+.boss-name.duo { font-size: clamp(32px, 4.4vw, 50px); }
+.boss-name.duo span { display: block; }
+.boss-stages-who { margin: 0 0 -6px; font: 700 12px/1 var(--hud); letter-spacing: 0.2em; text-transform: uppercase; color: var(--boss-spell, var(--gold)); }
+.pause-stage.down { opacity: 0.5; }
+/* Long boss names never push a plate off screen: names truncate, plates shrink with their column. */
+.plates-right > .plate, .plate-head, .plate-id { min-width: 0; }
+.plate-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 760px) {
+  .hud-top { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .plate-title { display: none; }
+  .hud.duo .plate-partner { width: 100%; }
+  .plates-right { gap: 6px; }
+}
+@media (max-height: 640px) {
+  .plate-partner .bar.mana, .plate-partner .bar.ult { display: none; }
+  .plates-right { gap: 6px; }
+}
