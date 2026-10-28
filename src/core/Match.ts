@@ -1,4 +1,5 @@
-import { CONFIG, type Difficulty } from '../config';
+import { CONFIG } from '../config';
+import { BOSSES, type BossDef } from '../campaign/levels';
 import { events } from './events';
 import { feel } from './feel';
 import type { Game } from './Game';
@@ -17,7 +18,8 @@ export class Match {
   timer: number = M.roundTime;
   /** Seconds left in the current intro/round-end phase. */
   phaseTime = 0;
-  difficulty: Difficulty = 'normal';
+  /** Campaign boss for this match (null in Quick Duel). */
+  boss: BossDef | null = null;
   lastWinner: Wizard | null = null;
   roundWinners: (Wizard | null)[] = [];
   private lastCount = -1;
@@ -34,12 +36,18 @@ export class Match {
     return w === this.game.player ? this.game.enemy : this.game.player;
   }
 
+  /** 0-based position of this match's boss in the gauntlet, or -1. */
+  get bossIndex(): number {
+    return this.boss ? BOSSES.indexOf(this.boss) : -1;
+  }
+
   get inRound(): boolean {
     return this.phase === 'intro' || this.phase === 'fight' || this.phase === 'roundEnd';
   }
 
-  startMatch(difficulty: Difficulty): void {
-    this.difficulty = difficulty;
+  /** `boss`: the campaign fight being played, or null for a Quick Duel. */
+  startMatch(boss: BossDef | null = null): void {
+    this.boss = boss;
     this.round = 1;
     this.wins[0] = this.wins[1] = 0;
     this.roundWinners = [];

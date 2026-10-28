@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config';
+import { CONFIG, type TeamPalette } from '../config';
 import { glowTexture } from '../fx/textures';
 import type { Wizard } from '../wizard/Wizard';
 
@@ -54,6 +54,16 @@ class ProjectileMaterials {
       }));
       this.blastGlow.push(this.glow(blast, 1.6));
     }
+  }
+
+  /** Recolour one team's materials in place (campaign bosses). Same formulas as the constructor. */
+  setTeam(index: number, team: TeamPalette): void {
+    const spell = new THREE.Color(team.spell);
+    const blast = new THREE.Color(team.blast);
+    this.boltCore[index].color.copy(spell).lerp(new THREE.Color(1, 1, 1), 0.55).multiplyScalar(3.2);
+    this.boltGlow[index].color.copy(spell).multiplyScalar(1.8);
+    (this.blastCore[index].uniforms.uColor.value as THREE.Color).copy(blast);
+    this.blastGlow[index].color.copy(blast).multiplyScalar(1.6);
   }
 
   private glow(color: THREE.Color, intensity: number): THREE.SpriteMaterial {
@@ -185,6 +195,19 @@ export class ProjectilePool {
 
   releaseAll(): void {
     while (this.active.length) this.release(this.active[this.active.length - 1]);
+  }
+
+  /**
+   * Re-skin a team's projectiles at runtime (the rival takes each campaign boss's spell colours).
+   * Materials are shared per team, so live projectiles change colour too.
+   */
+  setTeamPalette(index: number, team: TeamPalette): void {
+    this.mats.setTeam(index, team);
+  }
+
+  /** Current bolt glow colour of a team (QA). */
+  teamBoltColor(index: number): THREE.Color {
+    return this.mats.boltGlow[index].color;
   }
 
   sync(alpha: number, time: number): void {

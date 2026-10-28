@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
-import { MODELS } from '../assets/manifest';
+import { MODELS, type ModelKey } from '../assets/manifest';
+import type { BossDef } from '../campaign/levels';
 import { Arena } from '../arena/Arena';
 import { FireRing } from '../arena/FireRing';
 import { CameraRig } from '../camera/CameraRig';
@@ -39,6 +40,9 @@ export class Game {
   readonly playerController: PlayerController;
   readonly popups: DamageNumbers;
   enemyController: TickController | null = null;
+  /** The campaign boss the rival is dressed as, or null for the default rival. */
+  boss: BossDef | null = null;
+  private enemyLook = 'rival';
 
   /** False while paused or in menus: the simulation doesn't advance. */
   simulating = true;
@@ -117,6 +121,10 @@ export class Game {
     events.on('jump', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), 2, 0.5));
     events.on('land', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), Math.round(2 + e.speed * 0.6), 1.1));
     events.on('damage', (e) => {
+      if (e.target.immune && e.amount <= 0) {
+        this.popups.spawn(e.target.chest(tmp), 'IMMUNE', 'block');
+        return;
+      }
       const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' ? 'burn' : 'dmg';
       this.popups.spawn(e.target.chest(tmp), String(Math.round(e.amount)), style);
     });
@@ -135,6 +143,65 @@ export class Game {
     this.popups.clear();
     feel.reset();
     this.accumulator = 0;
+  }
+
+  /**
+   * Dress the rival as a campaign boss (name, palette, model, max health, damage), or restore the
+   * default rival with `null`. The AI profile and arena theme are set by the caller (App).
+   */
+  setupEnemy(boss: BossDef | null): void {
+    const e = this.enemy;
+    const team = boss ? boss.palette : CONFIG.teams[1];
+    const modelKey: ModelKey = boss ? boss.model : 'wizardRival';
+    this.boss = boss;
+    e.team = team;
+    e.name = boss ? boss.name : team.name;
+    e.maxHealth = Math.round(CONFIG.wizard.maxHealth * (boss?.healthMultiplier ?? 1));
+    e.health = Math.min(e.health, e.maxHealth);
+    e.damageMultiplier = boss?.damageMultiplier ?? 1;
+    this.spells.pool.setTeamPalette(e.index, team);
+    const look = boss ? boss.id : 'rival';
+    if (look !== this.enemyLook) {
+      this.enemyLook = look;
+      e.visual.setAppearance(team, this.assets.instantiate(modelKey), MODELS[modelKey], boss ? boss.id : 'wizard');
+    }
+  }
+
+  /** God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash power. */
+  setGodMode(on: boolean): void {
+    const D = CONFIG.debug;
+    D.godMode = on;
+    const p = this.player;
+    p.immune = on;
+    p.infiniteMana = on;
+    if (on) p.mana = CONFIG.wizard.maxMana;
+    p.damageMultiplier = on ? D.godPowerMultiplier : 1;
+    p.clashPowerMultiplier = on ? D.godClashMultiplier : 1;
+  }
+
+  /**
+   * Give both wizards default combat stats until the returned function is called (QA scenarios
+   * assume stock health and damage, whatever boss or god mode is active).
+   */
+  useDefaultStats(): () => void {
+    const saved = this.wizards.map((w) => ({
+      w, max: w.maxHealth, mult: w.damageMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana,
+    }));
+    for (const w of this.wizards) {
+      w.maxHealth = CONFIG.wizard.maxHealth;
+      w.damageMultiplier = w.clashPowerMultiplier = 1;
+      w.immune = w.infiniteMana = false;
+    }
+    return () => {
+      for (const s of saved) {
+        s.w.maxHealth = s.max;
+        s.w.health = Math.min(s.w.health, s.max);
+        s.w.damageMultiplier = s.mult;
+        s.w.clashPowerMultiplier = s.clash;
+        s.w.immune = s.immune;
+        s.w.infiniteMana = s.mana;
+      }
+    };
   }
 
   /** Put both wizards on their spawn marks facing each other. */

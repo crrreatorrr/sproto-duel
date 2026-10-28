@@ -79,7 +79,9 @@ export class Wizard {
   /** Where spells are aimed (world space). Controllers update this. */
   readonly aimPoint = new Vector3();
 
-  health = W.maxHealth;
+  /** Per-wizard max health (campaign bosses scale it). Round resets refill to this. */
+  maxHealth: number = W.maxHealth;
+  health: number = W.maxHealth;
   mana = W.maxMana;
   ult = 0;
   private manaDelay = 0;
@@ -112,9 +114,19 @@ export class Wizard {
 
   readonly stats = { damageDealt: 0, casts: 0, hits: 0, perfects: 0, dodges: 0 };
 
+  /** Multiplies all damage this wizard deals (boss tuning, god mode). Applied in SpellSystem.dealDamage. */
+  damageMultiplier = 1;
+  /** Multiplies the clash power of this wizard's projectiles (god mode). */
+  clashPowerMultiplier = 1;
+  /** Takes no damage (god mode). Hits still flash, knock back and stun. */
+  immune = false;
+  /** Mana never runs out (god mode): spells cost nothing and sprint never exhausts. */
+  infiniteMana = false;
+
   constructor(
     readonly index: number,
-    readonly team: TeamPalette,
+    /** Robe and spell colours. Mutable: campaign bosses re-skin the rival (see Game.setupEnemy). */
+    public team: TeamPalette,
     public name: string,
     readonly visual: WizardVisual,
     physics: Physics,
@@ -178,7 +190,7 @@ export class Wizard {
   }
 
   resetForRound(keepUlt: boolean): void {
-    this.health = W.maxHealth;
+    this.health = this.maxHealth;
     this.mana = W.maxMana;
     if (!keepUlt) this.ult = 0;
     this.ultAnnounced = this.ult >= CONFIG.spells.ultimate.chargeMax;
@@ -198,6 +210,7 @@ export class Wizard {
   }
 
   spendMana(amount: number): boolean {
+    if (this.infiniteMana) return true;
     if (this.mana < amount) return false;
     this.mana -= amount;
     if (amount > 0) this.manaDelay = W.manaRegenDelay;
@@ -261,6 +274,7 @@ export class Wizard {
 
     if (this.manaDelay > 0) this.manaDelay -= dt;
     else if (!this.sprinting) this.mana = Math.min(W.maxMana, this.mana + W.manaRegen * dt);
+    if (this.infiniteMana) this.mana = W.maxMana;
   }
 
   /** Movement, dodge and knockback integration through the character controller. */

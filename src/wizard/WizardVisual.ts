@@ -44,6 +44,15 @@ const SHIELD_FRAG = /* glsl */ `
 `;
 
 const J = CONFIG.wizard.jump;
+/** Placeholder silhouettes: the default wizard hat, or a campaign boss's headgear. */
+export type PlaceholderVariant = 'wizard' | 'bramble' | 'cinder' | 'ysolde' | 'khepri' | 'morvane';
+
+/** Top of the default placeholder's hat, in meters. */
+const WIZARD_TOP = 2.33;
+
+/** Adds a placeholder part at (x, y, z) in feet-relative meters. */
+type AddMesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, parent?: THREE.Object3D) => THREE.Mesh;
+
 const tmpColor = new THREE.Color();
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
@@ -57,7 +66,11 @@ export class WizardVisual {
   /** Procedural animation pivot at hip height (lean, roll, recoil). */
   private readonly pivot = new THREE.Group();
   private readonly armPivot = new THREE.Group();
+  /** Holds the swappable look (GLB or placeholder); everything else on the root is shared. */
+  private readonly body = new THREE.Group();
   private readonly tintMaterials: THREE.MeshStandardMaterial[] = [];
+  /** GPU resources created for the current look, released on the next swap. */
+  private readonly owned: { dispose(): void }[] = [];
   private readonly chargeGlow: THREE.Sprite;
   private readonly shield: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private readonly ice: THREE.Mesh;
@@ -80,29 +93,17 @@ export class WizardVisual {
   private seenJumps = -1;
   private seenLandings = -1;
   celebrate = false;
-  readonly usesModel: boolean;
+  /** True when a GLB is shown, false for the primitive placeholder. */
+  usesModel = false;
+  /** Height of the top of the current look (hat, crown or model), in meters. The HUD tag sits above it. */
+  topHeight = WIZARD_TOP;
 
-  constructor(readonly team: TeamPalette, model: ModelInstance | null, modelSpec: ModelAsset) {
+  constructor(public team: TeamPalette, model: ModelInstance | null, modelSpec: ModelAsset) {
     this.root.add(this.pivot);
     this.pivot.position.y = 0.9;
+    this.pivot.add(this.body);
 
-    if (model) {
-      this.usesModel = true;
-      model.root.position.y = -0.9;
-      this.pivot.add(model.root);
-      model.root.traverse((o) => {
-        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-        if (m && 'emissive' in m) {
-          const clone = m.clone();
-          (o as THREE.Mesh).material = clone;
-          this.tintMaterials.push(clone);
-        }
-      });
-      if (model.animations.length) this.setupClips(model, modelSpec);
-    } else {
-      this.usesModel = false;
-      this.buildPlaceholder();
-    }
+    this.build(model, modelSpec, 'wizard');
 
     // Wand charge glow (shown during spell windups).
     this.chargeGlow = new THREE.Sprite(
@@ -157,50 +158,199 @@ export class WizardVisual {
     this.root.add(this.ring);
   }
 
-  private buildPlaceholder(): void {
-    const t = this.team;
-    const robe = new THREE.MeshStandardMaterial({ color: t.robe, roughness: 0.85 });
-    const trim = new THREE.MeshStandardMaterial({ color: t.trim, roughness: 0.6 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xe8c4a8, roughness: 0.7 });
-    const wood = new THREE.MeshStandardMaterial({ color: 0x3b2716, roughness: 0.6 });
-    this.tintMaterials.push(robe, trim, skin);
-    const eye = new THREE.MeshBasicMaterial({ color: new THREE.Color(t.spell).multiplyScalar(3), toneMapped: false });
-    const tip = new THREE.MeshBasicMaterial({ color: new THREE.Color(t.spell).multiplyScalar(4), toneMapped: false });
+  /**
+   * Swap the whole look at runtime: palette, and either a GLB instance or the primitive
+   * placeholder (in `variant`'s silhouette). Used to dress the rival as each campaign boss.
+   */
+  setAppearance(team: TeamPalette, model: ModelInstance | null, modelSpec: ModelAsset, variant: PlaceholderVariant = 'wizard'): void {
+    this.team = team;
+    this.clearLook();
+    this.build(model, modelSpec, variant);
+    this.chargeGlow.material.color.setHex(team.spell);
+    (this.shield.material.uniforms.uColor.value as THREE.Color).setHex(team.spell);
+    (this.ring.material as THREE.MeshBasicMaterial).color.setHex(team.spell);
+  }
 
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = this.pivot) => {
-      const m = new THREE.Mesh(geo, mat);
+  private build(model: ModelInstance | null, modelSpec: ModelAsset, variant: PlaceholderVariant): void {
+    if (model) {
+      this.usesModel = true;
+      this.topHeight = modelSpec.fitHeight ?? CONFIG.wizard.height;
+      model.root.position.y = -0.9;
+      this.body.add(model.root);
+      model.root.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (m && 'emissive' in m) {
+          const clone = m.clone();
+          (o as THREE.Mesh).material = clone;
+          this.tintMaterials.push(clone);
+          this.owned.push(clone);
+        }
+      });
+      if (model.animations.length) this.setupClips(model, modelSpec);
+    } else {
+      this.usesModel = false;
+      this.buildPlaceholder(variant);
+    }
+  }
+
+  /** Remove the current look and free what it created (GLB geometry stays shared with its template). */
+  private clearLook(): void {
+    this.mixer?.stopAllAction();
+    this.mixer = null;
+    this.actions.clear();
+    this.currentClip = null;
+    this.armPivot.clear();
+    this.body.clear();
+    for (const r of this.owned) r.dispose();
+    this.owned.length = 0;
+    this.tintMaterials.length = 0;
+  }
+
+  private buildPlaceholder(variant: PlaceholderVariant): void {
+    const t = this.team;
+    const own = <T extends { dispose(): void }>(r: T): T => {
+      this.owned.push(r);
+      return r;
+    };
+    const standard = (color: number, roughness: number) => own(new THREE.MeshStandardMaterial({ color, roughness }));
+    const glowing = (color: number, intensity: number) =>
+      own(new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), toneMapped: false }));
+    const robe = standard(t.robe, 0.85);
+    const trim = standard(t.trim, 0.6);
+    const skinTone = variant === 'morvane' ? 0xd9d3c2 : variant === 'khepri' ? 0xc89a6a : variant === 'ysolde' ? 0xf0dcd2 : 0xe8c4a8;
+    const skin = standard(skinTone, 0.7);
+    const wood = standard(0x3b2716, 0.6);
+    this.tintMaterials.push(robe, trim, skin);
+    const eye = glowing(t.spell, variant === 'morvane' ? 5 : 3);
+    const tip = glowing(t.spell, 4);
+
+    const add: AddMesh = (geo, mat, x, y, z, parent = this.body) => {
+      const m = new THREE.Mesh(own(geo), mat);
       m.position.set(x, y - 0.9, z);
       m.castShadow = true;
       parent.add(m);
       return m;
     };
 
-    add(new THREE.ConeGeometry(0.52, 1.25, 16), robe, 0, 0.62, 0); // robe skirt
+    const skirt = variant === 'morvane' ? 0.62 : variant === 'khepri' ? 0.48 : 0.52;
+    add(new THREE.ConeGeometry(skirt, 1.25, 16), robe, 0, 0.62, 0); // robe skirt
     add(new THREE.CapsuleGeometry(0.25, 0.42, 4, 12), robe, 0, 1.22, 0); // torso
     add(new THREE.TorusGeometry(0.27, 0.05, 6, 16), trim, 0, 1.42, 0).rotation.x = Math.PI / 2; // collar
     add(new THREE.SphereGeometry(0.2, 16, 12), skin, 0, 1.6, 0.02); // head
     add(new THREE.SphereGeometry(0.035, 6, 6), eye, 0.075, 1.63, 0.19);
     add(new THREE.SphereGeometry(0.035, 6, 6), eye, -0.075, 1.63, 0.19);
-    add(new THREE.CylinderGeometry(0.44, 0.44, 0.04, 24), robe, 0, 1.72, 0); // hat brim
-    const hat = add(new THREE.ConeGeometry(0.27, 0.62, 16), robe, 0, 2.02, -0.04);
-    hat.rotation.x = -0.18;
-    add(new THREE.TorusGeometry(0.25, 0.03, 6, 16), trim, 0, 1.77, 0).rotation.x = Math.PI / 2; // hat band
+    this.topHeight = this.buildHeadgear(variant, add, robe, trim, standard, glowing);
 
     // Right arm + wand. Pivot at the shoulder so casting can thrust it forward.
     this.armPivot.position.set(-0.3, 1.36 - 0.9, 0);
-    this.pivot.add(this.armPivot);
-    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.36, 3, 8), robe);
+    this.body.add(this.armPivot);
+    // armPivot children are placed relative to the shoulder (add() subtracts 0.9 from y).
+    const arm = add(new THREE.CapsuleGeometry(0.075, 0.36, 3, 8), robe, -0.02, 0.88, 0.2, this.armPivot);
     arm.rotation.x = Math.PI / 2;
-    arm.position.set(-0.02, -0.02, 0.2);
-    arm.castShadow = true;
-    this.armPivot.add(arm);
-    const wand = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.028, 0.42, 6), wood);
+    const wand = add(new THREE.CylinderGeometry(0.018, 0.028, 0.42, 6), wood, -0.04, 0.9, 0.56, this.armPivot);
     wand.rotation.x = Math.PI / 2;
-    wand.position.set(-0.04, 0, 0.56);
-    this.armPivot.add(wand);
-    const tipMesh = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), tip);
-    tipMesh.position.set(-0.04, 0, 0.77);
-    this.armPivot.add(tipMesh);
+    wand.castShadow = false;
+    add(new THREE.SphereGeometry(0.04, 8, 6), tip, -0.04, 0.9, 0.77, this.armPivot).castShadow = false;
+  }
+
+  /** Hat, crown or hood for the placeholder. Returns the height of its top. */
+  private buildHeadgear(
+    variant: PlaceholderVariant,
+    add: AddMesh,
+    robe: THREE.MeshStandardMaterial,
+    trim: THREE.MeshStandardMaterial,
+    standard: (color: number, roughness: number) => THREE.MeshStandardMaterial,
+    glowing: (color: number, intensity: number) => THREE.MeshBasicMaterial,
+  ): number {
+    const t = this.team;
+    /** `count` cones on a ring, tips tilted outward by `tilt`. */
+    const spikes = (count: number, ringR: number, y: number, r: number, h: (i: number) => number, tilt: number, mat: THREE.Material) => {
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2;
+        const hi = h(i);
+        const m = add(new THREE.ConeGeometry(r, hi, 6), mat, Math.sin(a) * ringR, y + hi / 2, Math.cos(a) * ringR);
+        m.rotation.set(Math.cos(a) * tilt, 0, -Math.sin(a) * tilt);
+      }
+    };
+    /** Hood: a sphere shell open toward the face. */
+    const hood = (radius: number) => {
+      const geo = new THREE.SphereGeometry(radius, 18, 12, Math.PI * 0.72, Math.PI * 1.56, 0, Math.PI * 0.62);
+      return add(geo, robe, 0, 1.62, -0.02);
+    };
+
+    switch (variant) {
+      case 'bramble': {
+        // Floppy straw hat, bent back, ringed with leaves.
+        add(new THREE.CylinderGeometry(0.5, 0.52, 0.04, 24), trim, 0, 1.72, 0);
+        const hat = add(new THREE.ConeGeometry(0.27, 0.5, 16), trim, 0, 1.95, -0.07);
+        hat.rotation.x = -0.42;
+        add(new THREE.TorusGeometry(0.255, 0.035, 6, 16), robe, 0, 1.76, 0).rotation.x = Math.PI / 2;
+        const leaf = standard(t.spell, 0.55);
+        leaf.emissive.setHex(t.spell).multiplyScalar(0.25);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + 0.2;
+          const m = add(new THREE.SphereGeometry(0.07, 8, 6), leaf, Math.sin(a) * 0.29, 1.78, Math.cos(a) * 0.29);
+          m.scale.set(0.55, 0.35, 1.5);
+          m.rotation.y = a;
+        }
+        add(new THREE.SphereGeometry(0.05, 8, 6), glowing(t.blast, 2.2), 0.2, 1.8, 0.2);
+        return 2.2;
+      }
+      case 'cinder': {
+        // Horns, shoulder plates and a crest of flame.
+        const horn = standard(0x2a1712, 0.5);
+        for (const side of [1, -1]) {
+          const h = add(new THREE.ConeGeometry(0.055, 0.34, 8), horn, side * 0.15, 1.82, -0.02);
+          h.rotation.set(-0.35, 0, -side * 0.62);
+          add(new THREE.SphereGeometry(0.15, 12, 8), trim, side * 0.31, 1.42, 0).scale.set(1, 0.6, 1);
+        }
+        add(new THREE.ConeGeometry(0.09, 0.4, 8), glowing(t.spell, 2.4), 0, 1.92, -0.04);
+        const core = glowing(t.blast, 2.8);
+        add(new THREE.ConeGeometry(0.06, 0.28, 8), core, 0.07, 1.86, 0.02).rotation.z = -0.3;
+        add(new THREE.ConeGeometry(0.06, 0.26, 8), core, -0.07, 1.85, -0.06).rotation.z = 0.35;
+        return 2.15;
+      }
+      case 'ysolde': {
+        // Hood, tall collar and a crown of ice.
+        robe.side = THREE.DoubleSide;
+        hood(0.245);
+        trim.side = THREE.DoubleSide;
+        add(new THREE.CylinderGeometry(0.31, 0.26, 0.24, 18, 1, true), trim, 0, 1.5, 0);
+        const ice = standard(0xe8f2ff, 0.15);
+        ice.emissive.setHex(t.spell).multiplyScalar(0.7);
+        spikes(7, 0.16, 1.8, 0.035, (i) => (i % 2 ? 0.2 : 0.32), 0.25, ice);
+        add(new THREE.OctahedronGeometry(0.05), glowing(t.spell, 3), 0, 1.78, 0.2);
+        return 2.12;
+      }
+      case 'khepri': {
+        // Banded headdress with a scarab disc and a broad collar.
+        add(new THREE.CylinderGeometry(0.27, 0.215, 0.42, 18), trim, 0, 1.86, -0.02);
+        add(new THREE.CylinderGeometry(0.275, 0.275, 0.05, 18), robe, 0, 1.97, -0.02);
+        add(new THREE.CylinderGeometry(0.235, 0.235, 0.05, 18), robe, 0, 1.79, -0.02);
+        for (const side of [1, -1]) add(new THREE.BoxGeometry(0.09, 0.36, 0.14), trim, side * 0.21, 1.5, -0.02);
+        add(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 16), glowing(t.spell, 2.6), 0, 1.86, 0.25).rotation.x = Math.PI / 2;
+        add(new THREE.CylinderGeometry(0.44, 0.44, 0.035, 24), trim, 0, 1.45, 0);
+        return 2.1;
+      }
+      case 'morvane': {
+        // Deep hood, shoulder spikes and a floating crown.
+        robe.side = THREE.DoubleSide;
+        hood(0.27);
+        const bone = standard(0xd9d3c2, 0.6);
+        for (const side of [1, -1]) add(new THREE.ConeGeometry(0.06, 0.3, 6), bone, side * 0.33, 1.52, -0.02).rotation.z = -side * 0.5;
+        const crown = glowing(t.trim, 2.2);
+        add(new THREE.TorusGeometry(0.19, 0.018, 6, 24), crown, 0, 2.0, 0).rotation.x = Math.PI / 2;
+        spikes(6, 0.19, 2.0, 0.035, (i) => (i % 2 ? 0.16 : 0.26), 0.12, crown);
+        return 2.3;
+      }
+      default: {
+        add(new THREE.CylinderGeometry(0.44, 0.44, 0.04, 24), robe, 0, 1.72, 0); // hat brim
+        const hat = add(new THREE.ConeGeometry(0.27, 0.62, 16), robe, 0, 2.02, -0.04);
+        hat.rotation.x = -0.18;
+        add(new THREE.TorusGeometry(0.25, 0.03, 6, 16), trim, 0, 1.77, 0).rotation.x = Math.PI / 2; // hat band
+        return WIZARD_TOP;
+      }
+    }
   }
 
   private setupClips(model: ModelInstance, spec: ModelAsset): void {

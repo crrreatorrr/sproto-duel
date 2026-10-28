@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
+import { BOSSES } from '../campaign/levels';
 import { events } from '../core/events';
 import { feel } from '../core/feel';
 import type { Game } from '../core/Game';
@@ -61,6 +62,7 @@ export class HUD {
   private readonly enemyTag: HTMLElement;
   private readonly enemyTagFill: HTMLElement;
   private readonly arrow: HTMLElement;
+  private readonly godBadge: HTMLElement;
   private readonly dodge: HTMLElement;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
@@ -84,6 +86,7 @@ export class HUD {
       <div class="crosshair"><i></i><i></i><i></i><i></i></div>
       <div class="enemy-tag"><div class="enemy-tag-fill"></div></div>
       <div class="offscreen-arrow"></div>
+      <div class="god-badge" title="God mode: no damage, unlimited mana (99 or ${CONFIG.debug.godHotkey} toggles)">God Mode</div>
       <div class="banner"><div class="banner-main"></div><div class="banner-sub"></div></div>
       <div class="hud-bottom">
         <div class="slots"></div>
@@ -125,6 +128,7 @@ export class HUD {
     this.enemyTag = q('.enemy-tag');
     this.enemyTagFill = q('.enemy-tag-fill');
     this.arrow = q('.offscreen-arrow');
+    this.godBadge = q('.god-badge');
     this.dodge = q('.dodge-fill');
 
     const slotRoot = q('.slots');
@@ -142,16 +146,19 @@ export class HUD {
   private plateHtml(side: 'left' | 'right'): string {
     return `
       <div class="plate plate-${side}">
-        <div class="plate-head"><span class="plate-name">Rival</span><span class="hp-text">150</span></div>
+        <div class="plate-head"><span class="plate-id"><span class="plate-name">Rival</span><small class="plate-title"></small></span><span class="hp-text">150</span></div>
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
         <div class="bar mana"><div class="mana-fill"></div></div>
         <div class="bar ult"><div class="ult-fill"></div><span>ULT</span></div>
       </div>`;
   }
 
-  /** Names on the two health plates. */
-  setNames(names: [string, string]): void {
-    this.plates.forEach((p, i) => (p.root.querySelector('.plate-name')!.textContent = names[i]));
+  /** Names (and optional epithets, e.g. a boss title) on the two health plates. */
+  setNames(names: [string, string], titles: [string, string] = ['', '']): void {
+    this.plates.forEach((p, i) => {
+      p.root.querySelector('.plate-name')!.textContent = names[i];
+      p.root.querySelector('.plate-title')!.textContent = titles[i];
+    });
   }
 
   /** Relabel the spell slots, e.g. with controller buttons when a gamepad is in use. */
@@ -187,12 +194,14 @@ export class HUD {
         feel.screenFlash(0xffffff, Math.min(0.2, 0.06 + e.amount / 150));
       }
     });
+    // Campaign fights name the boss on the round banners.
+    const bossLine = () => (this.match.boss ? `${this.match.boss.name}, ${this.match.boss.title}` : '');
     events.on('roundIntro', (e) => {
       const last = this.match.wins.some((w) => w === CONFIG.match.roundsToWin - 1) && this.match.wins[0] === this.match.wins[1];
-      this.showBanner(last ? 'Final Round' : `Round ${e.round}`, '', 'round', CONFIG.match.introTime);
+      this.showBanner(last ? 'Final Round' : `Round ${e.round}`, bossLine(), 'round', CONFIG.match.introTime);
     });
-    events.on('countdown', (e) => this.showBanner(String(e.value), '', 'count', 0.7));
-    events.on('roundStart', () => this.showBanner('Duel!', '', 'fight', 0.9));
+    events.on('countdown', (e) => this.showBanner(String(e.value), bossLine(), 'count', 0.7));
+    events.on('roundStart', () => this.showBanner('Duel!', this.match.boss ? `vs ${this.match.boss.name}` : '', 'fight', 0.9));
     events.on('suddenDeath', () => this.showBanner('Sudden Death', 'The fire closes in', 'danger', 1.6));
     events.on('roundEnd', (e) => {
       const won = e.winner === g.player;
@@ -237,7 +246,9 @@ export class HUD {
     this.set('timer', this.timer, 'text', String(t));
     const danger = this.match.phase === 'fight' && this.match.timer < CONFIG.arena.suddenDeathAt;
     this.set('timerc', this.timer, 'class', danger ? 'timer danger' : 'timer');
-    this.set('round', this.roundLabel, 'text', `Round ${this.match.round}`);
+    const fight = this.match.bossIndex >= 0 ? `Fight ${this.match.bossIndex + 1}/${BOSSES.length} · ` : '';
+    this.set('round', this.roundLabel, 'text', `${fight}Round ${this.match.round}`);
+    this.set('god', this.godBadge, 'class', CONFIG.debug.godMode ? 'god-badge on' : 'god-badge');
     for (const side of [0, 1]) {
       this.pips[side].forEach((pip, i) => this.set(`pip${side}${i}`, pip, 'class', i < this.match.wins[side] ? 'won' : ''));
     }
@@ -259,7 +270,7 @@ export class HUD {
     this.flash.style.opacity = (feel.flash * 0.55).toFixed(3);
     this.set('flashc', this.flash, 'style', `#${feel.flashColor.getHexString()}`, 'background-color');
     this.hurt = Math.max(0, this.hurt - dt * 1.6);
-    const low = p.alive && p.health / W.maxHealth < 0.3 ? 0.35 + 0.2 * Math.sin(performance.now() / 180) : 0;
+    const low = p.alive && p.health / p.maxHealth < 0.3 ? 0.35 + 0.2 * Math.sin(performance.now() / 180) : 0;
     const v = Math.max(this.hurt * 0.8, low);
     this.vignette.style.opacity = v.toFixed(3);
     this.set('vig', this.vignette, 'class', p.stunned ? 'vignette stun' : 'vignette');
@@ -270,7 +281,7 @@ export class HUD {
 
   private updatePlate(i: number, w: Wizard, dt: number): void {
     const plate = this.plates[i];
-    const hp = w.health / W.maxHealth;
+    const hp = w.health / w.maxHealth;
     // The white chip trails behind the real health so big hits read clearly.
     if (hp < plate.chipValue) {
       plate.chipDelay -= dt;
@@ -321,7 +332,7 @@ export class HUD {
     const e = g.enemy;
     const cam = g.renderer.camera;
     tmp.copy(e.visual.root.position);
-    tmp.y += 2.45;
+    tmp.y += Math.max(2.45, e.visual.topHeight + 0.25);
     tmp.project(cam);
     const w = window.innerWidth, h = window.innerHeight;
     const behind = tmp.z > 1;
@@ -332,7 +343,7 @@ export class HUD {
       const x = (tmp.x * 0.5 + 0.5) * w;
       const y = (-tmp.y * 0.5 + 0.5) * h;
       this.enemyTag.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
-      this.set('tagf', this.enemyTagFill, 'transform', `scaleX(${(e.health / W.maxHealth).toFixed(4)})`);
+      this.set('tagf', this.enemyTagFill, 'transform', `scaleX(${(e.health / e.maxHealth).toFixed(4)})`);
     }
     const showArrow = !onScreen && e.alive && this.match.phase === 'fight';
     this.set('arrv', this.arrow, 'class', showArrow ? 'offscreen-arrow on' : 'offscreen-arrow');

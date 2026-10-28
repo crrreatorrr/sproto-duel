@@ -98,9 +98,11 @@ export class QAHarness {
     g.actionsLocked = false;
     g.qaMode = true;
     g.enemyController = null;
+    const restoreStats = g.useDefaultStats(); // boss and god-mode stats stay out of scenarios
     try {
       fn();
     } finally {
+      restoreStats();
       this.reset();
       g.qaMode = false;
       g.enemyController = saved.controller;

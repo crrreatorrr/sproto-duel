@@ -70,6 +70,11 @@ export class AIController implements TickController {
     this.profile = AI.difficulty[d];
   }
 
+  /** Use an arbitrary tuning profile (campaign bosses). `setDifficulty` switches back to a preset. */
+  setProfile(profile: AIProfile): void {
+    this.profile = profile;
+  }
+
   dispose(): void {
     for (const u of this.unsubs) u();
   }
@@ -277,7 +282,8 @@ export class AIController implements TickController {
       if (!recovered && this.stateTime < 3 && this.punishTimer <= 0) return;
       this.retreatCooldown = AI.retreatCooldown;
     } else if (this.punishTimer <= 0 && this.retreatCooldown <= 0) {
-      const lowHealth = w.health / CONFIG.wizard.maxHealth < AI.retreatHealth && w.health < this.target.health;
+      const hp = w.health / w.maxHealth;
+      const lowHealth = hp < AI.retreatHealth && hp < this.target.health / this.target.maxHealth;
       const lowMana = w.mana / CONFIG.wizard.maxMana < AI.lowMana;
       if (lowMana || (lowHealth && this.stateTime > 1.5 && chance(0.01))) {
         this.findCover();

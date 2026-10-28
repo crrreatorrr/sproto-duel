@@ -1,21 +1,37 @@
 import * as THREE from 'three';
-import { CONFIG, type Difficulty } from './config';
+import { CONFIG, type TeamPalette } from './config';
 import { AudioManager } from './audio/AudioManager';
+import { Campaign } from './campaign/Campaign';
+import { BOSSES, type BossDef } from './campaign/levels';
+import { DoubleTap } from './core/DoubleTap';
 import { events } from './core/events';
 import { bindRumble, spellLabels } from './core/Gamepad';
 import type { Game } from './core/Game';
 import { Match } from './core/Match';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
-import { Menus, loadSettings, saveSettings, type Settings } from './ui/Menus';
+import { Menus, loadSettings, saveSettings, type ResultData, type Settings } from './ui/Menus';
+import type { Wizard } from './wizard/Wizard';
 
 type AppState = 'menu' | 'playing' | 'paused' | 'results';
+/** Quick Duel (one fixed rival) or the Boss Gauntlet campaign (the difficulty ladder). */
+export type GameMode = 'quick' | 'gauntlet';
 
 const tmpRight = new THREE.Vector3();
+const WHITE = new THREE.Color(1, 1, 1);
+/** Quick Duel has one opponent; the Boss Gauntlet is the difficulty ladder. */
+const QUICK_DUEL_AI = CONFIG.ai.difficulty.normal;
 
 /** Top-level flow: menus, match, pause, pointer lock, audio and settings. */
 export class App {
   state: AppState = 'menu';
+  mode: GameMode = 'quick';
+  /** Boss Gauntlet progress (saved in localStorage). */
+  readonly campaign: Campaign;
+  /** Result of the last gauntlet win, so the results screen knows where "next" leads. */
+  private gauntletOutcome: 'next' | 'complete' | null = null;
+  /** The "99" god-mode cheat. Public so QA can feed it timed presses. */
+  readonly godCheat = new DoubleTap(CONFIG.debug.godCheatKeys, CONFIG.debug.godCheatWindowMs);
   readonly match: Match;
   readonly hud: HUD;
   readonly menus: Menus;
@@ -38,30 +54,41 @@ export class App {
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
 
-  constructor(readonly game: Game) {
+  constructor(readonly game: Game, campaign = new Campaign()) {
+    this.campaign = campaign;
     this.settings = loadSettings();
+    // God mode is a session-only testing aid: CONFIG.debug.godMode, `?god`, Settings or F9.
+    game.setGodMode(CONFIG.debug.godMode || new URLSearchParams(location.search).has('god'));
     game.input.mouseNeedsLock = this.requireLock;
     this.match = new Match(game);
     this.audio = new AudioManager();
     this.audio.bind(game);
-    this.ai = new AIController(game.enemy, game.player, game.spells, game.physics, game.arena, this.settings.difficulty);
+    this.ai = new AIController(game.enemy, game.player, game.spells, game.physics, game.arena, 'normal');
     game.enemyController = this.ai;
     this.attract = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');
     game.onTick((dt) => this.attractTick(dt));
 
     this.hud = new HUD(game.ui, game, this.match);
     this.menus = new Menus(game.ui, this.settings, {
-      start: (d) => this.startMatch(d),
+      start: () => this.startMatch(),
+      gauntlet: () => this.newGauntlet(),
+      continueGauntlet: () => this.continueGauntlet(),
+      gauntletStatus: () => {
+        const c = this.campaign;
+        return { canContinue: c.canContinue, next: c.canContinue ? BOSSES[c.saved.next] : null, nextIndex: c.saved.next, clears: c.saved.clears };
+      },
       resume: () => this.resume(),
-      restart: () => this.startMatch(this.match.difficulty),
+      restart: () => this.restart(),
       quit: () => this.toMenu(),
       settingsChanged: (s) => this.applySettings(s),
+      godMode: () => CONFIG.debug.godMode,
+      setGodMode: (on) => this.setGodMode(on),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
     this.applySettings(this.settings);
 
     game.onFrame((dt) => this.frame(dt));
-    events.on('matchEnd', () => (this.resultsTimer = 2.2));
+    events.on('matchEnd', (e) => this.onMatchEnd(e.winner));
     this.bindInput();
     this.toMenu();
   }
@@ -86,6 +113,15 @@ export class App {
     });
     this.menus.root.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('.click-resume')) g.input.requestLock();
+    });
+    window.addEventListener('keydown', (e) => {
+      // God mode: F9, or "99" (two presses of 9 in quick succession). 9 is not bound to anything.
+      if (e.repeat) return;
+      const cheat = this.godCheat.press(e.code, e.timeStamp);
+      if (cheat || e.code === CONFIG.debug.godHotkey) {
+        e.preventDefault();
+        this.setGodMode(!CONFIG.debug.godMode);
+      }
     });
     window.addEventListener('keydown', (e) => {
       if (!CONFIG.controls.pause.includes(e.code) || e.repeat) return;
@@ -173,21 +209,99 @@ export class App {
     this.attract.reset();
   }
 
-  startMatch(difficulty: Difficulty): void {
+  /** Quick Duel: the one Rival (fixed AI profile) in the moonlit arena. */
+  startMatch(): void {
+    this.mode = 'quick';
+    this.dressEnemy(null);
+    this.ai.setProfile(QUICK_DUEL_AI);
+    this.hud.setNames(['You', CONFIG.teams[1].name]);
+    this.beginMatch(null);
+  }
+
+  /** Boss Gauntlet from fight 1. */
+  newGauntlet(): void {
+    this.campaign.startNew();
+    this.showBossCard();
+  }
+
+  /** Boss Gauntlet from the saved fight. */
+  continueGauntlet(): void {
+    this.campaign.resume();
+    this.showBossCard();
+  }
+
+  /** Pre-fight card for the current gauntlet boss, over a preview of their arena. */
+  showBossCard(): void {
+    const boss = this.campaign.boss;
+    this.enterMenuState('gauntlet');
+    this.dressEnemy(boss);
+    this.resetAttract();
+    this.menus.showBossIntro(
+      { boss, index: this.campaign.index, total: this.campaign.total },
+      { begin: () => this.startBossFight(), back: () => this.toMenu() },
+    );
+  }
+
+  /** Best of three against the current gauntlet boss, in their arena. */
+  startBossFight(): void {
+    const boss = this.campaign.boss;
+    this.mode = 'gauntlet';
+    this.dressEnemy(boss);
+    this.hud.setNames(['You', boss.name], ['', boss.title]);
+    this.beginMatch(boss);
+  }
+
+  /** Rematch / Retry / pause "Restart": the same opponent again. */
+  restart(): void {
+    if (this.mode === 'gauntlet') this.startBossFight();
+    else this.startMatch();
+  }
+
+  /** God mode (testing): toggled from Settings, F9 in a match, or `?god`. Never saved. */
+  setGodMode(on: boolean): void {
+    this.game.setGodMode(on);
+    this.menus.syncGodMode(on);
+    this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · ${CONFIG.debug.godPowerMultiplier}× power` : '', on ? 'god-on' : 'god-off');
+  }
+
+  /**
+   * Rival look, stats, AI profile and arena theme for a boss, or the default rival in the
+   * moonlit arena (`null`). The caller sets the AI profile for Quick Duel.
+   */
+  private dressEnemy(boss: BossDef | null): void {
+    const g = this.game;
+    g.setupEnemy(boss);
+    const theme = boss ? boss.theme : 'moonlit';
+    if (g.arena.theme !== theme) g.arena.applyTheme(theme);
+    if (boss) this.ai.setProfile(boss.ai);
+    this.applyRivalColors(boss ? boss.palette : null);
+  }
+
+  /** HUD/menu accents for the rival (health bar, pips, arrow, results) follow the boss palette. */
+  private applyRivalColors(team: TeamPalette | null): void {
+    const style = this.game.ui.style;
+    if (!team) {
+      for (const k of ['--rival', '--rival-hi', '--rival-lo']) style.removeProperty(k);
+      return;
+    }
+    const c = new THREE.Color(team.spell);
+    style.setProperty('--rival', `#${c.getHexString()}`);
+    style.setProperty('--rival-hi', `#${c.clone().lerp(WHITE, 0.5).getHexString()}`);
+    style.setProperty('--rival-lo', `#${c.clone().multiplyScalar(0.75).getHexString()}`);
+  }
+
+  private beginMatch(boss: BossDef | null): void {
     const g = this.game;
     this.audio.gameplayMuted = false;
     g.player.intent.clear();
-    this.settings.difficulty = difficulty;
-    saveSettings(this.settings);
-    this.ai.setDifficulty(difficulty);
-    this.hud.setNames(['You', `Rival · ${CONFIG.ai.difficulty[difficulty].label}`]);
+    this.gauntletOutcome = null;
     this.menus.hide();
     this.hud.show(true);
     g.rig.orbit = false;
     g.playerControl = true;
     this.state = 'playing';
     this.resultsTimer = 0;
-    this.match.startMatch(difficulty);
+    this.match.startMatch(boss);
     this.audio.setPaused(false);
     this.audio.playMusic('musicBattle');
     this.audio.setAmbient(true);
@@ -203,7 +317,8 @@ export class App {
     this.pausedAt = performance.now();
     this.game.simulating = false;
     this.game.input.releaseLock();
-    this.menus.showPause();
+    const boss = this.match.boss;
+    this.menus.showPause(boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${boss.name}, ${boss.title}` : '');
     this.audio.setPaused(true);
   }
 
@@ -222,41 +337,92 @@ export class App {
   }
 
   toMenu(): void {
+    this.enterMenuState('quick');
+    this.dressEnemy(null);
+    this.ai.setProfile(QUICK_DUEL_AI);
+    this.resetAttract();
+    this.menus.showMain();
+  }
+
+  /** Shared by the main menu, boss cards and the gauntlet-complete screen: attract duel behind a menu. */
+  private enterMenuState(mode: GameMode): void {
     const g = this.game;
+    this.mode = mode;
     this.state = 'menu';
     this.match.phase = 'menu';
+    this.match.boss = null;
+    this.resultsTimer = 0;
     g.input.releaseLock();
-    this.ai.setDifficulty('normal');
-    this.resetAttract();
     g.simulating = true;
     g.playerControl = false;
     g.rig.orbit = true;
     this.audio.gameplayMuted = true;
     this.hud.show(false);
-    this.menus.showMain();
     this.audio.setPaused(false);
     this.audio.playMusic('musicMenu');
   }
 
-  private showResults(): void {
+  private onMatchEnd(winner: Wizard | null): void {
+    this.resultsTimer = 2.2;
+    if (this.mode === 'gauntlet' && this.match.boss && winner === this.game.player) {
+      this.gauntletOutcome = this.campaign.recordWin();
+    }
+  }
+
+  /** After the final boss: the gauntlet-complete screen over the moonlit arena. */
+  showCampaignComplete(): void {
+    this.enterMenuState('quick');
+    this.dressEnemy(null);
+    this.ai.setProfile(QUICK_DUEL_AI);
+    this.resetAttract();
+    this.menus.showCampaignComplete({ clears: this.campaign.saved.clears }, { again: () => this.newGauntlet(), menu: () => this.toMenu() });
+  }
+
+  /** Results screen. Public so QA can finish a match without waiting for the results delay. */
+  showResults(): void {
     const g = this.game;
     this.state = 'results';
+    this.resultsTimer = 0;
     this.audio.gameplayMuted = true;
     g.input.releaseLock();
     g.playerControl = false;
     this.hud.show(false);
     const rounds = this.match.roundWinners.map((w) => (w === g.player ? 'win' : w ? 'lose' : 'draw') as 'win' | 'lose' | 'draw');
     const p1Won = this.match.wins[0] > this.match.wins[1];
-    const label = CONFIG.ai.difficulty[this.match.difficulty].label;
-    this.menus.showResults({
-      title: p1Won ? 'Victory' : 'Defeat',
-      subtitle: p1Won ? `You bested the ${label}.` : `The ${label} wins this time.`,
-      victory: p1Won,
-      names: ['You', 'Rival'],
-      rounds,
-      player: { ...g.player.stats },
-      enemy: { ...g.enemy.stats },
-    });
+    const stats = { player: { ...g.player.stats }, enemy: { ...g.enemy.stats } };
+    const boss = this.match.boss;
+    let data: ResultData;
+    if (boss) {
+      const c = this.campaign;
+      const next = c.nextBoss;
+      const primary = !p1Won
+        ? { label: 'Retry', action: () => this.startBossFight() }
+        : this.gauntletOutcome === 'complete' || !next
+          ? { label: 'Claim Victory', action: () => this.showCampaignComplete() }
+          : { label: `Next: ${next.name}`, action: () => (c.advance(), this.showBossCard()) };
+      data = {
+        title: p1Won ? 'Victory' : 'Defeat',
+        subtitle: p1Won ? `${boss.name}, ${boss.title}, falls.` : `${boss.name}, ${boss.title}, wins this time.`,
+        eyebrow: `Fight ${this.match.bossIndex + 1} of ${BOSSES.length}${p1Won ? ' cleared' : ''}`,
+        boss,
+        primary,
+        victory: p1Won,
+        names: ['You', boss.name],
+        rounds,
+        ...stats,
+      };
+    } else {
+      const rival = CONFIG.teams[1].name;
+      data = {
+        title: p1Won ? 'Victory' : 'Defeat',
+        subtitle: p1Won ? `You bested the ${rival}.` : `The ${rival} wins this time.`,
+        victory: p1Won,
+        names: ['You', rival],
+        rounds,
+        ...stats,
+      };
+    }
+    this.menus.showResults(data);
     this.audio.playMusic('musicMenu');
   }
 
