@@ -110,6 +110,10 @@ export class AIController implements TickController {
     this.punishTimer = 0;
     this.comboBlastAt = -1;
     this.losTimer = 0;
+    // Forget where the old target was last seen (e.g. inside a vape cloud).
+    this.lastSeen.copy(w.pos);
+    this.lastSeenAt = -1e9;
+    this.lost = this.blind = false;
   }
 
   setDifficulty(d: Difficulty): void {

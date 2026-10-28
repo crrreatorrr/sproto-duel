@@ -118,6 +118,17 @@ export function registerArenaKitScenarios(qa: QAHarness, game: Game): void {
           c.expect(!arena.hazardAt(w.pos.x, w.pos.z, 2), `${id}: ${w.name} spawns by lava`);
         }
         c.expect(game.physics.lineOfSight(c.player.chest(tmpA), c.enemy.chest(tmpB)), `${id}: cover blocks the spawn line`);
+        if (id === 'void') {
+          // The double boss fight (Bitcoin Obama & The Midget) spawns the pair side by side here.
+          for (const sx of [-1, 1]) {
+            const x = (sx * CONFIG.campaign.duo.spawnSpacing) / 2;
+            const z = A.spawnDistance / 2;
+            const near = Math.min(...all.map((p) => p.surfaceDistance(x, z)));
+            c.expect(near > 2.2, `${id}: duo spawn (${x}, ${z}) is ${near.toFixed(2)} m from cover`);
+            tmpB.set(x, 1.2, z); // a full-size wizard's chest (Wizard.chest)
+            c.expect(game.physics.lineOfSight(c.player.chest(tmpA), tmpB), `${id}: cover blocks the duo spawn (${x}, ${z})`);
+          }
+        }
         let open = 0;
         for (const w of game.wizards) {
           for (let k = 0; k < 36; k++) {
