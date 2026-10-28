@@ -7,13 +7,15 @@ import type { Game } from '../core/Game';
 import type { BossStages } from '../campaign/BossStages';
 import type { Wizard } from '../wizard/Wizard';
 import type { QAHarness } from './QAHarness';
+import { lookPixels, type LookPixels } from './pixels';
+import { GROUP } from '../physics/Physics';
 
 const K = CONFIG.campaign.cinematic;
 const C = CONFIG.campaign;
 const DT = CONFIG.sim.fixedDt;
 const FRAME = 1 / 60;
 
-type Ctx = Parameters<Parameters<QAHarness['add']>[1]>[0];
+export type Ctx = Parameters<Parameters<QAHarness['add']>[1]>[0];
 
 function record<K extends keyof GameEvents>(type: K): () => GameEvents[K][] {
   const seen: GameEvents[K][] = [];
@@ -31,7 +33,7 @@ const intersects = (a: DOMRect, b: { left: number; right: number; top: number; b
  * Run `fn` in a live gauntlet fight against BOSSES[index] with cinematics playing (they never do
  * under QA otherwise), the loop driven by hand through Game.advance (no rAF), then leave it.
  */
-function withLiveFight(c: Ctx, game: Game, app: App, index: number, fn: () => void, setup?: Parameters<Ctx['setup']>[0]): void {
+export function withLiveFight(c: Ctx, game: Game, app: App, index: number, fn: () => void, setup?: Parameters<Ctx['setup']>[0]): void {
   const cine = app.cinematic;
   try {
     app.campaign.index = index;
@@ -55,7 +57,7 @@ function withLiveFight(c: Ctx, game: Game, app: App, index: number, fn: () => vo
 }
 
 /** Advance `seconds` of real frames through the whole loop (input, sim, camera, render, hooks). */
-function frames(game: Game, seconds: number, each?: () => void): void {
+export function frames(game: Game, seconds: number, each?: () => void): void {
   const n = Math.round(seconds / FRAME);
   for (let i = 0; i < n; i++) {
     each?.();
@@ -64,7 +66,7 @@ function frames(game: Game, seconds: number, each?: () => void): void {
 }
 
 /** Put a boss straight into `stage` (full bar), without leaving a cinematic for it behind. */
-function jump(st: BossStages, stage: number): void {
+export function jump(st: BossStages, stage: number): void {
   st.evolveTo(stage);
   st.release(0);
   cineOf(st)?.abort();
@@ -73,12 +75,12 @@ function jump(st: BossStages, stage: number): void {
 let cineOf: (st: BossStages) => App['cinematic'] | null = () => null;
 
 /** Empty `w`'s current stage bar with one big hit from the player. */
-function deplete(game: Game, w: Wizard): void {
+export function deplete(game: Game, w: Wizard): void {
   game.spells.dealDamage(w, game.player, (w.health + 500) / game.player.damageMultiplier, w.chest(new THREE.Vector3()), 'blast');
 }
 
 /** Screen rect of a wizard's look: the cylinder it stands in (posed root, look radius, top). */
-function screenRect(game: Game, w: Wizard): { left: number; right: number; top: number; bottom: number } {
+export function screenRect(game: Game, w: Wizard): { left: number; right: number; top: number; bottom: number } {
   const v = w.visual;
   const r = v.boundsRadius * v.root.scale.x;
   const base = v.root.position;
@@ -96,6 +98,87 @@ function screenRect(game: Game, w: Wizard): { left: number; right: number; top: 
     out.bottom = Math.max(out.bottom, y);
   }
   return out;
+}
+
+/**
+ * Up to `count` boss spots hemmed in by cover: right up against the obstacles nearest his spawn,
+ * on every side of them (behind him, beside him, in front), so some side of any orbit runs into
+ * cover. Never in lava, the fire ring, near the player at (0, -8), or overlapping anything solid;
+ * nearest the boss's spawn first and at least 2.5 m apart.
+ */
+function coverSpots(game: Game, count: number): [number, number][] {
+  const out: [number, number][] = [];
+  const spawn = new THREE.Vector3(0, 0, 8);
+  const reach = game.arena.fireRadius - 3;
+  const cands: { x: number; z: number; d: number }[] = [];
+  const solid = (x: number, z: number) =>
+    game.physics.sphereCast(new THREE.Vector3(x, 1.8, z), new THREE.Vector3(0, -1.3, 0), CONFIG.wizard.radius + 0.25, GROUP.WORLD) !== null;
+  for (const p of game.arena.pillars) {
+    if (!p.active || !p.alive || p.shape.height < 1.2) continue;
+    const sh = p.shape;
+    const cy = Math.cos(sh.yaw), sy = Math.sin(sh.yaw);
+    const cx = p.position.x + sh.cx * cy + sh.cz * sy, cz = p.position.z - sh.cx * sy + sh.cz * cy;
+    const ext = Math.max(sh.halfX, sh.halfZ, sh.radius);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      for (const gap of [0.9, 1.5]) {
+        const d = ext + gap + CONFIG.wizard.radius;
+        const x = cx + Math.sin(a) * d, z = cz + Math.cos(a) * d;
+        if (Math.hypot(x, z) > reach || game.arena.hazardAt(x, z, 1) || Math.hypot(x, z + 8) < 6 || solid(x, z)) continue;
+        cands.push({ x, z, d: Math.hypot(x - spawn.x, z - spawn.z) });
+        break;
+      }
+    }
+  }
+  cands.sort((a, b) => a.d - b.d);
+  for (const c of cands) {
+    if (out.some(([ox, oz]) => Math.hypot(ox - c.x, oz - c.z) < 2.5)) continue;
+    out.push([+c.x.toFixed(2), +c.z.toFixed(2)]);
+    if (out.length >= count) break;
+  }
+  return out;
+}
+
+/**
+ * Play the current shot through its slam (the camera only, 1/30 s frames) and return the camera's
+ * distance from the boss as a share of the planned one, worst over the burst and the slam, and how
+ * far (px, + = clear) the top of his look stays below the top letterbox bar at the slam.
+ */
+function shotCamera(game: Game, app: App): { burst: number; slam: number; head: number; lift: number } {
+  const cine = app.cinematic;
+  const D = cine.state!.duration;
+  const tB = K.burstAt * D, tS = K.slamAt * D;
+  const tier2 = game.ui.querySelector('.cine.tier2') !== null;
+  const bar = (tier2 ? 0.15 : 0.12) * innerHeight;
+  const out = { burst: Infinity, slam: Infinity, head: Infinity, lift: cine.state!.camera.lift };
+  const p = new THREE.Vector3();
+  for (let guard = 0; guard < 400; guard++) {
+    game.advance(1 / 30);
+    const s = cine.state;
+    if (!s || s.phase !== 'play' || s.t > tS + 0.12) break;
+    const ratio = s.camera.planned > 0 ? s.camera.actual / s.camera.planned : 0;
+    if (s.t >= tB && s.t <= tB + 0.15) out.burst = Math.min(out.burst, ratio);
+    if (s.t >= tS) {
+      out.slam = Math.min(out.slam, ratio);
+      const v = s.wizard.visual;
+      const cam = game.renderer.camera;
+      cam.updateMatrixWorld();
+      p.set(v.root.position.x, v.root.position.y + v.topHeight * v.root.scale.y, v.root.position.z).project(cam);
+      out.head = Math.min(out.head, (-p.y * 0.5 + 0.5) * innerHeight - bar);
+    }
+  }
+  return out;
+}
+
+/** Advance real frames (1/60 s) until the shot reaches cinematic time `t` (false if it ends first). */
+function untilShot(game: Game, app: App, t: number): boolean {
+  for (let guard = 0; guard < 600; guard++) {
+    const s = app.cinematic.state;
+    if (!s || s.phase !== 'play') return false;
+    if (s.t >= t) return true;
+    game.advance(FRAME);
+  }
+  return false;
 }
 
 /**
@@ -261,5 +344,106 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
     } finally {
       game.setupEnemy(prev);
     }
+  });
+
+  qa.add('cinematic.camera_min_distance_in_cluttered_arenas', (c) => {
+    // In every boss arena, at the spawn and with cover right behind the boss, both shots (stage 2
+    // and stage 3): the camera stays at >= 80% of its planned distance at the burst and the slam
+    // (it used to pull in to 2.4 m of 4 against Sahil's stalls), and his head clears the letterbox.
+    // The camera only: frames aren't drawn.
+    const render = game.renderer.render;
+    game.renderer.render = () => {};
+    const rows: string[] = [];
+    let worst = Infinity;
+    try {
+      for (let index = 0; index < BOSSES.length; index++) {
+        withLiveFight(c, game, app, index, () => {
+          const e = game.enemy, st = game.stages;
+          const spots: [number, number][] = [[0, 8], ...coverSpots(game, 5)];
+          const cells: string[] = [];
+          for (const spot of spots) {
+            for (const stage of [1, 2]) {
+              c.setup({ player: [0, -8], enemy: spot });
+              if (stage === 2) jump(st, 1);
+              c.step(DT);
+              game.advance(FRAME);
+              deplete(game, e);
+              const tag = `${BOSSES[index].id} (${spot.join(',')}) s${stage + 1}`;
+              c.expect(cine.state?.stage === stage && cine.state.wizard === e, `${tag}: no shot`);
+              const r = shotCamera(game, app);
+              cine.abort();
+              worst = Math.min(worst, r.burst, r.slam);
+              c.expect(r.burst >= 0.8 && r.slam >= 0.8, `${tag}: camera at ${(r.burst * 100).toFixed(0)}% of its planned distance at the burst, ${(r.slam * 100).toFixed(0)}% at the slam`);
+              c.expect(r.head >= -0.01 * innerHeight, `${tag}: his head is ${(-r.head).toFixed(0)} px under the top letterbox bar at the slam`);
+              cells.push(`${spot.join(',')} s${stage + 1} ${(Math.min(r.burst, r.slam) * 100).toFixed(0)}%${r.lift ? ` lift ${r.lift}` : ''} head ${r.head.toFixed(0)}px`);
+            }
+          }
+          rows.push(`${BOSSES[index].theme}: ${cells.join(', ')}`);
+        });
+      }
+    } finally {
+      game.renderer.render = render;
+    }
+    c.note(`worst ${(worst * 100).toFixed(0)}% | ${rows.join(' | ')}`);
+  });
+
+  qa.add('cinematic.new_form_readable', (c) => {
+    // The new form reads at the burst and the slam in the brightest arenas: Sahil's stage 2 in the
+    // desert, Tinubu's stage 3 in the volcano, and The Midget's enrage (under its sparks). Sampled
+    // from the frame drawn, inside his silhouette: few blown-out (near-white) pixels, mean luminance
+    // under a cap, and, when he is bright, a clear colour step across his outline (a washed-out form
+    // melts into what's behind it). Before the fix: desert slam 73-76% luminance, the volcano slam
+    // 65-68% with an outline step of 0.12, the enrage's burst 89-91% with 19-35% blown out.
+    const BLOWN_MAX = 0.1, MEAN_MAX = 0.7, CONTRAST_MIN = 0.16, BRIGHT = 0.45;
+    const failed: string[] = [];
+    const enrage = (): Wizard => {
+      jump(game.stages, 2);
+      c.step(DT);
+      game.partner.health = game.partner.maxHealth * 0.5;
+      deplete(game, game.enemy);
+      return game.partner;
+    };
+    const stage3 = (): Wizard => {
+      jump(game.stages, 1);
+      c.step(DT);
+      deplete(game, game.enemy);
+      return game.enemy;
+    };
+    const stage2 = (): Wizard => {
+      deplete(game, game.enemy);
+      return game.enemy;
+    };
+    const cases: { index: number; label: string; trigger: () => Wizard }[] = [
+      { index: 0, label: 'desert s2', trigger: stage2 },
+      { index: 4, label: 'volcano s3', trigger: stage3 },
+      { index: 1, label: 'Midget enrage', trigger: enrage },
+    ];
+    const rows: string[] = [];
+    const fmt = (p: LookPixels) => `${(p.mean * 100).toFixed(0)}/${(p.blown * 100).toFixed(0)}/${(p.background * 100).toFixed(0)}/${(p.contrast * 100).toFixed(0)}`;
+    for (const k of cases) {
+      withLiveFight(c, game, app, k.index, () => {
+        game.advance(FRAME);
+        const w = k.trigger();
+        const s0 = cine.state;
+        c.expect(!!s0 && s0.wizard === w, `${k.label}: no shot`);
+        const D = s0!.duration;
+        const at: [string, number][] = [['burst', K.burstAt * D + 0.3], ['slam', K.slamAt * D], ['slam+', K.slamAt * D + 0.15]];
+        const cells: string[] = [];
+        for (const [beat, t] of at) {
+          c.expect(untilShot(game, app, t), `${k.label}: the shot ended before the ${beat}`);
+          const p = lookPixels(game, w);
+          cells.push(`${beat} ${fmt(p)}`);
+          const tag = `${k.label} ${beat}`;
+          c.expect(p.pixels > 400, `${tag}: the boss is not on screen (${p.pixels} px)`);
+          if (p.blown > BLOWN_MAX) failed.push(`${tag}: ${(p.blown * 100).toFixed(0)}% blown out to white`);
+          if (p.mean > MEAN_MAX) failed.push(`${tag}: washed out (mean luminance ${p.mean.toFixed(2)})`);
+          // (A dark form against a dark backdrop isn't washed out: it reads by its shape.)
+          if (p.mean > BRIGHT && p.contrast < CONTRAST_MIN) failed.push(`${tag}: melts into the bright background (colour step across his outline ${p.contrast.toFixed(2)})`);
+        }
+        rows.push(`${k.label}: ${cells.join(', ')}`);
+      });
+    }
+    c.expect(failed.length === 0, `${failed.join('; ')} | mean/blown/bg/contrast % ${rows.join(' | ')}`);
+    c.note(`mean/blown/bg/contrast % ${rows.join(' | ')}`);
   });
 }

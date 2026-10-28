@@ -227,6 +227,15 @@ export class RewardFx {
     return p;
   }
 
+  /**
+   * Build `w`'s carpet and Pump It looks now (hidden), so their shaders compile and textures upload
+   * in a warm-up (Game.warmUp) rather than on the first cast.
+   */
+  prepare(w: Wizard): void {
+    this.carpetFor(w);
+    this.pumpFor(w);
+  }
+
   /** The burst that announces each cast. */
   private castBurst(w: Wizard, spell: string, pos: THREE.Vector3): void {
     const chest = w.chest(tmp);
@@ -310,7 +319,7 @@ export class RewardFx {
     dir.normalize();
     this.breathLight.position.copy(origin).addScaledVector(dir, 1.5);
     const spread = Math.tan(THREE.MathUtils.degToRad(B.coneDegrees / 2));
-    this.flameAcc += dt * 280;
+    this.flameAcc += dt * 220;
     while (this.flameAcc >= 1) {
       this.flameAcc -= 1;
       const life = 0.3 + Math.random() * 0.14;
@@ -327,7 +336,7 @@ export class RewardFx {
       // Start a little out from the staff so the core doesn't pile up into a white blob.
       const s0 = 0.15 + Math.random() * 0.35;
       this.fx.sparks.emit(origin.x + (vx / l) * s0, origin.y + (vy / l) * s0, origin.z + (vz / l) * s0, (vx / l) * speed, (vy / l) * speed + 0.6, (vz / l) * speed,
-        tmpColor, hot ? 1.5 : 1.2, 0.08 + Math.random() * 0.06, hot ? life * 0.45 : life, { drag: 1.4, sizeEnd: hot ? 0.35 : 0.85 + Math.random() * 0.55 });
+        tmpColor, hot ? 1.2 : 0.75, 0.08 + Math.random() * 0.06, hot ? life * 0.45 : life, { drag: 1.4, sizeEnd: hot ? 0.35 : 0.85 + Math.random() * 0.55 });
     }
     if (Math.random() < dt * 22) {
       const d = B.range * (0.55 + Math.random() * 0.45);

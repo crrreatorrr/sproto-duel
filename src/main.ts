@@ -20,6 +20,7 @@ import { registerCinematicScenarios } from './qa/cinematicScenarios';
 import { registerMuzzleScenarios } from './qa/muzzleScenarios';
 import { registerRewardSpellScenarios } from './qa/rewardSpellScenarios';
 import { registerAnimScenarios } from './qa/animScenarios';
+import { registerRenderScenarios } from './qa/renderScenarios';
 import { registerMenuScenarios } from './qa/menuScenarios';
 import { campaignSoak, soak, type CampaignSoakOptions } from './qa/soak';
 import { CONFIG, type Difficulty } from './config';
@@ -60,6 +61,7 @@ async function boot() {
   registerAnimScenarios(qa, game);
   registerOfficeScenarios(qa, game);
   registerArenaKitScenarios(qa, game);
+  registerRenderScenarios(qa, game, app);
   const qaApi = Object.assign(qa, {
     /**
      * `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance.

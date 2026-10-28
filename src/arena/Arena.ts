@@ -282,6 +282,8 @@ export class Arena {
   fireRadius: number = A.fireRadius;
   /** Active environment theme. */
   theme: ArenaThemeId = 'moonlit';
+  /** Bumped whenever the environment's look is (re)applied, its asset files included (Game.warmUp follows it). */
+  version = 0;
   /**
    * Dev hook: `?theme=<id>` in the URL. While set, requests for the default 'moonlit' environment
    * (menu, Quick Duel) show this theme instead; boss themes are unaffected.
@@ -666,6 +668,7 @@ export class Arena {
   // ------------------------------------------------------------------ applying a theme
 
   private show(res: ThemeResources): void {
+    this.version++;
     const t = res.theme;
     const id = t.id;
     const files = res.files;

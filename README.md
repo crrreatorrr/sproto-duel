@@ -132,8 +132,12 @@ shockwave ring, debris and a big shake. The camera returns to your shoulder, a q
 plays, and the fight resumes (the boss stays frozen and immune for a moment). Stage 3 is longer
 and bigger (higher rise, more spins, a wider orbit, more debris, a false burst first, a bigger
 card), and so is a double fight's enrage. Press Space, Enter, click or the pad's A to play the
-rest of a cinematic faster. Pausing pauses it. Headless runs (QA, soaks) transform instantly on
-sim time instead. Tuning: `CONFIG.campaign.cinematic`; code: `src/campaign/BossCinematic.ts`.
+rest of a cinematic faster. Pausing pauses it. Before the shot the camera picks the side of its
+orbit with the most clearance (sphere casts at every beat; a lift over the cover only if every
+side is blocked), so stalls, cubicles, cars and rocks never push it into the boss. The light show
+is in the boss's colours rather than white, and bright arenas (desert, volcano) turn their bloom,
+flashes and sparks down for the shot so the new form reads. Headless runs (QA, soaks) transform
+instantly on sim time instead. Tuning: `CONFIG.campaign.cinematic`; code: `src/campaign/BossCinematic.ts`.
 
 **Safety caps.** A stage still going after 9 minutes pulls the fire ring in to close quarters
 (it opens again when the stage ends); after 35 minutes of fighting the ring closes completely,
@@ -399,7 +403,7 @@ prompts and specs. Drop a file at its manifest path and it replaces the placehol
 
 ## QA
 
-A QA harness runs inside the game (215 scenarios, about 2.5 minutes in a real-sized window). Open the browser console:
+A QA harness runs inside the game (228 scenarios, about 1.5 to 2.5 minutes in a real-sized window). Open the browser console:
 
 ```js
 await __duel.qa.runAll()            // deterministic scenarios over the real simulation
@@ -426,4 +430,11 @@ synthetic input, measures performance, and reports bugs and feel problems by sev
   times (no per-frame allocation); skinned meshes skip frustum culling (three at most on screen).
 - Pixel ratio capped at 1.5, bloom at half resolution, one shadow-casting light. Bloom and shadows
   can be turned off in Settings.
+- No first-use hitches: when a fight is dressed (behind its boss card) `Game.warmUp` draws the
+  whole scene once offscreen, hidden pools included (tickets, life pack, projectile skins, muzzle
+  and reward-spell effects, the cinematic's shells and rings) plus a hidden copy of every stage
+  model of the boss, so every shader is compiled and every texture uploaded before the fight
+  (`perf.no_first_use_hitch`).
+- The hit flash is a capped glow in the wizard's own colour that settles under rapid hits
+  (`CONFIG.wizard.hitGlow`), so bloom never turns a model into a white blob.
 - Rapier ships its WebAssembly inlined (about 1.7 MB gzipped) in its own cached chunk.

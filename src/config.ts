@@ -373,6 +373,15 @@ export const CONFIG = {
     castMoveMultiplier: 0.55,
     knockbackDamping: 7.5,
     hitFlashTime: 0.09,
+    /**
+     * The hit flash on a wizard's look (WizardVisual): an emissive pulse in the wizard's own spell
+     * colour (`white` of white mixed in), peaking at `peak` (low enough that bloom never turns the
+     * model into a white blob) and fading at `decay` per second. Rapid hits don't re-peak: each hit
+     * adds `heatPerHit` heat (0..1, fading with time constant `heatTime` s), and a hot hit peaks
+     * lower, down to `sustain` x `peak`, and between hits it fades toward that level while heat is
+     * high (Hellfire Breath ticks plus bolts settle to a steady glow instead of strobing).
+     */
+    hitGlow: { peak: 0.6, white: 0.3, decay: 24, sustain: 0.45, heatPerHit: 0.55, heatTime: 0.45 },
     dodge: {
       speed: 16.5,
       duration: 0.34,
@@ -954,7 +963,29 @@ export const CONFIG = {
       fov: 52,
       /** Sky and fog tint toward the boss palette at the peak (0..1), bloom added at the burst. */
       tint: [0, 0.45, 0.65] as [number, number, number],
-      bloom: [0, 0.35, 0.55] as [number, number, number],
+      bloom: [0, 0.2, 0.3] as [number, number, number],
+      /**
+       * Light at the burst and the slam per arena theme (1 when not listed): bright arenas (sunlit
+       * sand, glowing lava) get less bloom, smaller flashes and lights and fewer sparks there, so the
+       * new form reads against them.
+       */
+      themeLight: { desert: 0.5, volcano: 0.5 } as Record<string, number>,
+      /**
+       * Brightness of the floor effects: the shockwave rings and the glowing cracks (times
+       * themeLight). They sit right under the camera's gaze and bloom spreads them over the boss.
+       */
+      waveGlow: 0.8,
+      crackGlow: 0.9,
+      /** How much of the arena's base bloom a bright arena (themeLight < 1) loses for the shot, times (1 - themeLight). */
+      bloomDuck: 1,
+      /**
+       * Camera clearance: before the shot the orbit's start angle, direction and (if it must) a lift
+       * in metres are picked so that a sphere of `clearRadius` m swept from the boss to the camera
+       * misses walls and cover at every beat (cluttered arenas: stalls, cubicles, cars, rocks).
+       */
+      clearAngles: 12,
+      clearLifts: [0, 0.9, 1.8] as number[],
+      clearRadius: 0.3,
       /** Debris chunks thrown up by the landing. */
       debris: [0, 18, 34] as [number, number, number],
       /** Hold Space / Enter / click (or the pad's A) after `skipAfter` s to play the rest at `skipSpeed`x. */
