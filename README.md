@@ -223,14 +223,17 @@ the boss spells it would have learned by then; 20 single-life fights per boss, a
 |---|---|---|---|---|---|---|
 | Sahil | none | 100% (20/20) | 15.6 min | 3 | 5.1 / 5.3 / 5.2 | 242 / 150 / 0 |
 | Bitcoin Obama & The Midget | carpet | 75% (15/20) | 13.4 min | 3 / 3 | 5.5 / 6.3 / 3.3 | 343 / 183 / 0 |
-| Broccoli Head | carpet, pump | 45% (9/20) | 13.6 min | 3 | 4.5 / 4.6 / 5.0 | 429 / 240 / 0 |
-| Glowie | carpet, pump, vape | 10% (2/20) | 13.2 min | 3 | 5.0 / 5.2 / 5.9 | 582 / 240 / 128 |
-| Tinubu | carpet, pump, vape, lock-on | 0% (0/20) | 10.1 min | 2.7 (stage 3 in most fights) | 4.6 / 5.3 / – | 588 / 203 / 164 |
+| Broccoli Head | carpet, pump | 35% (7/20) | 12.9 min | 3 | 4.1 / 4.7 / 4.8 | 408 / 211 / 0 |
+| Glowie | carpet, pump, vape | 0% (0/20) | 11.1 min | 2.75 | 4.9 / 5.4 / – | 426 / 178 / 27 |
+| Tinubu | carpet, pump, vape, lock-on | 0% (0/20) | 8.2 min | 2 | 4.8 / – / – | 451 / 201 / 30 |
 
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
 fights), so a 20-fight rate moves by ±10–15 points between runs: the duo measured 50–85% and
 Glowie 5–35% around these settings. Glowie (damage ×1.35, bars +8%) and Tinubu (×1.32, bars +10%)
-were buffed for the spells; the vape cloud's healing and cover is what the reference AI leans on most.
+were buffed for the spells, when the vape cloud's healing and cover was what the reference AI leaned
+on most (128–164 HP a fight). Since the cloud was toned down (2 HP/s, none right after attacking,
+and attacking from it gives you away) it heals about 30, and the last three rows were re-measured:
+Glowie fell from 10% to 0% for the reference AI.
 
 ## God mode (testing)
 
