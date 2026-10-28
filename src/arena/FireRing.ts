@@ -85,6 +85,7 @@ export class FireRing {
   private emberAcc = 0;
   private readonly ember = new THREE.Color(1, 0.55, 0.15);
   private burnColor = 0xff7a2a;
+  private hazards: readonly { x: number; z: number; radius: number }[] = [];
 
   constructor(scene: THREE.Scene, private readonly fx: Effects) {
     // Two flame layers at slightly different radii give the ring thickness.
@@ -174,7 +175,19 @@ export class FireRing {
     }
   }
 
-  /** Burn and push back wizards touching the fire. Runs on the fixed tick. */
+  /** Floor hazards (lava pools) of the current arena; standing in one burns like the ring. */
+  setHazards(hazards: readonly { x: number; z: number; radius: number }[]): void {
+    this.hazards = hazards;
+  }
+
+  /** True if a wizard's feet are in a lava pool (on the floor, centre inside the pool). */
+  inLava(w: Wizard): boolean {
+    if (w.pos.y > 0.15) return false;
+    for (const h of this.hazards) if (Math.hypot(w.pos.x - h.x, w.pos.z - h.z) < h.radius) return true;
+    return false;
+  }
+
+  /** Burn and push back wizards touching the fire; burn wizards standing in lava. Runs on the fixed tick. */
   updateDamage(
     dt: number,
     radius: number,
@@ -184,8 +197,9 @@ export class FireRing {
     for (const w of wizards) {
       if (!w.alive) continue;
       const r = Math.hypot(w.pos.x, w.pos.z);
-      const touching = r + CONFIG.wizard.radius > radius;
-      if (!touching) {
+      const ring = r + CONFIG.wizard.radius > radius;
+      const lava = !ring && this.inLava(w);
+      if (!ring && !lava) {
         w.burning = false;
         w.burnTimer = 0;
         continue;
@@ -194,15 +208,17 @@ export class FireRing {
         w.burning = true;
         w.burnTimer = A.fireTickInterval; // first tick lands immediately
       }
-      // Shove inward, at least at firePush speed.
-      const ix = -w.pos.x / (r || 1), iz = -w.pos.z / (r || 1);
-      const inward = w.knock.x * ix + w.knock.z * iz;
-      if (inward < A.firePush) w.addKnockback(ix, iz, A.firePush - inward);
+      if (ring) {
+        // Shove inward, at least at firePush speed.
+        const ix = -w.pos.x / (r || 1), iz = -w.pos.z / (r || 1);
+        const inward = w.knock.x * ix + w.knock.z * iz;
+        if (inward < A.firePush) w.addKnockback(ix, iz, A.firePush - inward);
+      }
       w.burnTimer += dt;
       while (w.burnTimer >= A.fireTickInterval) {
         w.burnTimer -= A.fireTickInterval;
-        const p = new THREE.Vector3(w.pos.x, 1.0, w.pos.z);
-        damage(w, A.fireDps * A.fireTickInterval, p);
+        const p = new THREE.Vector3(w.pos.x, lava ? 0.3 : 1.0, w.pos.z);
+        damage(w, (lava ? A.lavaDps : A.fireDps) * A.fireTickInterval, p);
         events.emit('burn', { wizard: w });
         this.fx.impact(p, null, this.burnColor, 0.5);
       }

@@ -201,7 +201,15 @@ export class AudioManager {
     on('land', (e) => this.play('pillarHit', { pos: e.pos, rate: 0.75, volume: THREE.MathUtils.clamp(e.speed / 14, 0.12, 0.45) }));
     on('stunned', (e) => this.play('stunHit', { pos: e.wizard.pos }));
     on('burn', (e) => this.play('fireBurn', { pos: e.wizard.pos }));
-    on('pillarBreak', (e) => this.play('pillarCrumble', { pos: e.pos }));
+    on('pillarBreak', (e) => {
+      if (!e.glass) {
+        this.play('pillarCrumble', { pos: e.pos });
+        return;
+      }
+      // Shattering glass: a bright, high crash plus the shield's glassy ring.
+      this.play('pillarCrumble', { pos: e.pos, rate: 2.2, volume: 0.8 });
+      this.play('shieldBlock', { pos: e.pos, rate: 1.7, volume: 0.7 });
+    });
     // Boss evolution (no dedicated sound yet): a deep ultimate charge over the shockwave's boom.
     on('bossEvolve', (e) => {
       this.play('ultCharge', { rate: 0.8, exactPitch: true });

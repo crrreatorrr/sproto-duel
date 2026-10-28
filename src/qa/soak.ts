@@ -1,3 +1,4 @@
+import type { ArenaThemeId } from '../arena/themes';
 import { CONFIG, type Difficulty } from '../config';
 import { STAGE_COUNT } from '../campaign/BossStages';
 import { BOSSES, bossDisplayName } from '../campaign/levels';
@@ -222,9 +223,28 @@ export async function campaignSoak(qa: QAHarness, game: Game, rounds = 4, refere
 
 /**
  * Headless AI-vs-AI rounds using the real simulation, timer and sudden death. Measures pacing
- * (round length vs the 60-90 s target) and how damage is distributed across spells.
+ * (round length vs the 60-90 s target) and how damage is distributed across spells. With `theme`,
+ * the rounds are fought in that environment (and its cover layout), then the previous one returns.
  */
-export async function soak(qa: QAHarness, game: Game, difficulty: Difficulty, rounds: number): Promise<SoakReport> {
+export async function soak(qa: QAHarness, game: Game, difficulty: Difficulty, rounds: number, theme?: ArenaThemeId): Promise<SoakReport> {
+  const arena = game.arena;
+  const prevTheme = arena.theme;
+  const prevDev = arena.devTheme;
+  if (theme) {
+    arena.devTheme = null;
+    void arena.applyTheme(theme);
+  }
+  try {
+    return await soakRounds(qa, game, difficulty, rounds);
+  } finally {
+    if (theme) {
+      void arena.applyTheme(prevTheme);
+      arena.devTheme = prevDev;
+    }
+  }
+}
+
+async function soakRounds(qa: QAHarness, game: Game, difficulty: Difficulty, rounds: number): Promise<SoakReport> {
   const durations: number[] = [];
   const dmg: Record<string, number> = {};
   const casts: Record<string, number> = {};

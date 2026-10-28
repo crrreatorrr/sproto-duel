@@ -55,6 +55,12 @@ export class AIController implements TickController {
   private punishTimer = 0;
   private losTimer = 0;
   private hasLos = true;
+  /** The target is hidden by soft cover (a vape cloud): aim and move at where it was last seen... */
+  private lost = false;
+  /** ...and nothing solid is in the way, so keep firing there for a while. */
+  private blind = false;
+  private readonly lastSeen = new THREE.Vector3();
+  private lastSeenAt = -1e9;
   private comboBlastAt = -1;
   private readonly desiredMove = new THREE.Vector3();
   private readonly aimNoise = new THREE.Vector3();
@@ -206,16 +212,26 @@ export class AIController implements TickController {
     }
     if (this.volleyCd > 0) this.volleyCd -= dt;
 
-    const toTarget = tmpA.subVectors(this.target.pos, w.pos).setY(0);
-    const dist = toTarget.length();
-    toTarget.divideScalar(dist || 1);
-
-    // Line of sight is a raycast, so only refresh it a few times per second.
+    // Line of sight is a raycast, so only refresh it a few times per second. Soft cover (vape
+    // clouds) hides the target too: the AI then goes for where it last saw it.
     this.losTimer -= dt;
     if (this.losTimer <= 0) {
       this.losTimer = 0.15;
-      this.hasLos = this.physics.lineOfSight(w.chest(tmpB), this.target.chest(tmpC));
+      const a = w.chest(tmpB), b = this.target.chest(tmpC);
+      const solid = this.physics.lineOfSight(a, b);
+      this.lost = this.arena.obscured(a, b);
+      this.hasLos = solid && !this.lost;
+      if (this.hasLos) {
+        this.lastSeen.copy(this.target.pos);
+        this.lastSeenAt = this.time;
+      }
+      // Firing blind into the haze, at the last known spot, for a while (not through solid cover).
+      this.blind = this.lost && solid && this.time - this.lastSeenAt < AI.lostTrackTime;
     }
+
+    const toTarget = tmpA.subVectors(this.lost ? this.lastSeen : this.target.pos, w.pos).setY(0);
+    const dist = toTarget.length();
+    toTarget.divideScalar(dist || 1);
 
     this.perceiveThreats();
     this.runReactions();
@@ -327,7 +343,7 @@ export class AIController implements TickController {
     }
   }
 
-  /** Nudge a direction away from the fire ring. */
+  /** Nudge a direction away from the fire ring, and never roll into a lava pool. */
   private biasAwayFromHazards(dir: THREE.Vector3): void {
     const w = this.self;
     const r = Math.hypot(w.pos.x, w.pos.z);
@@ -336,6 +352,8 @@ export class AIController implements TickController {
       const outward = (dir.x * w.pos.x + dir.z * w.pos.z) / (r || 1);
       if (outward > 0) dir.negate();
     }
+    const roll = CONFIG.wizard.dodge.speed * CONFIG.wizard.dodge.duration * 0.8;
+    if (this.arena.hazardAt(w.pos.x + dir.x * roll, w.pos.z + dir.z * roll, CONFIG.wizard.radius)) dir.negate();
   }
 
   private fireRadius(): number {
@@ -366,7 +384,7 @@ export class AIController implements TickController {
 
     const [near, far] = p.preferredRange;
     const maxRange = this.punishTimer > 0 ? near : far;
-    if (dist > maxRange + 2 || !this.hasLos) this.setState('approach');
+    if (dist > maxRange + 2 || (!this.hasLos && !this.blind)) this.setState('approach');
     else this.setState('attack');
   }
 
@@ -416,9 +434,11 @@ export class AIController implements TickController {
     let best = Infinity;
     this.hasCover = false;
     for (const pillar of this.arena.pillars) {
-      if (!pillar.alive) continue;
+      if (!pillar.alive || !pillar.cover) continue;
       const away = tmpC.subVectors(pillar.position, this.target.pos).setY(0).normalize();
-      const spot = tmpB.copy(pillar.position).addScaledVector(away, CONFIG.arena.pillars.radius + 1.3);
+      // Just behind the far side of the footprint (a cylinder's radius, or a box's extent that way).
+      const spot = tmpB.copy(pillar.position).addScaledVector(away, pillar.extentToward(away.x, away.z) + 1.3);
+      if (this.arena.hazardAt(spot.x, spot.z, CONFIG.wizard.radius + 0.5)) continue;
       const d = spot.distanceTo(this.self.pos) + spot.distanceTo(this.target.pos) * 0.3;
       if (d < best) {
         best = d;
@@ -484,7 +504,8 @@ export class AIController implements TickController {
     }
     if (this.state !== 'evade') this.keepFormation(move);
 
-    // Stay out of the fire.
+    // Stay out of lava and the fire.
+    this.arena.avoidHazards(w.pos, move);
     const r = Math.hypot(w.pos.x, w.pos.z);
     const safe = this.fireRadius() - AI.fireMargin;
     if (r > safe - 2) {
@@ -555,8 +576,13 @@ export class AIController implements TickController {
     const speed = usingBlast ? SP.blast.speed : SP.bolt.speed;
     const lead = (dist / speed) * p.leadFactor;
     const aim = w.aimPoint;
-    t.chest(aim).addScaledVector(t.vel, lead);
-    if (!t.grounded) {
+    if (this.lost) {
+      // Lost in a cloud: aim (and, if blind, fire) at where the target was last seen.
+      aim.set(this.lastSeen.x, this.lastSeen.y + 1.2, this.lastSeen.z);
+    } else {
+      t.chest(aim).addScaledVector(t.vel, lead);
+    }
+    if (!t.grounded && !this.lost) {
       // Ballistic lead for a jumping target, never below the ground it will land on.
       const g = CONFIG.wizard.jump.gravity;
       const feetY = Math.max(t.groundY, t.pos.y + t.vy * lead - 0.5 * g * lead * lead);
@@ -567,9 +593,10 @@ export class AIController implements TickController {
     intent.facing = Math.atan2(aim.x - w.pos.x, aim.z - w.pos.z);
 
     intent.holdBolt = false;
-    if (this.state !== 'attack' && !(this.state === 'approach' && this.hasLos && dist < 22)) return;
+    const sees = this.hasLos || this.blind;
+    if (this.state !== 'attack' && !(this.state === 'approach' && sees && dist < 22)) return;
     // A transforming boss is immune: hold fire (and let mana recover) until it is done.
-    if (!this.hasLos || w.cast || w.stunned || t.evolving || this.spells.volleyFiring(w)) return;
+    if (!sees || w.cast || w.stunned || t.evolving || this.spells.volleyFiring(w)) return;
     // Boss stages gate everything beyond bolts (charge still builds while the Ultimate is locked).
     const a = this.attacks;
     const canBlast = !a || a.blast, canStun = !a || a.stun, canUlt = !a || a.ultimate;

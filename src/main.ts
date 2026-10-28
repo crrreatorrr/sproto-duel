@@ -9,12 +9,15 @@ import { registerGamepadScenarios } from './qa/gamepadScenarios';
 import { registerJumpScenarios } from './qa/jumpScenarios';
 import { registerArenaScenarios } from './qa/arenaScenarios';
 import { registerCampaignScenarios } from './qa/campaignScenarios';
+import { registerArenaKitScenarios } from './qa/arenaKitScenarios';
+import { registerOfficeScenarios } from './qa/officeScenarios';
 import { registerSkinScenarios } from './qa/skinScenarios';
 import { registerStageScenarios } from './qa/stageScenarios';
 import { registerTicketScenarios } from './qa/ticketScenarios';
 import { registerDuoScenarios } from './qa/duoScenarios';
 import { campaignSoak, soak } from './qa/soak';
 import type { Difficulty } from './config';
+import type { ArenaThemeId } from './arena/themes';
 
 async function boot() {
   const container = document.getElementById('game')!;
@@ -42,9 +45,14 @@ async function boot() {
   registerStageScenarios(qa, game, app);
   registerTicketScenarios(qa, game, app);
   registerDuoScenarios(qa, game, app);
+  registerOfficeScenarios(qa, game);
+  registerArenaKitScenarios(qa, game);
   const qaApi = Object.assign(qa, {
-    /** `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance. */
-    soak: (difficulty: Difficulty = 'normal', rounds = 6) => soak(qa, game, difficulty, rounds),
+    /**
+     * `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance.
+     * Add a theme to fight in that environment: `await __duel.qa.soak('normal', 6, 'office')`.
+     */
+    soak: (difficulty: Difficulty = 'normal', rounds = 6, theme?: ArenaThemeId) => soak(qa, game, difficulty, rounds, theme),
     /** `await __duel.qa.campaignSoak(4)`: a reference AI vs each gauntlet boss, round lengths per boss. */
     campaignSoak: (rounds = 4, reference: Difficulty = 'normal') => campaignSoak(qa, game, rounds, reference),
   });

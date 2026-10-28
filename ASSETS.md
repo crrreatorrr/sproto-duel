@@ -121,8 +121,8 @@ any of them by replacing the file.
 | 1. Sahil, the RugMaster | `sahil/stage1..3.glb` (2.0 / 2.25 / 2.55 m) | `sahil.png`, `sahil_stage2.png`, `sahil_stage3.png` | `desert` | rolled rugs, flying carpets |
 | 2. Bitcoin Obama & The Midget (a double fight) | Obama: `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m) | `obama.png` (the pair, used on cards), `obama_stage2.png`, `obama_stage3.png` | `void` | phones, pigs |
 | 2b. The Midget (Obama's partner, fought at the same time) | `midget/stage1..3.glb` (1.25 / 1.4 / 1.6 m): stage 2 laser eyes, Bitcoin chain, phones in hand; stage 3 gold top hat, candlestick-chart robe | `midget.png`, `midget_stage2.png`, `midget_stage3.png` (his stage banners) | | phones, pigs |
-| 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `grove` | florets, whole broccoli |
-| 4. The Agent | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `glacier` | bullets, grenades |
+| 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `city` | florets, whole broccoli |
+| 4. Glowie | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `office` | bullets, grenades |
 | 5. Tinubu, the Unshackled Demon | `tinubu/stage1..3.glb` (2.1 / 2.45 / 2.9 m) | `tinubu.png`, `tinubu_stage2.png`, `tinubu_stage3.png` | `volcano` | hellfire, burning skulls |
 
 The Midget is a second boss wizard in fight 2 with his own short hitbox (1.25 m), so his models
@@ -133,6 +133,24 @@ Boss models are static meshes (the game animates them procedurally), ≤ 9k tria
 concepts in a wide standing stance rather than a T-pose, since there is no rig: whole body, front
 view, plain background, one character, few detached floating objects. Projectiles are built in code
 (`skins` in `levels.ts`).
+
+## Arena obstacles (optional)
+
+Each boss arena's obstacles are built in code; a generated model replaces a kind's look when its
+file exists (`OBSTACLE_MODELS` in `src/assets/manifest.ts`). Models face +X (rotated -90 degrees
+on load), are fitted per axis to the obstacle's collider bounds (turned 90 degrees first if their
+long side runs the other way) and stand on the floor by their bounds. Cubicles, rug piles and cars
+match the collider height exactly (you stand on them); the others keep within 15 % of their own
+proportions. Stumps stay procedural. ≤ 6k triangles each.
+
+| File | Kind | Collider (L x W x H) |
+|---|---|---|
+| `models/obstacles/market_stall.glb` | `stall` | 2.6 x 1.8 x 2.4 m |
+| `models/obstacles/rug_pile.glb` | `rugs` | 1.9 x 1.6 x 1.0 m |
+| `models/obstacles/parked_car.glb` | `car` | 4.2 x 1.8 m; hood 0.95 m, cabin 1.4 m |
+| `models/obstacles/food_truck.glb` | `truck` | 5.6 x 2.6 x 3.0 m |
+| `models/obstacles/dumpster.glb` | `dumpster` | 1.9 x 1.2 x 1.3 m (a raised lid may rise above) |
+| `models/obstacles/rock_outcrop.glb` | `rockA`, `rockB` | the bounds of two cylinders/boxes, ~4.4 x 3.5 x 3.0-3.6 m |
 
 ## Arena environments
 
@@ -145,8 +163,8 @@ assets in the next sections.
 | `textures/themes/<theme>/floor.jpg` | Square, top-down circular arena floor filling the image edge to edge (mapped onto a disc). |
 | `textures/themes/<theme>/sky.jpg` | 2:1 equirectangular sky panorama. |
 | `textures/themes/<theme>/stone.jpg` | Square, seamless tileable surface for the wall and placeholder pillars. |
-| `models/themes/<theme>/pillar.glb` | Cover column ≤ 5k triangles, fitted to 5.5 m; collision is a ~1.7 m wide cylinder, so keep it column-shaped. |
-| `models/themes/<theme>/prop.glb` | Decorative set piece placed 8 times, 8 m outside the wall, ≤ 8k triangles. |
+| `models/themes/<theme>/pillar.glb` | Cover column ≤ 5k triangles, fitted to 5.5 m; collision is a ~1.7 m wide cylinder, so keep it column-shaped. **Office (cubicle layout):** one cubicle, ≤ 5k triangles, square footprint, centred, front facing +X like other Tripo exports; it is scaled per axis to the box collider: 2.2 x 2.2 m footprint, 1.3 m tall (partitions plus whatever is inside). Collision is the solid box, so keep the walls on the footprint's edges. The cabinets, copiers and water coolers in the office layout and every crumbled desk stump stay procedural. |
+| `models/themes/<theme>/prop.glb` | Decorative set piece placed 8 times, 8 m outside the wall, ≤ 8k triangles, fitted to the theme's prop height (5 m; void 6 m, city palm 9 m, office 1.35 m). |
 
 | Theme | Mood |
 |---|---|
@@ -155,6 +173,8 @@ assets in the next sections.
 | `glacier` | Frozen arena: ice-glazed stone, aurora night sky, lilac frost runes. |
 | `desert` | Sandstone ruins at golden dusk: turquoise and gold inlays, dunes, obelisks. |
 | `void` | Arena floating in a cosmic void: violet-black stone, green rune circuitry, nebula sky. |
+| `city` | Los Angeles at sunset (Broccoli Head). Floor: a top-down asphalt intersection with crosswalk paint, curbs and a manhole. Sky: orange-pink-purple sunset over a skyline and palms, sun low in the +X direction of the panorama. Stone: concrete with pastel graffiti (tinted darker in game). Pillar: a graffiti concrete freeway column with a flared cap. Prop: a palm tree (fronds may be single-sided). Without files: a procedural intersection, a shader sunset with smog, skyline and palm silhouettes, graffiti columns, and code-built palms, storefronts, neon and city blocks outside the wall. |
+| `office` | Government office (Glowie). Floor: grey-blue carpet tiles with a fictional eye-in-a-triangle emblem in the centre. Sky: an office-interior panorama (cubicle rows, fluorescent panels, blinds), horizon at mid-height; a procedural ceiling with light panels stays overhead and the procedural room walls are hidden while it is present. Stone: beige drywall over a fabric band and a baseboard (the 1.4 m ring wall shows it once vertically). Pillar: a cubicle (see the pillar row). Prop: filing cabinets with a water cooler. Without files: procedural carpet and emblem, room walls with blinds, ceiling troffers, columns, a cubicle farm, cabinets, coolers and plants. |
 
 ## Textures
 
@@ -239,7 +259,7 @@ distance falloff and stereo panning. Loops must start and end seamlessly.
 | `defeat` | `audio/defeat.mp3` | 2.2 s | Match defeat, somber low strings and fading choir |
 | `uiHover` | `audio/ui_hover.mp3` | 0.05 s | Subtle magical UI hover tick |
 | `uiClick` | `audio/ui_click.mp3` | 0.1 s | Magical UI button click, soft chime |
-| `gunshot` | `audio/gunshot.mp3` | 0.4 s | Single pistol gunshot, sharp crack with a short punchy tail (The Agent's bullets) |
+| `gunshot` | `audio/gunshot.mp3` | 0.4 s | Single pistol gunshot, sharp crack with a short punchy tail (Glowie's bullets) |
 | `grenadeThump` | `audio/grenade_thump.mp3` | 0.45 s | Grenade launcher firing, hollow low thoomp with a metallic click |
 | `rugWhoosh` | `audio/rug_whoosh.mp3` | 0.4 s | Heavy rug thrown through the air, cloth whoosh with a quick flap (rugs, flying carpets) |
 | `phoneBlip` | `audio/phone_blip.mp3` | 0.3 s | Smartphone notification blip, two quick bright tones over a buzz |

@@ -338,6 +338,8 @@ export class GoldenTickets {
    */
   isValidSpot(x: number, z: number): boolean {
     if (Math.hypot(x, z) > this.arena.fireRadius - T.fireMargin) return false;
+    // Not in lava, inside a vape cloud, or on a sliding block's rail.
+    if (this.arena.excludesPickup(x, z)) return false;
     for (const w of this.wizards) if (horizontalDistance(w.pos, x, z) < T.minWizardDistance) return false;
     for (const t of this.pool) if (t.active && horizontalDistance(t.pos, x, z) < T.minTicketDistance) return false;
     return !this.blocked(x, z);

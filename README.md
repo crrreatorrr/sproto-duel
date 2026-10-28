@@ -138,28 +138,54 @@ colours. The dev server hot-reloads on save.
 
 ## Environments
 
-The arena is 30 m to the wall, with 14 pillars in two rings. Each campaign boss fights in its own
-environment; Quick Duel and the menu use `moonlit`:
+The arena is 30 m to the wall. Quick Duel uses 14 pillars in two rings; every boss arena has its
+own obstacles (see below). Each campaign boss fights in its own environment; Quick Duel and
+the menu use `moonlit`:
 
 | Theme | Mood | Boss |
 |---|---|---|
-| `moonlit` | Moonlit ruins, violet night (the default) | |
-| `grove` | Twilight forest glade, green spirit fire, fireflies | Bramble |
-| `volcano` | Basalt over lava under a red ash sky, embers and ash | Cinder |
-| `glacier` | Ice crystals under an aurora, blue-white fire, snow | Ysolde |
-| `desert` | Sandstone ruins at golden dusk, drifting sand | Khepri |
-| `void` | Floating arena in a nebula, purple fire, motes | Morvane |
+| `moonlit` | Moonlit ruins, violet night (the default) | Quick Duel |
+| `grove` | Twilight forest glade, green spirit fire, fireflies | (none; `?theme=grove`) |
+| `volcano` | Basalt outcrops and lava pools under a red ash sky, embers and ash | Tinubu |
+| `glacier` | Ice crystals under an aurora, blue-white fire, snow | (none; `?theme=glacier`) |
+| `desert` | A sandstone bazaar at golden dusk: market stalls, rugs, drifting sand | Sahil |
+| `void` | Floating arena in a nebula: candlestick charts, chained and sliding blocks, purple fire | Bitcoin Obama |
+| `city` | Los Angeles at sunset: an intersection with crosswalks, graffiti freeway columns, palms, storefront neon, smog, a skyline on the horizon, hot-pink fire, drifting pastel vape clouds | Broccoli Head |
+| `office` | Government Office: indoors under fluorescent ceiling panels, grey-blue carpet with an eye-in-a-triangle emblem, beige walls with blinds, a sea of cubicles, green screen glow, the office on fire, dust in the light | Glowie |
 
-`game.arena.applyTheme(id)` switches everything: sky, fog, lights, floor, wall, pillars, props,
-debris, braziers, fire-ring colours and ambient particles. It is synchronous (the theme is fully
-visible when it returns, with procedural stand-ins for any missing file) and returns a promise
-that resolves once the theme's optional files have loaded and been swapped in. Await it only if you
-want to avoid pop-in. Theme looks live in [src/arena/themes.ts](src/arena/themes.ts), and asset
-paths in `THEME_ASSETS` in [src/assets/manifest.ts](src/assets/manifest.ts). Files load on first
-use and are cached; GPU memory for inactive themes is released.
+`game.arena.applyTheme(id)` switches everything: sky, fog, lights, floor, wall, cover layout,
+pillars, props, debris, braziers, fire-ring colours and ambient particles. It is synchronous (the
+theme is fully visible when it returns, with procedural stand-ins for any missing file) and returns
+a promise that resolves once the theme's optional files have loaded and been swapped in. Await it
+only if you want to avoid pop-in. Theme looks live in [src/arena/themes.ts](src/arena/themes.ts),
+and asset paths in `THEME_ASSETS` in [src/assets/manifest.ts](src/assets/manifest.ts). Files load
+on first use and are cached; GPU memory for inactive themes is released.
 
-For testing, add `?theme=volcano` to the URL (it replaces `moonlit` in the menu and Quick Duel), or
-run `__duel.game.arena.applyTheme('glacier')` in the console.
+**Cover layouts.** A theme's `layout` picks its cover. Quick Duel's `moonlit` (and the spare
+`grove` and `glacier`) keep the two `rings` of pillars (`CONFIG.arena.pillars`); every boss arena has
+its own obstacle kit. Obstacle types (`CONFIG.arena.obstacles`) define their collider (boxes and
+cylinders, compound for cars, bus stops, palm planters and rocks, roofs you can walk under), height
+class (anything under ~1.3 m can be jumped onto: the apex is 1.4 m), health (0 = indestructible),
+the stump they leave, whether the AI may hide behind them, and whether they are see-through. Layouts
+(`CONFIG.arena.layouts`, and `CONFIG.arena.cubicles` for the office) place them, mirrored so both
+spawns get the same cover, with the spawn line clear and everything well inside the fire.
+
+| Layout | Arena | Cover | Special |
+|---|---|---|---|
+| `bazaar` | The Grand Bazaar (Sahil) | 16 market stalls (2.6 x 1.8 x 2.4 m, full cover) in rows along a central street, 10 rug piles (1 m, stand on them, never break), carts, clusters of clay pots | |
+| `exchange` | The Blockchain Void (Bitcoin Obama) | 16 candlestick-chart bars (red/green, 1-4.5 m: low ones you hop), 8 obsidian blocks joined by glowing chains | **Moving cover:** 4 blocks slide on glowing rails (kinematic colliders; they turn back rather than push into a wizard) |
+| `streets` | Los Angeles (Broccoli Head) | 8 parked cars (hood 0.95 m, roof 1.4 m), 2 food trucks, 4 dumpsters, 2 bus-stop shelters, 4 palm planters, 2 freeway columns | **Soft cover:** 3 drifting vape clouds stop no spell but hide wizards from the AI, which fires at your last known position for a few seconds |
+| `cubicles` | Government Office (Glowie) | 16 cubicles (2.2 x 2.2 x 1.3 m: bolts and sight blocked, you can stand on top), filing-cabinet banks, copiers, water coolers | **Glass partitions:** 4 see-through panels that stop spells and shatter after 3 bolts |
+| `caldera` | Hellfire Caldera (Tinubu) | 8 basalt outcrops (compound colliders, permanent cover), 6 broken columns | **Hazard:** 4 lava pools burn anyone standing in them (`lavaDps`); the AI steers, rolls and picks cover around them |
+
+Destructible cover takes damage from bolts, Blasts and the Ultimate, crumbles (or shatters) into
+debris and resets every round. The AI's cover search, line of sight and aiming, the camera's
+collision, spells and golden tickets all use the same colliders (tickets also keep out of lava,
+clouds and rails). `arena.pillars` lists the current layout's cover.
+
+For testing, add `?theme=volcano` (or any theme id) to the URL (it replaces `moonlit` in the menu
+and Quick Duel), or run `__duel.game.arena.applyTheme('office')` in the console.
+`await __duel.qa.soak('normal', 6, 'office')` runs AI-vs-AI rounds in a theme.
 
 ## Project layout
 

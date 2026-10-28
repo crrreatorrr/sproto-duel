@@ -228,7 +228,7 @@ export const BOSSES: BossDef[] = [
     name: 'Broccoli Head',
     title: 'the Floret Lord',
     intro: 'Leads the LA Vape Cabal.',
-    theme: 'grove',
+    theme: 'city',
     stages: [
       { name: 'Sprout', model: 'bossBroccoli1', attacks: NONE },
       { name: 'Overgrown', model: 'bossBroccoli2', attacks: SPELLS },
@@ -264,7 +264,7 @@ export const BOSSES: BossDef[] = [
     name: 'Glowie',
     title: 'Government Enforcement',
     intro: 'Unknown',
-    theme: 'glacier',
+    theme: 'office',
     stages: [
       { name: 'Routine Inquiry', model: 'bossAgent1', attacks: NONE },
       {
@@ -349,4 +349,6 @@ export const ARENA_NAMES: Record<ArenaThemeId, string> = {
   glacier: 'Frostspire Black Site',
   desert: 'The Grand Bazaar',
   void: 'The Blockchain Void',
+  city: 'Los Angeles',
+  office: 'Government Office',
 };

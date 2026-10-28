@@ -1,11 +1,12 @@
 import { MOONLIT_FLOOR, MOONLIT_STONE, type FloorStyle, type GroundKind, type StoneStyle } from '../fx/textures';
+import type { ArenaLayout } from './layouts';
 
 /**
  * Arena environment themes. 'moonlit' is the default (quick duel); each campaign boss has its own.
  * Visual definitions live here; asset paths live in assets/manifest.ts (THEME_ASSETS).
  * `Arena.applyTheme(id)` switches everything below in one call.
  */
-export const THEME_IDS = ['moonlit', 'grove', 'volcano', 'glacier', 'desert', 'void'] as const;
+export const THEME_IDS = ['moonlit', 'grove', 'volcano', 'glacier', 'desert', 'void', 'city', 'office'] as const;
 export type ArenaThemeId = (typeof THEME_IDS)[number];
 
 export function isThemeId(id: unknown): id is ArenaThemeId {
@@ -15,9 +16,9 @@ export function isThemeId(id: unknown): id is ArenaThemeId {
 /** Linear RGB (shader colours; values above 1 glow). */
 export type RGB = [number, number, number];
 
-export type PillarStyle = 'column' | 'grove' | 'basalt' | 'ice' | 'obelisk' | 'monolith';
-export type PropStyle = 'stones' | 'forest' | 'spires' | 'shards' | 'ruins' | 'asteroids';
-export type AmbientKind = 'none' | 'fireflies' | 'embers' | 'snow' | 'sand' | 'motes';
+export type PillarStyle = 'column' | 'grove' | 'basalt' | 'ice' | 'obelisk' | 'monolith' | 'freeway' | 'cubicle';
+export type PropStyle = 'stones' | 'forest' | 'spires' | 'shards' | 'ruins' | 'asteroids' | 'city' | 'office';
+export type AmbientKind = 'none' | 'fireflies' | 'embers' | 'snow' | 'sand' | 'motes' | 'vape' | 'dust';
 
 export interface SkyDef {
   top: RGB;
@@ -40,11 +41,22 @@ export interface SkyDef {
   clouds?: { a: RGB; b: RGB; strength: number };
   /** Horizon silhouette (tree line, peaks, dunes). */
   silhouette?: { color: RGB; height: number; amplitude: number; frequency: number; jagged: number };
+  /** Hazy band hugging the horizon (city smog); `height` is how far up it reaches (sin of elevation). */
+  smog?: { color: RGB; strength: number; height: number };
+  /**
+   * City skyline on the horizon: two layers of blocky buildings with lit windows, a downtown
+   * cluster, and `palms` palm-tree silhouettes in front. `density` = buildings around the horizon.
+   */
+  skyline?: { color: RGB; window: RGB; height: number; amplitude: number; density: number; palms: number };
 }
 
 export interface ArenaTheme {
   id: ArenaThemeId;
   label: string;
+  /** How the cover is arranged: 'rings' of pillars (default) or a boss arena's own obstacle layout (layouts.ts). */
+  layout?: ArenaLayout;
+  /** Indoors: a ceiling with light panels overhead and room walls around (theme kit terrain). */
+  interior?: boolean;
   /** scene.background behind the sky dome. */
   background: number;
   sky: SkyDef;
@@ -64,7 +76,8 @@ export interface ArenaTheme {
   island?: boolean;
   pillar: { style: PillarStyle; color: number; stump: number; accent: number; trim?: number };
   props: { style: PropStyle; color: number; accent: number };
-  debris: { color: number; emissive: number };
+  /** Crumble chunks: stone lumps (default) or flat partition panels. */
+  debris: { color: number; emissive: number; shape?: 'chunk' | 'panel' };
   brazier: { bowl: number; flame: RGB };
   fire: { root: RGB; mid: RGB; tip: RGB; glow: RGB; ember: RGB; burn: number; intensity: number };
   ambient: { kind: AmbientKind; rate: number; color: RGB; color2: RGB };
@@ -106,7 +119,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ambient: { kind: 'none', rate: 0, color: [1, 1, 1], color2: [1, 1, 1] },
   },
 
-  // Broccoli Head: twilight enchanted forest glade, green and gold.
+  // Twilight enchanted forest glade, green and gold (Broccoli Head's original arena).
   grove: {
     id: 'grove',
     label: 'Twilight Grove',
@@ -152,6 +165,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
   // Tinubu: basalt over lava under a red ash sky.
   volcano: {
     id: 'volcano',
+    layout: 'caldera',
     label: 'Ashen Caldera',
     background: 0x0c0302,
     sky: {
@@ -193,7 +207,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ambient: { kind: 'embers', rate: 40, color: [1.0, 0.45, 0.1], color2: [0.32, 0.28, 0.27] },
   },
 
-  // The Agent: ice and aurora night, lilac and ice blue.
+  // Ice and aurora night, lilac and ice blue (the Agent's original arena).
   glacier: {
     id: 'glacier',
     label: 'Aurora Glacier',
@@ -240,6 +254,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
   // Sahil: sandstone ruins at golden dusk, teal and gold.
   desert: {
     id: 'desert',
+    layout: 'bazaar',
     label: 'Sunken Sands',
     background: 0x140a06,
     sky: {
@@ -272,7 +287,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ground: { color: 0xd8b888, texture: 'sand', repeat: 26 },
     pillar: { style: 'obelisk', color: 0xd8bc94, stump: 0xc8ae86, accent: 0x40e0d0, trim: 0xffc860 },
     props: { style: 'ruins', color: 0xc8a070, accent: 0xd8b07a },
-    debris: { color: 0xc8a070, emissive: 0 },
+    debris: { color: 0x8a6a48, emissive: 0, shape: 'panel' },
     brazier: { bowl: 0x6a5030, flame: [1.0, 0.75, 0.25] },
     fire: {
       root: [1.0, 0.92, 0.6], mid: [1.0, 0.62, 0.12], tip: [0.65, 0.25, 0.05],
@@ -284,6 +299,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
   // Bitcoin Obama: a floating arena in a cosmic void, purple and green.
   void: {
     id: 'void',
+    layout: 'exchange',
     label: 'The Void',
     background: 0x020005,
     sky: {
@@ -325,5 +341,99 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
       glow: [0.6, 0.2, 1.0], ember: [0.7, 0.4, 1.0], burn: 0xb060ff, intensity: 1,
     },
     ambient: { kind: 'motes', rate: 30, color: [0.75, 0.4, 1.0], color2: [0.4, 1.0, 0.6] },
+  },
+  // Broccoli Head: a Los Angeles intersection at sunset, smog, palms and neon, hot pink and teal.
+  city: {
+    id: 'city',
+    layout: 'streets',
+    label: 'Los Angeles',
+    background: 0x24102a,
+    sky: {
+      top: [0.05, 0.025, 0.16],
+      mid: [0.4, 0.08, 0.26],
+      horizon: [0.72, 0.22, 0.05],
+      stars: 0.9993,
+      starBrightness: 0.35,
+      // Low in the +x sky, where the sunset panorama (sky.jpg) puts its sun.
+      moonDir: [0.95, 0.11, -0.28],
+      moonColor: [3.0, 1.4, 0.55],
+      moonSize: [0.9962, 0.9973],
+      moonGlow: [0.7, 0.2, 0.06],
+      moonGlowPower: 7,
+      clouds: { a: [0.3, 0.06, 0.18], b: [0.72, 0.22, 0.12], strength: 0.5 },
+      smog: { color: [0.62, 0.24, 0.16], strength: 0.5, height: 0.09 },
+      skyline: { color: [0.07, 0.03, 0.09], window: [1.6, 0.85, 0.42], height: -0.004, amplitude: 0.08, density: 150, palms: 26 },
+    },
+    fog: { color: 0x5a2c4a, density: 0.9 },
+    hemi: { sky: 0xc07aa8, ground: 0x3a2228, intensity: 0.95 },
+    sun: { color: 0xffa070, intensity: 2.3, position: [28, 11, -8] },
+    bounce: { color: 0x30e8d8, intensity: 0.55 },
+    floor: {
+      style: {
+        pattern: 'plaza',
+        gap: '#7e7a74', stone: [52, 50, 52], stoneRange: 14, grit: [30, 28, 30], gritRange: 50, gritAlpha: 0.3,
+        rune: 'rgba(236,230,214,0.88)', glyph: 'rgba(236,196,60,0.85)', mark: 'rgba(255,90,170,0.7)',
+      },
+      roughness: 0.85, metalness: 0.02, emissive: 0,
+    },
+    stone: { bg: '#8a8680', brick: [128, 124, 120], brickRange: 8, grit: [70, 66, 64], gritRange: 40, gritAlpha: 0.3, extras: 'graffiti' },
+    wall: { color: 0x9a8c96, emissive: 0 },
+    ground: { color: 0xb4a8b0, texture: 'asphalt', repeat: 40 },
+    pillar: { style: 'freeway', color: 0xb0a8a6, stump: 0x8e8884, accent: 0xff3ca0, trim: 0x30e8d8 },
+    props: { style: 'city', color: 0x2a1e2e, accent: 0xff3ca0 },
+    debris: { color: 0x8e8884, emissive: 0 },
+    brazier: { bowl: 0x2c2c34, flame: [1.0, 0.3, 0.62] },
+    fire: {
+      root: [1.0, 0.78, 0.6], mid: [1.0, 0.22, 0.55], tip: [0.5, 0.08, 0.85],
+      glow: [1.0, 0.28, 0.58], ember: [1.0, 0.55, 0.3], burn: 0xff4aa0, intensity: 1.05,
+    },
+    ambient: { kind: 'vape', rate: 7, color: [1.0, 0.62, 0.88], color2: [0.6, 1.0, 0.9] },
+  },
+
+  // Glowie: an open-plan government office under fluorescent tubes, with a green glow.
+  office: {
+    id: 'office',
+    label: 'Government Office',
+    background: 0x2a302c,
+    layout: 'cubicles',
+    interior: true,
+    sky: {
+      // Indoors: the room and ceiling hide the sky; keep it a dim neutral with no stars or sun.
+      top: [0.16, 0.18, 0.16],
+      mid: [0.2, 0.22, 0.2],
+      horizon: [0.26, 0.28, 0.25],
+      stars: 1,
+      starBrightness: 0,
+      moonDir: [0, 1, 0],
+      moonColor: [0, 0, 0],
+      moonSize: [0.999, 0.9995],
+      moonGlow: [0, 0, 0],
+      moonGlowPower: 1,
+    },
+    fog: { color: 0x4a544c, density: 1.1 },
+    hemi: { sky: 0xd8ead8, ground: 0x4a5250, intensity: 0.75 },
+    // Overhead fluorescent "key": nearly straight down, cool white with a green cast.
+    sun: { color: 0xeefff2, intensity: 1.25, position: [-5, 30, -9] },
+    bounce: { color: 0x58ff96, intensity: 0.3 },
+    floor: {
+      style: {
+        pattern: 'carpet',
+        gap: '#3e4652', stone: [70, 80, 96], stoneRange: 10, grit: [40, 46, 56], gritRange: 40, gritAlpha: 0.25,
+        rune: 'rgba(90,255,150,0.85)', glyph: 'rgba(214,214,200,0.85)', mark: 'rgba(240,200,40,0.85)',
+      },
+      roughness: 0.97, metalness: 0, emissive: 0.06,
+    },
+    stone: { bg: '#d6c8a4', brick: [214, 200, 164], brickRange: 4, grit: [150, 140, 116], gritRange: 30, gritAlpha: 0.15, extras: 'office' },
+    wall: { color: 0xe8e0d4, emissive: 0 },
+    ground: { color: 0xa8b0bc, texture: 'carpet', repeat: 120 },
+    pillar: { style: 'cubicle', color: 0x8a9098, stump: 0x6e737a, accent: 0x58ff96, trim: 0xb8bcc2 },
+    props: { style: 'office', color: 0x8c8a7c, accent: 0x58ff96 },
+    debris: { color: 0x7d838c, emissive: 0, shape: 'panel' },
+    brazier: { bowl: 0x55585c, flame: [1.0, 0.5, 0.14] },
+    fire: {
+      root: [1.0, 0.62, 0.22], mid: [0.92, 0.3, 0.05], tip: [0.3, 0.08, 0.04],
+      glow: [1.0, 0.48, 0.12], ember: [1.0, 0.7, 0.3], burn: 0xff8a2a, intensity: 1.0,
+    },
+    ambient: { kind: 'dust', rate: 26, color: [0.92, 0.96, 0.88], color2: [0.75, 1.0, 0.8] },
   },
 };
