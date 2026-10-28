@@ -45,7 +45,7 @@ const SHIELD_FRAG = /* glsl */ `
 
 const J = CONFIG.wizard.jump;
 /** Placeholder silhouettes: the default wizard hat, or a campaign boss's headgear. */
-export type PlaceholderVariant = 'wizard' | 'bramble' | 'cinder' | 'ysolde' | 'khepri' | 'morvane';
+export type PlaceholderVariant = 'wizard' | 'obama' | 'tinubu' | 'agent' | 'sahil' | 'broccoli';
 
 /** Top of the default placeholder's hat, in meters. */
 const WIZARD_TOP = 2.33;
@@ -95,6 +95,14 @@ export class WizardVisual {
   celebrate = false;
   /** True when a GLB is shown, false for the primitive placeholder. */
   usesModel = false;
+
+  /**
+   * World position the sidekick (companion) throws from. Returns false when there is no
+   * companion. Stub: the projectile-skins/sidekick work implements the companion.
+   */
+  companionMuzzle(_out: THREE.Vector3): boolean {
+    return false;
+  }
   /** Height of the top of the current look (hat, crown or model), in meters. The HUD tag sits above it. */
   topHeight = WIZARD_TOP;
 
@@ -217,11 +225,11 @@ export class WizardVisual {
       own(new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), toneMapped: false }));
     const robe = standard(t.robe, 0.85);
     const trim = standard(t.trim, 0.6);
-    const skinTone = variant === 'morvane' ? 0xd9d3c2 : variant === 'khepri' ? 0xc89a6a : variant === 'ysolde' ? 0xf0dcd2 : 0xe8c4a8;
+    const skinTone = variant === 'broccoli' ? 0xd9d3c2 : variant === 'sahil' ? 0xc89a6a : variant === 'agent' ? 0xf0dcd2 : 0xe8c4a8;
     const skin = standard(skinTone, 0.7);
     const wood = standard(0x3b2716, 0.6);
     this.tintMaterials.push(robe, trim, skin);
-    const eye = glowing(t.spell, variant === 'morvane' ? 5 : 3);
+    const eye = glowing(t.spell, variant === 'broccoli' ? 5 : 3);
     const tip = glowing(t.spell, 4);
 
     const add: AddMesh = (geo, mat, x, y, z, parent = this.body) => {
@@ -232,7 +240,7 @@ export class WizardVisual {
       return m;
     };
 
-    const skirt = variant === 'morvane' ? 0.62 : variant === 'khepri' ? 0.48 : 0.52;
+    const skirt = variant === 'broccoli' ? 0.62 : variant === 'sahil' ? 0.48 : 0.52;
     add(new THREE.ConeGeometry(skirt, 1.25, 16), robe, 0, 0.62, 0); // robe skirt
     add(new THREE.CapsuleGeometry(0.25, 0.42, 4, 12), robe, 0, 1.22, 0); // torso
     add(new THREE.TorusGeometry(0.27, 0.05, 6, 16), trim, 0, 1.42, 0).rotation.x = Math.PI / 2; // collar
@@ -279,7 +287,7 @@ export class WizardVisual {
     };
 
     switch (variant) {
-      case 'bramble': {
+      case 'obama': {
         // Floppy straw hat, bent back, ringed with leaves.
         add(new THREE.CylinderGeometry(0.5, 0.52, 0.04, 24), trim, 0, 1.72, 0);
         const hat = add(new THREE.ConeGeometry(0.27, 0.5, 16), trim, 0, 1.95, -0.07);
@@ -296,7 +304,7 @@ export class WizardVisual {
         add(new THREE.SphereGeometry(0.05, 8, 6), glowing(t.blast, 2.2), 0.2, 1.8, 0.2);
         return 2.2;
       }
-      case 'cinder': {
+      case 'tinubu': {
         // Horns, shoulder plates and a crest of flame.
         const horn = standard(0x2a1712, 0.5);
         for (const side of [1, -1]) {
@@ -310,7 +318,7 @@ export class WizardVisual {
         add(new THREE.ConeGeometry(0.06, 0.26, 8), core, -0.07, 1.85, -0.06).rotation.z = 0.35;
         return 2.15;
       }
-      case 'ysolde': {
+      case 'agent': {
         // Hood, tall collar and a crown of ice.
         robe.side = THREE.DoubleSide;
         hood(0.245);
@@ -322,7 +330,7 @@ export class WizardVisual {
         add(new THREE.OctahedronGeometry(0.05), glowing(t.spell, 3), 0, 1.78, 0.2);
         return 2.12;
       }
-      case 'khepri': {
+      case 'sahil': {
         // Banded headdress with a scarab disc and a broad collar.
         add(new THREE.CylinderGeometry(0.27, 0.215, 0.42, 18), trim, 0, 1.86, -0.02);
         add(new THREE.CylinderGeometry(0.275, 0.275, 0.05, 18), robe, 0, 1.97, -0.02);
@@ -332,7 +340,7 @@ export class WizardVisual {
         add(new THREE.CylinderGeometry(0.44, 0.44, 0.035, 24), trim, 0, 1.45, 0);
         return 2.1;
       }
-      case 'morvane': {
+      case 'broccoli': {
         // Deep hood, shoulder spikes and a floating crown.
         robe.side = THREE.DoubleSide;
         hood(0.27);

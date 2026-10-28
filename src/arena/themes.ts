@@ -106,7 +106,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ambient: { kind: 'none', rate: 0, color: [1, 1, 1], color2: [1, 1, 1] },
   },
 
-  // Bramble: twilight enchanted forest glade, green and gold.
+  // Broccoli Head: twilight enchanted forest glade, green and gold.
   grove: {
     id: 'grove',
     label: 'Twilight Grove',
@@ -149,7 +149,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ambient: { kind: 'fireflies', rate: 24, color: [0.8, 1.0, 0.3], color2: [1.0, 0.82, 0.3] },
   },
 
-  // Cinder: basalt over lava under a red ash sky.
+  // Tinubu: basalt over lava under a red ash sky.
   volcano: {
     id: 'volcano',
     label: 'Ashen Caldera',
@@ -193,7 +193,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ambient: { kind: 'embers', rate: 40, color: [1.0, 0.45, 0.1], color2: [0.32, 0.28, 0.27] },
   },
 
-  // Ysolde: ice and aurora night, lilac and ice blue.
+  // The Agent: ice and aurora night, lilac and ice blue.
   glacier: {
     id: 'glacier',
     label: 'Aurora Glacier',
@@ -237,7 +237,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ambient: { kind: 'snow', rate: 48, color: [0.92, 0.95, 1.0], color2: [0.8, 0.85, 1.0] },
   },
 
-  // Khepri: sandstone ruins at golden dusk, teal and gold.
+  // Sahil: sandstone ruins at golden dusk, teal and gold.
   desert: {
     id: 'desert',
     label: 'Sunken Sands',
@@ -281,7 +281,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ambient: { kind: 'sand', rate: 70, color: [0.86, 0.68, 0.44], color2: [0.95, 0.82, 0.6] },
   },
 
-  // Morvane: a floating arena in a cosmic void, purple and green.
+  // Bitcoin Obama: a floating arena in a cosmic void, purple and green.
   void: {
     id: 'void',
     label: 'The Void',

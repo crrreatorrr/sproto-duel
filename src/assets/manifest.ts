@@ -59,6 +59,16 @@ const WIZARD_CLIPS: ModelAsset['clips'] = {
   defeat: 'defeat',
 };
 
+/** `boss<Id>1..3` model entries at `models/bosses/<id>/stage1..3.glb`, one fit height per stage. */
+function bossStages<Id extends string>(id: Id, heights: [number, number, number]) {
+  const name = `boss${id[0].toUpperCase()}${id.slice(1)}` as `boss${Capitalize<Id>}`;
+  const out = {} as Record<`${typeof name}${1 | 2 | 3}`, ModelAsset>;
+  heights.forEach((fitHeight, i) => {
+    out[`${name}${(i + 1) as 1 | 2 | 3}`] = { path: `models/bosses/${id}/stage${i + 1}.glb`, fitHeight, rotationY: -90, doubleSided: true };
+  });
+  return out;
+}
+
 export const MODELS = {
   wizardPlayer: { path: 'models/wizard_player.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
   wizardRival: { path: 'models/wizard_rival.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
@@ -67,13 +77,15 @@ export const MODELS = {
   pillarDebris: { path: 'models/pillar_debris.glb', fitHeight: 0.5, maxTriangles: 400 },
   arenaRuins: { path: 'models/arena_ruins.glb', fitHeight: 6 },
   brazier: { path: 'models/brazier.glb', fitHeight: 1.6 },
-  // Campaign bosses (static meshes; the game animates them procedurally). Higgsfield/Tripo
-  // exports face +X, hence rotationY -90; thin robes and capes render double-sided.
-  bossBramble: { path: 'models/bosses/bramble.glb', fitHeight: 2.0, rotationY: -90, doubleSided: true },
-  bossCinder: { path: 'models/bosses/cinder.glb', fitHeight: 2.0, rotationY: -90, doubleSided: true },
-  bossYsolde: { path: 'models/bosses/ysolde.glb', fitHeight: 2.1, rotationY: -90, doubleSided: true },
-  bossKhepri: { path: 'models/bosses/khepri.glb', fitHeight: 2.2, rotationY: -90, doubleSided: true },
-  bossMorvane: { path: 'models/bosses/morvane.glb', fitHeight: 2.5, rotationY: -90, doubleSided: true },
+  // Campaign bosses: one model per fight stage (the boss evolves at 2/3 and 1/3 health), static
+  // meshes the game animates procedurally. Higgsfield/Tripo exports face +X, hence rotationY -90;
+  // thin robes and capes render double-sided. Each stage stands a little taller.
+  ...bossStages('sahil', [2.0, 2.25, 2.55]),
+  ...bossStages('obama', [2.1, 2.3, 2.55]),
+  bossObamaSidekick: { path: 'models/bosses/obama/sidekick.glb', fitHeight: 1.25, rotationY: -90, doubleSided: true },
+  ...bossStages('broccoli', [2.0, 2.35, 2.8]),
+  ...bossStages('agent', [2.0, 2.2, 2.5]),
+  ...bossStages('tinubu', [2.1, 2.45, 2.9]),
 } satisfies Record<string, ModelAsset>;
 
 export const TEXTURES = {
@@ -159,12 +171,16 @@ export const THEME_ASSETS: Record<ArenaThemeId, ThemeAssets> = {
 
 /** Boss portraits for the campaign screens (square PNG/WebP). */
 export const BOSS_PORTRAITS = {
-  bramble: 'ui/bosses/bramble.png',
-  cinder: 'ui/bosses/cinder.png',
-  ysolde: 'ui/bosses/ysolde.png',
-  khepri: 'ui/bosses/khepri.png',
-  morvane: 'ui/bosses/morvane.png',
+  sahil: 'ui/bosses/sahil.png',
+  obama: 'ui/bosses/obama.png',
+  broccoli: 'ui/bosses/broccoli.png',
+  agent: 'ui/bosses/agent.png',
+  tinubu: 'ui/bosses/tinubu.png',
 } as const;
+
+/** Concept art per boss stage (index 0 = the portrait above); used on stage banners and cards. */
+export const bossStagePortrait = (id: keyof typeof BOSS_PORTRAITS, stage: number): string =>
+  stage === 0 ? BOSS_PORTRAITS[id] : `ui/bosses/${id}_stage${stage + 1}.png`;
 
 /** Optional HUD icons (square PNG/WebP, transparent background). Built-in SVG glyphs are used otherwise. */
 export const UI_ICONS = {

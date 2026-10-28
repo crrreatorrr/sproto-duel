@@ -362,6 +362,25 @@ export const CONFIG = {
     damageNumberLife: 0.85,
   },
 
+  /** Boss Gauntlet: every boss evolves through 3 stages within each round as its health drops. */
+  campaign: {
+    /** Health fractions at which a boss evolves into stage 2 and stage 3. */
+    stageThresholds: [2 / 3, 1 / 3] as [number, number],
+    /** Seconds the boss is invulnerable and frozen while it transforms. */
+    evolveTime: 1.4,
+    /** Outward push on the player when the boss evolves, and its reach in meters. */
+    evolveKnockback: 14,
+    evolveRadius: 9,
+    /** AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile. */
+    stageAI: {
+      reactionTime: [1, 0.88, 0.76],
+      aimError: [1, 0.88, 0.75],
+      burstBonus: [0, 1, 2],
+      burstPause: [1, 0.85, 0.7],
+      strafeSpeed: [1, 1.08, 1.16],
+    },
+  },
+
   /**
    * Testing aids. God mode: the player takes no damage, has unlimited mana, deals
    * `godPowerMultiplier`x damage and casts spells with `godClashMultiplier`x clash power.
