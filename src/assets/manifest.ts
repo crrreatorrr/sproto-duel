@@ -133,6 +133,14 @@ export const SOUNDS = {
   defeat: { path: 'audio/defeat.mp3', volume: 0.8 },
   uiHover: { path: 'audio/ui_hover.mp3', volume: 0.25 },
   uiClick: { path: 'audio/ui_click.mp3', volume: 0.45 },
+  // Boss objects leaving the hand (ProjectileSkins), in place of the bolt/blast cast sound.
+  gunshot: { path: 'audio/gunshot.mp3', volume: 0.5, maxVoices: 6 },
+  grenadeThump: { path: 'audio/grenade_thump.mp3', volume: 0.6, maxVoices: 3 },
+  rugWhoosh: { path: 'audio/rug_whoosh.mp3', volume: 0.5, maxVoices: 4 },
+  phoneBlip: { path: 'audio/phone_blip.mp3', volume: 0.35, maxVoices: 4 },
+  pigOink: { path: 'audio/pig_oink.mp3', volume: 0.55, maxVoices: 3 },
+  veggieCrunch: { path: 'audio/veggie_crunch.mp3', volume: 0.5, maxVoices: 4 },
+  fireRoar: { path: 'audio/fire_roar.mp3', volume: 0.5, maxVoices: 4 },
   musicMenu: { path: 'audio/music_menu.mp3', volume: 0.6, loop: true, music: true },
   musicBattle: { path: 'audio/music_battle.mp3', volume: 0.55, loop: true, music: true },
 } satisfies Record<string, SoundAsset>;

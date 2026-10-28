@@ -5,6 +5,7 @@ import { events } from '../core/events';
 import { dampAngle } from '../core/math';
 import type { Physics } from '../physics/Physics';
 import type { PendingCast } from '../spells/types';
+import type { ProjectileSkin } from '../campaign/levels';
 import type { WizardVisual } from './WizardVisual';
 
 export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump';
@@ -124,6 +125,11 @@ export class Wizard {
   infiniteMana = false;
   /** No spell cooldowns (god mode): Blast, Shield and Stun are ready at once, the Ultimate stays charged. */
   noCooldowns = false;
+  /**
+   * What this wizard's bolts and blasts look like in flight (boss objects: rugs, phones, bullets...).
+   * Read from the caster at launch, so any wizard can throw objects. null = the spell orb.
+   */
+  skins: Readonly<{ bolt: ProjectileSkin; blast: ProjectileSkin }> | null = null;
 
   constructor(
     readonly index: number,

@@ -12,6 +12,7 @@ export type ProjectileSkin =
   | 'carpet' // an unrolled flying carpet, rippling
   | 'pig' // a chubby pink pig, legs flailing
   | 'phone' // a spinning smartphone with a lit screen
+  | 'pig' // a chubby pink pig, legs flailing
   | 'floret' // a broccoli floret
   | 'broccoli' // a whole head of broccoli
   | 'bullet' // a tracer round

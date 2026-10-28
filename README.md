@@ -132,7 +132,8 @@ src/
   wizard/               shared Wizard entity + its visual (placeholder or GLB, procedural animation)
   player/               keyboard + mouse controller (input buffering, aim assist)
   enemy/                AI state machine (approach / attack / evade / retreat)
-  spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate
+  spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate,
+                        boss projectile skins (instanced rugs, phones, pigs, bullets...: ProjectileSkins.ts)
   fx/                   particle systems, effect recipes, spell shaders, procedural textures
   arena/                floor, sky, wall, destructible pillars, fire ring, debris, environment themes
   camera/               over-the-shoulder rig with collision and trauma shake

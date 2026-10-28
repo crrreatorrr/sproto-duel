@@ -228,6 +228,13 @@ distance falloff and stereo panning. Loops must start and end seamlessly.
 | `defeat` | `audio/defeat.mp3` | 2.2 s | Match defeat, somber low strings and fading choir |
 | `uiHover` | `audio/ui_hover.mp3` | 0.05 s | Subtle magical UI hover tick |
 | `uiClick` | `audio/ui_click.mp3` | 0.1 s | Magical UI button click, soft chime |
+| `gunshot` | `audio/gunshot.mp3` | 0.4 s | Single pistol gunshot, sharp crack with a short punchy tail (The Agent's bullets) |
+| `grenadeThump` | `audio/grenade_thump.mp3` | 0.45 s | Grenade launcher firing, hollow low thoomp with a metallic click |
+| `rugWhoosh` | `audio/rug_whoosh.mp3` | 0.4 s | Heavy rug thrown through the air, cloth whoosh with a quick flap (rugs, flying carpets) |
+| `phoneBlip` | `audio/phone_blip.mp3` | 0.3 s | Smartphone notification blip, two quick bright tones over a buzz |
+| `pigOink` | `audio/pig_oink.mp3` | 0.4 s | Cartoon pig oink rising into a short squeal |
+| `veggieCrunch` | `audio/veggie_crunch.mp3` | 0.35 s | Squelchy crunch of fresh broccoli being torn, wet and crisp |
+| `fireRoar` | `audio/fire_roar.mp3` | 0.7 s | Fireball whoomp, roaring flame burst with crackles (hellfire, burning skulls) |
 | `musicMenu` | `audio/music_menu.mp3` | 30-90 s, loop | Mysterious fantasy menu music, slow ethereal pads, distant choir, harp, A minor, seamless loop |
 | `musicBattle` | `audio/music_battle.mp3` | 60-120 s, loop | Intense fantasy duel battle music, driving percussion, staccato strings, 120 BPM, D minor, seamless loop |
 
@@ -239,3 +246,6 @@ Settings. To regenerate the placeholders after changing the synth script: `npm r
 Spell visuals (bolts, orbs, shield bubble, stun beam, ultimate wave, fire ring, sparks, smoke,
 debris) are particle systems and shaders written in code, as requested. They are not assets and
 need nothing from Higgsfield. Their colours come from `CONFIG.teams` in `src/config.ts`.
+The bosses' thrown objects (rugs, carpets, phones, pigs, broccoli, bullets, grenades, hellfire,
+burning skulls) are low-poly meshes built in code too (`src/spells/ProjectileSkins.ts`), with
+canvas-painted textures in each boss's palette.

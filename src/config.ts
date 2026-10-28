@@ -244,6 +244,34 @@ export const CONFIG = {
     winnerSpeedKeep: 0.85,
   },
 
+  /**
+   * Boss projectile looks (src/spells/ProjectileSkins.ts): code-built objects instead of the orb.
+   * Purely visual, hitboxes stay each spell's `radius`. Object sizes are meters at full power;
+   * clash-weakened spells shrink with their radius.
+   */
+  projectileSkins: {
+    /** Instances per skin and team: the bolt plus blast pool, so a skin never runs out. */
+    batchCapacity: 76,
+    /** Size of the palette-coloured glow sprite kept behind objects, relative to the orb's glow. */
+    glowScale: { bolt: 0.5, blast: 0.55 },
+    /** Size of the palette-coloured trail motes behind objects, relative to the orb's trail. */
+    trailScale: 0.6,
+    /** Tumble/spin rates, radians per second. */
+    spin: { rugRoll: 24, phone: 21, floret: 15, broccoli: 7, grenade: 11, pig: 4.5 },
+    /** Pig: leg flail speed (rad/s) and swing (rad); the tail wags with them. */
+    pig: { flailSpeed: 22, flailAngle: 0.75 },
+    /** Bullet tracer streak: meters of streak per m/s of speed, clamped. */
+    tracerPerSpeed: 0.045,
+    tracerMax: 3,
+    /**
+     * Flying carpet: ripple amplitude (m), wavelength (m) and speed (rad/s); bank swing and the
+     * raised front edge (rad), which keep its face readable to the player instead of edge-on.
+     */
+    carpet: { rippleAmp: 0.075, rippleLength: 0.85, rippleSpeed: 13, bank: 0.38, noseUp: 0.36 },
+    /** Gunshot muzzle flash at the caster: sprite size (m), light intensity and duration (s). */
+    muzzleFlash: { size: 1.5, light: 16, duration: 0.06 },
+  },
+
   camera: {
     fov: 64,
     sprintFovBoost: 7,
@@ -356,6 +384,11 @@ export const CONFIG = {
     maxDistance: 65,
     /** Random pitch variation (+/-) applied to repeated sounds. */
     pitchVariance: 0.07,
+    /**
+     * A boss object's launch sound (gunshot, phone blip...) is skipped if the same sound started
+     * less than this many seconds ago, so a fan volley sounds like one big throw, not a pile-up.
+     */
+    skinLaunchGap: 0.035,
   },
 
   ui: {
