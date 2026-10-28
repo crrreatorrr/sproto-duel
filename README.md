@@ -117,6 +117,13 @@ at Obama can fly over his head.
   `ui/bosses/<id>.png` (`<id>_stage2.png`, `<id>_stage3.png` for later stages) when present;
   otherwise the boss is a primitive wizard in its colours and headgear that grows each stage, and
   the portrait is a stylized silhouette. See [ASSETS.md](ASSETS.md).
+- **Where spells come from.** Every caster fires out of the thing it holds: you, out of the orb of
+  your magical sproto staff; Sahil from his staff's gem; Bitcoin Obama and The Midget from their
+  phones (one hand, then a phone in each hand that fire in turn; in stage 3 the phones are drawn in
+  their fists); Broccoli Head from his vape (a pen, a box mod, then a cannon, each puff bigger);
+  Glowie from his gun barrel (pistol, SMG, minigun); Tinubu's bolts and stuns from his raised hand,
+  his blasts (the skulls) and volleys from his mouth, and his Ultimate from both. Each muzzle has
+  its own effects, below. Muzzle points per stage: `muzzle` in `levels.ts`; see Spell visuals.
 - `await __duel.qa.campaignSoak(12)` plays a reference AI against each fight (the double fight
   with both bosses; the reference AI targets the nearest standing one) and reports round lengths,
   win rates, stages reached and the pair's damage split; `__duel.qa.run('campaign.ladder_escalates')`
@@ -187,6 +194,37 @@ For testing, add `?theme=volcano` (or any theme id) to the URL (it replaces `moo
 and Quick Duel), or run `__duel.game.arena.applyTheme('office')` in the console.
 `await __duel.qa.soak('normal', 6, 'office')` runs AI-vs-AI rounds in a theme.
 
+## Spell visuals
+
+Spells, the bosses' thrown objects and every effect are built in code (no assets). Each spell
+leaves its caster from a **muzzle** on the current look (`src/wizard/muzzles.ts`):
+
+- **Where:** `Wizard.castPoint(kind, out)` (bolt, volley, blast, stun, ultimate) puts the look's
+  measured point in the world: turned by the facing, scaled by the boss stage's size
+  (`visual.root.scale`) and raised with jumps. Points are stored per model in fractions of its
+  height (`levels.ts` stages, the player's on its manifest entry); placeholders use their code-built
+  prop (a staff, phone, vape pen, pistol, or Tinubu's palm and mouth). An unknown model falls back
+  to the old wand offset. Projectiles still aim from the muzzle at the crosshair's point, so what
+  the crosshair is on is what gets hit. A muzzle that would be inside or past a wall, pillar, car or
+  pane of glass (a caster hugging cover) is pulled back toward the caster first
+  (`SpellSystem.muzzleOrigin`).
+- **Effects** (`src/fx/MuzzleFx.ts`, plus the glows anchored to the prop in `WizardVisual`), all
+  pooled:
+  - staff: the orb or gem glows, pulses and swells while a spell charges, and flares with a spark
+    ring on release;
+  - phone: the screen glows and flashes, and notification bubbles pop off it;
+  - vape: a pastel vapour puff (bigger each stage) and a lingering haze wisp; the cannon billows;
+  - gun: a hard muzzle star on the barrel every shot (Full Auto strobes) with the gunshot flash and
+    a light;
+  - hand: a fiery palm glow and a burst of flame;
+  - mouth: a jaw glow and a cone of fire breath.
+  The spell's charge glow sits at the muzzle it will leave from, and two shared point lights go to
+  the brightest charging or flashing muzzles. Cosmetic randomness doesn't touch the gameplay's dice.
+- **Big bosses near the camera** are dithered see-through (`Game.updateOcclusionFade`,
+  `CONFIG.camera.bossFade`): within 2 m of the camera or standing between the camera and you, and
+  gone entirely when the camera is inside one. Wide models lean less and are lifted while leaning
+  so their hems never dip into the floor.
+
 ## Project layout
 
 ```
@@ -197,7 +235,7 @@ src/
   assets/               manifest.ts (asset keys -> files) and the loader with fallbacks
   core/                 Game loop (fixed 60 Hz sim + interpolation), Match flow, Input, events, feel (hit-stop/shake/flash)
   physics/              Rapier wrapper: character controller, sphere casts, raycasts
-  wizard/               shared Wizard entity + its visual (placeholder or GLB, procedural animation)
+  wizard/               shared Wizard entity + its visual (placeholder or GLB, procedural animation), muzzles
   player/               keyboard + mouse controller (input buffering, aim assist)
   enemy/                AI state machine (approach / attack / evade / retreat)
   spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate,
@@ -226,6 +264,7 @@ A QA harness runs inside the game. Open the browser console:
 
 ```js
 await __duel.qa.runAll()            // deterministic scenarios over the real simulation
+await __duel.qa.runAll('muzzles.')  // spells leave each caster's staff, phones, vape, gun, hand, mouth
 await __duel.qa.soak('normal', 6)   // headless AI-vs-AI rounds: pacing, damage share, tickets per side
 await __duel.qa.perf(8)             // real frame-time stats while you play
 ```

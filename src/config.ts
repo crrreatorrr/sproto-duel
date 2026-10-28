@@ -609,6 +609,13 @@ export const CONFIG = {
     maxShakeRoll: 0.035,
     /** Aim assist cone, in degrees, around the crosshair. */
     aimAssistDegrees: 6,
+    /**
+     * Enemy looks near or in front of the camera are dithered see-through (Game.updateOcclusionFade):
+     * fully gone within `clear` m of their bounds (nothing renders inside the near plane), easing
+     * from `minVisible` back to solid at `near` m, and at most `occluded` while between the camera
+     * and the player. `radius` scales the look's bounds for that test (wings and capes stick out).
+     */
+    bossFade: { clear: 0.4, near: 2, minVisible: 0.25, occluded: 0.3, radius: 0.8 },
   },
 
   feel: {

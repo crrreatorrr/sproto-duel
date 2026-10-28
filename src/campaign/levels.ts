@@ -2,6 +2,7 @@ import type { AIProfile, TeamPalette } from '../config';
 import type { ArenaThemeId } from '../arena/themes';
 import type { ModelKey } from '../assets/manifest';
 import { BOSS_PORTRAITS } from '../assets/manifest';
+import { gunMuzzle, handAndMouth, phoneMuzzle, staffMuzzle, twoPhones, vapeMuzzle, type MuzzleSet } from '../wizard/muzzles';
 
 export type BossId = keyof typeof BOSS_PORTRAITS;
 
@@ -44,6 +45,12 @@ export interface BossStage {
   name: string;
   model: ModelKey;
   attacks: StageAttacks;
+  /**
+   * Where this stage's model casts from (its staff, phones, vape, gun, hand and mouth): measured
+   * points as [forward, up, right] fractions of the model's height from its feet. See
+   * src/wizard/muzzles.ts and ASSETS.md. The placeholder look uses its own props instead.
+   */
+  muzzle: MuzzleSet;
 }
 
 /**
@@ -118,11 +125,13 @@ export const BOSSES: BossDef[] = [
     intro: 'Every rug comes with a lifetime guarantee. The rug pull is free.',
     theme: 'desert',
     stages: [
-      { name: 'Friendly Discount', model: 'bossSahil1', attacks: NONE },
-      { name: 'No Refunds', model: 'bossSahil2', attacks: SPELLS },
+      // A staff with a gem in its head, held in his right hand.
+      { name: 'Friendly Discount', model: 'bossSahil1', attacks: NONE, muzzle: staffMuzzle([0.15, 0.895, 0.265]) },
+      { name: 'No Refunds', model: 'bossSahil2', attacks: SPELLS, muzzle: staffMuzzle([0.21, 0.894, 0.311], 1.15) },
       {
         name: 'Full Rug Pull',
         model: 'bossSahil3',
+        muzzle: staffMuzzle([0.166, 0.893, 0.329], 1.3),
         attacks: { ...ALL, volley: { name: 'Rug Barrage', count: 3, spreadDeg: 22, interval: 0, cooldown: 5, damageScale: 0.8 } },
       },
     ],
@@ -156,11 +165,18 @@ export const BOSSES: BossDef[] = [
     intro: 'Shiller shills',
     theme: 'void',
     stages: [
-      { name: 'Pump', model: 'bossObama1', attacks: NONE },
-      { name: 'Hype Cycle', model: 'bossObama2', attacks: { blast: true, stun: false, ultimate: false } },
+      // A phone in his raised right hand, then one in each hand, then fists (phones drawn in code).
+      { name: 'Pump', model: 'bossObama1', attacks: NONE, muzzle: phoneMuzzle([0.162, 0.676, 0.195]) },
+      {
+        name: 'Hype Cycle',
+        model: 'bossObama2',
+        attacks: { blast: true, stun: false, ultimate: false },
+        muzzle: twoPhones([0.048, 0.622, 0.289], [0.093, 0.604, -0.261]),
+      },
       {
         name: 'Dump',
         model: 'bossObama3',
+        muzzle: twoPhones([0.031, 0.467, 0.235], [0.09, 0.455, -0.196], true),
         attacks: { ...ALL, volley: { name: 'Pump & Dump', count: 4, spreadDeg: 30, interval: 0, cooldown: 4.5, damageScale: 0.7 } },
       },
     ],
@@ -191,11 +207,18 @@ export const BOSSES: BossDef[] = [
       id: 'midget',
       name: 'The Midget',
       stages: [
-        { name: 'Small Cap', model: 'bossMidget1', attacks: NONE },
-        { name: 'To the Moon', model: 'bossMidget2', attacks: { blast: true, stun: false, ultimate: false } },
+        // A phone in his left hand, then one in each hand, then fists (phones drawn in code).
+        { name: 'Small Cap', model: 'bossMidget1', attacks: NONE, muzzle: phoneMuzzle([0.18, 0.596, -0.248]) },
+        {
+          name: 'To the Moon',
+          model: 'bossMidget2',
+          attacks: { blast: true, stun: false, ultimate: false },
+          muzzle: twoPhones([0.193, 0.618, 0.221], [0.2, 0.618, -0.214]),
+        },
         {
           name: 'Short Squeeze',
           model: 'bossMidget3',
+          muzzle: twoPhones([0.081, 0.491, 0.231], [0.025, 0.484, -0.325], true),
           attacks: { blast: true, stun: true, ultimate: false, volley: { name: 'Moon Shot', count: 3, spreadDeg: 4, interval: 0.1, cooldown: 5, damageScale: 0.6 } },
         },
       ],
@@ -230,11 +253,13 @@ export const BOSSES: BossDef[] = [
     intro: 'Leads the LA Vape Cabal.',
     theme: 'city',
     stages: [
-      { name: 'Sprout', model: 'bossBroccoli1', attacks: NONE },
-      { name: 'Overgrown', model: 'bossBroccoli2', attacks: SPELLS },
+      // The vape grows: a pen's mouthpiece, a box mod's, then the cannon's outlet (bigger puffs each time).
+      { name: 'Sprout', model: 'bossBroccoli1', attacks: NONE, muzzle: vapeMuzzle([0.139, 0.754, 0.152], 1) },
+      { name: 'Overgrown', model: 'bossBroccoli2', attacks: SPELLS, muzzle: vapeMuzzle([0.197, 0.74, 0.183], 1.6) },
       {
         name: 'Floret Colossus',
         model: 'bossBroccoli3',
+        muzzle: vapeMuzzle([0.414, 0.45, 0.103], 2.6),
         attacks: { ...ALL, volley: { name: 'Floret Spray', count: 5, spreadDeg: 36, interval: 0, cooldown: 4, damageScale: 0.6 } },
       },
     ],
@@ -266,15 +291,18 @@ export const BOSSES: BossDef[] = [
     intro: 'Unknown',
     theme: 'office',
     stages: [
-      { name: 'Routine Inquiry', model: 'bossAgent1', attacks: NONE },
+      // Barrels: a pistol at his side, an SMG across the chest, a minigun at the hip.
+      { name: 'Routine Inquiry', model: 'bossAgent1', attacks: NONE, muzzle: gunMuzzle([0.085, 0.343, 0.243], 0.8) },
       {
         name: 'Armed Response',
         model: 'bossAgent2',
+        muzzle: gunMuzzle([0.202, 0.682, -0.111], 1),
         attacks: { blast: true, stun: false, ultimate: false, volley: { name: 'Burst Fire', count: 3, spreadDeg: 3, interval: 0.09, cooldown: 4.5, damageScale: 0.6 } },
       },
       {
         name: 'Black Ops',
         model: 'bossAgent3',
+        muzzle: gunMuzzle([0.454, 0.4, -0.206], 1.5),
         attacks: { ...ALL, volley: { name: 'Full Auto', count: 7, spreadDeg: 7, interval: 0.07, cooldown: 5, damageScale: 0.4 } },
       },
     ],
@@ -306,15 +334,23 @@ export const BOSSES: BossDef[] = [
     intro: 'Infects you to make you sell your tickets.',
     theme: 'volcano',
     stages: [
-      { name: 'Emi Lokan', model: 'bossTinubu1', attacks: { blast: true, stun: false, ultimate: false } },
+      // Bolts from his raised palm (later his right claw), blasts and volleys from his mouth.
+      {
+        name: 'Emi Lokan',
+        model: 'bossTinubu1',
+        attacks: { blast: true, stun: false, ultimate: false },
+        muzzle: handAndMouth([0.238, 0.781, 0.229], [0.071, 0.793, -0.026]),
+      },
       {
         name: 'Unshackled',
         model: 'bossTinubu2',
+        muzzle: handAndMouth([0.167, 0.482, 0.351], [0.163, 0.782, -0.01], 1.2),
         attacks: { ...SPELLS, volley: { name: 'Hellfire', count: 3, spreadDeg: 20, interval: 0, cooldown: 4.5, damageScale: 0.7 } },
       },
       {
         name: 'Inferno Incarnate',
         model: 'bossTinubu3',
+        muzzle: handAndMouth([0.179, 0.459, 0.355], [0.114, 0.788, 0.024], 1.45),
         attacks: { ...ALL, volley: { name: 'Inferno', count: 5, spreadDeg: 40, interval: 0, cooldown: 3.5, damageScale: 0.7 } },
       },
     ],

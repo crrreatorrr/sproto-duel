@@ -27,6 +27,8 @@ export interface TickController {
 }
 
 const tmp = new THREE.Vector3();
+const tmpEye = new THREE.Vector3();
+const FADE = CONFIG.camera.bossFade;
 
 /** The standing wizard in `list` nearest `from`, or null if all are down. */
 export function nearestStanding(from: Wizard, list: readonly Wizard[]): Wizard | null {
@@ -292,6 +294,8 @@ export class Game {
     this.spells.pool.prepareSkins(w.index, null);
     w.setEnabled(false);
     w.visual.root.visible = false;
+    // It may be wearing a later stage's model (parked mid-fight): dress it afresh next time, in stage 1's.
+    this.partnerLook = '';
   }
 
   /** God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash power. */
@@ -431,6 +435,8 @@ export class Game {
 
   private renderFrame(realDt: number, simDt: number, alpha: number): void {
     this.renderTime += simDt;
+    // Muzzle glows sit on the camera's side of their props (last frame's camera is close enough).
+    WizardVisual.viewer.copy(this.renderer.camera.position);
     for (const w of this.wizards) w.visual.update(w, simDt, alpha);
     this.spells.sync(alpha, this.renderTime, simDt);
     this.fire.updateVisual(simDt, this.arena.fireRadius);
@@ -447,9 +453,63 @@ export class Game {
     feel.listener.copy(tmp);
     if (this.rig.orbit) this.rig.updateOrbit(realDt);
     else this.rig.update(realDt, tmp, this.physics, this.player.sprinting, this.player.dodging);
+    this.updateOcclusionFade(realDt);
     this.popups.update(realDt);
     for (const fn of this.frameHooks) fn(realDt, alpha);
     this.renderer.render();
+  }
+
+  /**
+   * See-through bosses: an enemy look within CONFIG.camera.bossFade.near m of the camera, or standing
+   * between the camera and the player, is dithered out (WizardVisual.setFade) so a 3 m stage-3 boss
+   * never hides the player; within `clear` m of its bounds it vanishes at once, so nothing is ever
+   * drawn inside the near plane. Every render frame, after the camera moved; public for QA.
+   */
+  updateOcclusionFade(dt: number): void {
+    const cam = this.renderer.camera.position;
+    for (const w of this.wizards) {
+      if (w !== this.player) w.visual.setFade(this.occlusionTarget(w, cam), dt);
+    }
+  }
+
+  /** How visible enemy `w`'s look should be from `cam` (0..1). */
+  occlusionTarget(w: Wizard, cam: THREE.Vector3): number {
+    const v = w.visual;
+    const base = v.root.position;
+    const scale = v.root.scale.x;
+    const r = v.boundsRadius * scale;
+    const top = base.y + v.topHeight * scale;
+    // Distance from the camera to the look's bounding cylinder (0 inside it).
+    const out = Math.max(0, Math.hypot(cam.x - base.x, cam.z - base.z) - r);
+    const vert = Math.max(0, base.y - cam.y, cam.y - top);
+    const dist = Math.hypot(out, vert);
+    if (dist <= FADE.clear) return 0;
+    let target = 1;
+    if (dist < FADE.near) {
+      const t = (dist - FADE.clear) / (FADE.near - FADE.clear);
+      target = FADE.minVisible + (1 - FADE.minVisible) * t * t * (3 - 2 * t);
+    }
+    // Between the camera and the player's chest or head: see-through.
+    const p = this.player.visual.root.position;
+    const k = this.player.sizeScale;
+    const rr = r * FADE.radius;
+    if (this.segmentCrosses(cam, tmpEye.set(p.x, p.y + 1.2 * k, p.z), base, rr, top) ||
+      this.segmentCrosses(cam, tmpEye.set(p.x, p.y + 1.75 * k, p.z), base, rr, top)) {
+      target = Math.min(target, FADE.occluded);
+    }
+    return target;
+  }
+
+  /** Does the segment a -> b pass through the upright cylinder (radius `r`, from `base` up to `top`) before reaching b? */
+  private segmentCrosses(a: THREE.Vector3, b: THREE.Vector3, base: THREE.Vector3, r: number, top: number): boolean {
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len2 = dx * dx + dz * dz;
+    const t = len2 > 1e-8 ? Math.max(0, Math.min(1, ((base.x - a.x) * dx + (base.z - a.z) * dz) / len2)) : 0;
+    if (t >= 0.98) return false; // the boss is behind the player, not in front
+    const cx = a.x + dx * t - base.x, cz = a.z + dz * t - base.z;
+    if (cx * cx + cz * cz > r * r) return false;
+    const y = a.y + (b.y - a.y) * t;
+    return y >= base.y && y <= top;
   }
 
   private trackPerf(dt: number): void {

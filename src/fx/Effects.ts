@@ -138,7 +138,8 @@ export class Effects {
     }
     this.flash(tmpPoint.copy(pos).addScaledVector(dir, 0.12), 0xfff2c8, size, duration);
     this.flash(tmpPoint.copy(pos).addScaledVector(dir, 0.4), color, size * 0.55, duration * 0.8);
-    this.light(pos, color, light, duration);
+    // The light pops a little ahead of the barrel: a gun held at the hip doesn't scorch its own leg white.
+    this.light(tmpPoint.copy(pos).addScaledVector(dir, 0.6), color, light, duration);
   }
 
   /** Spell hitting something. */

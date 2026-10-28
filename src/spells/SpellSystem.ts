@@ -8,7 +8,9 @@ import type { Arena } from '../arena/Arena';
 import type { VolleyDef } from '../campaign/levels';
 import type { Pillar } from '../arena/Pillar';
 import type { Effects } from '../fx/Effects';
+import { MuzzleFx } from '../fx/MuzzleFx';
 import { SpellFx, type WaveFx } from '../fx/SpellFx';
+import type { CastKind } from '../wizard/muzzles';
 import type { Wizard } from '../wizard/Wizard';
 import { ProjectilePool, type Projectile } from './Projectile';
 import type { ChanneledSpell } from './types';
@@ -46,6 +48,8 @@ const tmpNormal = new THREE.Vector3();
 const tmpTarget = new THREE.Vector3();
 const tmpColor = new THREE.Color();
 const tmpFrom = new THREE.Vector3();
+const tmpAxisPoint = new THREE.Vector3();
+const tmpSpan = new THREE.Vector3();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /**
@@ -61,6 +65,8 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 export class SpellSystem {
   readonly pool: ProjectilePool;
   readonly spellFx: SpellFx;
+  /** What plays at the caster's staff, phone, vape, gun, palm or mouth as a spell leaves it. */
+  readonly muzzleFx: MuzzleFx;
   private readonly waves: UltWave[] = [];
   /** Burst volleys in flight, matched by caster (one per caster at a time); grows only if every slot is busy. */
   private readonly volleys: PendingVolley[];
@@ -74,6 +80,7 @@ export class SpellSystem {
   ) {
     this.pool = new ProjectilePool(scene, fx);
     this.spellFx = new SpellFx(scene);
+    this.muzzleFx = new MuzzleFx(scene, fx);
     this.volleys = wizards.map(() => this.newVolleySlot());
   }
 
@@ -100,6 +107,7 @@ export class SpellSystem {
     this.waves.length = 0;
     for (const v of this.volleys) v.active = false;
     this.spellFx.clear();
+    this.muzzleFx.clear();
   }
 
   /** Remove everything `w` has in flight (a boss partner leaving the fight). */
@@ -119,6 +127,7 @@ export class SpellSystem {
   sync(alpha: number, time: number, dt: number): void {
     this.pool.sync(alpha, time);
     this.spellFx.update(dt);
+    this.muzzleFx.update(dt, this.wizards);
   }
 
   private callout(pos: THREE.Vector3, text: string, style: GameEvents['callout']['style']): void {
@@ -153,6 +162,32 @@ export class SpellSystem {
     out.subVectors(w.aimPoint, from);
     if (out.lengthSq() < 1) w.forward(out);
     return out.normalize();
+  }
+
+  /**
+   * Where `kind` leaves `w` now: muzzle `index` (Wizard.castPoint: staff orb, phone, gun barrel...),
+   * kept on the caster's side of walls and obstacles (see clearOrigin).
+   */
+  muzzleOrigin(w: Wizard, kind: CastKind, index: number, radius: number, out: THREE.Vector3): THREE.Vector3 {
+    w.castPoint(kind, out, index);
+    return this.clearOrigin(w, out, radius);
+  }
+
+  /**
+   * Keep a spawn point from starting inside or beyond a wall, pillar, car or pane of glass: trace from
+   * the caster's own axis (inside its collider, which its spells ignore) out to the muzzle at the
+   * muzzle's height, and pull the point back short of anything in the way by the spell's `radius`.
+   * A caster hugging cover then fires into the cover, never through it.
+   */
+  private clearOrigin(w: Wizard, point: THREE.Vector3, radius: number): THREE.Vector3 {
+    tmpAxisPoint.set(w.pos.x, point.y, w.pos.z);
+    tmpSpan.subVectors(point, tmpAxisPoint);
+    const len = tmpSpan.length();
+    if (len < 1e-4) return point;
+    tmpSpan.divideScalar(len);
+    const hit = this.physics.raycast(tmpAxisPoint, tmpSpan, len + radius, GROUP.WORLD);
+    if (hit) point.copy(tmpAxisPoint).addScaledVector(tmpSpan, Math.max(0, Math.min(len, hit.distance - radius)));
+    return point;
   }
 
   private noMana(w: Wizard): void {
@@ -203,16 +238,18 @@ export class SpellSystem {
       return true;
     }
     w.cd.bolt = B.fireInterval;
-    w.wandTip(tmpFrom);
-    if (this.launchBolt(w, tmpFrom, this.aimDirection(w, tmpFrom, tmpDir), B.damage)) w.castPulse = 1;
+    const muzzle = w.muzzleIndex('bolt');
+    this.muzzleOrigin(w, 'bolt', muzzle, B.radius, tmpFrom);
+    if (this.launchBolt(w, tmpFrom, this.aimDirection(w, tmpFrom, tmpDir), B.damage, 'bolt', muzzle)) w.castPulse = 1;
     return true;
   }
 
   /**
    * Spawn one bolt owned by `w` from `from` along unit `dir`. Every bolt goes through here (held fire
-   * and volleys), so they all clash, reflect, pool and skin the same way.
+   * and volleys), so they all clash, reflect, pool and skin the same way. `muzzle` is the muzzle it
+   * left from (its effects play there; the next shot may use the other hand).
    */
-  private launchBolt(w: Wizard, from: THREE.Vector3, dir: THREE.Vector3, damage: number): Projectile | null {
+  private launchBolt(w: Wizard, from: THREE.Vector3, dir: THREE.Vector3, damage: number, kind: 'bolt' | 'volley', muzzle: number): Projectile | null {
     const B = S.bolt;
     const p = this.pool.spawn('bolt');
     if (!p) return null;
@@ -226,7 +263,8 @@ export class SpellSystem {
     p.life = B.lifetime;
     p.refreshLook();
     w.stats.casts++;
-    this.fx.muzzle(p.pos, dir, w.team.spell, 0.8);
+    this.muzzleFx.cast(w, kind, muzzle, p.pos, dir);
+    w.advanceMuzzle();
     events.emit('cast', { wizard: w, spell: 'bolt', pos: p.pos });
     return p;
   }
@@ -292,9 +330,10 @@ export class SpellSystem {
   /** Shot `i` of a volley: aimed like a bolt, then turned across the spread (left to right). */
   private volleyShot(w: Wizard, def: VolleyDef, i: number): void {
     const t = def.count > 1 ? i / (def.count - 1) - 0.5 : 0;
-    w.wandTip(tmpFrom);
+    const muzzle = w.muzzleIndex('volley');
+    this.muzzleOrigin(w, 'volley', muzzle, S.bolt.radius, tmpFrom);
     this.aimDirection(w, tmpFrom, tmpDir).applyAxisAngle(Y_AXIS, -t * THREE.MathUtils.degToRad(def.spreadDeg));
-    this.launchBolt(w, tmpFrom, tmpDir, S.bolt.damage * def.damageScale);
+    this.launchBolt(w, tmpFrom, tmpDir, S.bolt.damage * def.damageScale, 'volley', muzzle);
   }
 
   private releaseBlast(w: Wizard): void {
@@ -306,7 +345,8 @@ export class SpellSystem {
     w.cd.blast = B.cooldown;
     const p = this.pool.spawn('blast');
     if (!p) return;
-    w.wandTip(p.pos);
+    const muzzle = w.muzzleIndex('blast');
+    this.muzzleOrigin(w, 'blast', muzzle, B.radius, p.pos);
     p.prevPos.copy(p.pos);
     this.aimDirection(w, p.pos, tmpDir);
     p.vel.copy(tmpDir).multiplyScalar(B.speed);
@@ -318,7 +358,8 @@ export class SpellSystem {
     p.refreshLook();
     w.castPulse = 1;
     w.stats.casts++;
-    this.fx.muzzle(p.pos, tmpDir, w.team.blast, 1.8);
+    this.muzzleFx.cast(w, 'blast', muzzle, p.pos, tmpDir);
+    w.advanceMuzzle();
     feel.shakeAt(p.pos, 0.12, 6);
     events.emit('cast', { wizard: w, spell: 'blast', pos: p.pos });
   }
@@ -349,9 +390,12 @@ export class SpellSystem {
     w.cd.stun = St.cooldown;
     w.castPulse = 1;
     w.stats.casts++;
-    const origin = w.wandTip(new THREE.Vector3());
+    const muzzle = w.muzzleIndex('stun');
+    const origin = this.muzzleOrigin(w, 'stun', muzzle, 0, new THREE.Vector3());
     const dir = this.aimDirection(w, origin, new THREE.Vector3());
     events.emit('cast', { wizard: w, spell: 'stun', pos: origin });
+    this.muzzleFx.cast(w, 'stun', muzzle, origin, dir);
+    w.advanceMuzzle();
     this.fireBeam(w, origin, dir, false);
   }
 
@@ -390,7 +434,8 @@ export class SpellSystem {
 
     const end = new THREE.Vector3().copy(origin).addScaledVector(dir, reach);
     this.spellFx.beam(origin, end, color, St.beamVisualTime);
-    this.fx.muzzle(origin, dir, color, 1.2);
+    // A caster's beam flares at its muzzle (releaseStun); a reflected one bursts off the shield.
+    if (reflected) this.fx.muzzle(origin, dir, color, 1.2);
 
     if (shieldOwner && shieldDist <= hitDist) {
       const perfect = shieldOwner.shieldAge <= S.shield.perfectWindow;
@@ -445,6 +490,14 @@ export class SpellSystem {
       hitPillars: new Set(),
       fx: this.spellFx.wave(color),
     });
+    // Every muzzle the Ultimate uses flares at once (Tinubu: palm and mouth together).
+    const list = w.visual.muzzles?.use.ultimate;
+    const n = list ? list.length : 1;
+    for (let i = 0; i < n; i++) {
+      const muzzle = list ? list[i] : -1;
+      w.castPoint('ultimate', tmpFrom, muzzle);
+      this.muzzleFx.cast(w, 'ultimate', muzzle, tmpFrom, this.aimDirection(w, tmpFrom, tmpDir));
+    }
     const chest = w.chest(new THREE.Vector3());
     this.fx.explosion(chest, color, 2.0);
     this.fx.ring(origin, color, U.maxRadius, U.maxRadius / U.waveSpeed);
