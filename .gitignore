@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.qa-build/
+.DS_Store

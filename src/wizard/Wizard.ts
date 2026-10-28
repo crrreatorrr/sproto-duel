@@ -1,0 +1,311 @@
+import { Vector3 } from 'three';
+import type RAPIER from '@dimforge/rapier3d-compat';
+import { CONFIG, type TeamPalette } from '../config';
+import { events } from '../core/events';
+import { dampAngle } from '../core/math';
+import type { Physics } from '../physics/Physics';
+import type { PendingCast } from '../spells/types';
+import type { WizardVisual } from './WizardVisual';
+
+export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump';
+export type CooldownKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'dodge';
+
+/** What a controller (keyboard, AI) wants the wizard to do this tick. */
+export class WizardIntent {
+  /** World-space XZ direction, length 0..1. */
+  readonly move = new Vector3();
+  sprint = false;
+  /** Bolt auto-fires while held. */
+  holdBolt = false;
+  /** Desired facing yaw (radians). */
+  facing = 0;
+  /** Remaining buffer time per action; > 0 means "do this as soon as you can". */
+  readonly buffered: Record<ActionKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, ultimate: 0, dodge: 0, jump: 0 };
+
+  press(action: ActionKey): void {
+    this.buffered[action] = CONFIG.feel.inputBuffer;
+  }
+
+  wants(action: ActionKey): boolean {
+    return this.buffered[action] > 0;
+  }
+
+  consume(action: ActionKey): void {
+    this.buffered[action] = 0;
+  }
+
+  tick(dt: number): void {
+    for (const k in this.buffered) {
+      const key = k as ActionKey;
+      if (this.buffered[key] > 0) this.buffered[key] = Math.max(0, this.buffered[key] - dt);
+    }
+  }
+
+  clear(): void {
+    this.move.set(0, 0, 0);
+    this.sprint = false;
+    this.holdBolt = false;
+    for (const k in this.buffered) this.buffered[k as ActionKey] = 0;
+  }
+}
+
+const W = CONFIG.wizard;
+const tmpMove = new Vector3();
+const tmpTarget = new Vector3();
+
+export class Wizard {
+  readonly pos = new Vector3();
+  readonly prevPos = new Vector3();
+  readonly vel = new Vector3();
+  readonly knock = new Vector3();
+  facing = 0;
+  prevFacing = 0;
+  /** Where spells are aimed (world space). Controllers update this. */
+  readonly aimPoint = new Vector3();
+
+  health = W.maxHealth;
+  mana = W.maxMana;
+  ult = 0;
+  private manaDelay = 0;
+
+  readonly cd: Record<CooldownKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, dodge: 0 };
+  dodgeTime = 0;
+  iframes = 0;
+  readonly dodgeDir = new Vector3();
+  stunTime = 0;
+  shieldTime = 0;
+  /** Seconds since the shield was raised (for the perfect-reflect window). */
+  shieldAge = 0;
+  cast: PendingCast | null = null;
+  sprinting = false;
+  /** Set when sprint ran dry; cleared once mana recovers past sprintRecoverMana. */
+  private sprintExhausted = false;
+
+  hitFlash = 0;
+  /** 1 on release of a spell, decays to 0. Drives the cast animation. */
+  castPulse = 0;
+  burnTimer = 0;
+  burning = false;
+  alive = true;
+  ultAnnounced = false;
+
+  readonly intent = new WizardIntent();
+  readonly body: RAPIER.RigidBody;
+  readonly collider: RAPIER.Collider;
+  private readonly centerY: number;
+
+  readonly stats = { damageDealt: 0, casts: 0, hits: 0, perfects: 0, dodges: 0 };
+
+  constructor(
+    readonly index: number,
+    readonly team: TeamPalette,
+    public name: string,
+    readonly visual: WizardVisual,
+    physics: Physics,
+  ) {
+    const p = physics.addWizard(W.radius, W.height, this);
+    this.body = p.body;
+    this.collider = p.collider;
+    this.centerY = p.centerY;
+  }
+
+  get dodging(): boolean {
+    return this.dodgeTime > 0;
+  }
+  get invulnerable(): boolean {
+    return this.iframes > 0;
+  }
+  get stunned(): boolean {
+    return this.stunTime > 0;
+  }
+  get shielded(): boolean {
+    return this.shieldTime > 0;
+  }
+  /** Can start a new action (cast/dodge). */
+  get canAct(): boolean {
+    return this.alive && !this.stunned && !this.dodging && this.cast === null;
+  }
+
+  chest(out: Vector3): Vector3 {
+    return out.set(this.pos.x, this.pos.y + 1.2, this.pos.z);
+  }
+
+  forward(out: Vector3): Vector3 {
+    return out.set(Math.sin(this.facing), 0, Math.cos(this.facing));
+  }
+
+  /** Wand tip in world space (right hand, in front of the chest). */
+  wandTip(out: Vector3): Vector3 {
+    const lx = -0.34, ly = 1.36, lz = 0.72;
+    const s = Math.sin(this.facing), c = Math.cos(this.facing);
+    return out.set(this.pos.x + lx * c + lz * s, this.pos.y + ly, this.pos.z - lx * s + lz * c);
+  }
+
+  spawn(x: number, z: number, facing: number): void {
+    this.pos.set(x, 0, z);
+    this.prevPos.copy(this.pos);
+    this.facing = this.prevFacing = this.intent.facing = facing;
+    this.vel.set(0, 0, 0);
+    this.knock.set(0, 0, 0);
+    this.placeBody();
+    this.syncBody();
+  }
+
+  resetForRound(keepUlt: boolean): void {
+    this.health = W.maxHealth;
+    this.mana = W.maxMana;
+    if (!keepUlt) this.ult = 0;
+    this.ultAnnounced = this.ult >= CONFIG.spells.ultimate.chargeMax;
+    this.manaDelay = 0;
+    for (const k in this.cd) this.cd[k as CooldownKey] = 0;
+    this.dodgeTime = this.iframes = this.stunTime = this.shieldTime = this.shieldAge = 0;
+    this.cast = null;
+    this.hitFlash = this.castPulse = this.burnTimer = 0;
+    this.burning = false;
+    this.sprintExhausted = false;
+    this.alive = true;
+    this.intent.clear();
+  }
+
+  resetStats(): void {
+    this.stats.damageDealt = this.stats.casts = this.stats.hits = this.stats.perfects = this.stats.dodges = 0;
+  }
+
+  spendMana(amount: number): boolean {
+    if (this.mana < amount) return false;
+    this.mana -= amount;
+    if (amount > 0) this.manaDelay = W.manaRegenDelay;
+    return true;
+  }
+
+  addUlt(amount: number): void {
+    const max = CONFIG.spells.ultimate.chargeMax;
+    this.ult = Math.min(max, this.ult + amount);
+    if (this.ult >= max && !this.ultAnnounced) {
+      this.ultAnnounced = true;
+      events.emit('ultReady', { wizard: this });
+    }
+  }
+
+  /** Raw damage application (shields/i-frames are resolved by the caller). Returns HP removed. */
+  takeDamage(amount: number): number {
+    if (!this.alive) return 0;
+    const dealt = Math.min(this.health, amount);
+    this.health -= dealt;
+    this.hitFlash = W.hitFlashTime;
+    this.addUlt(dealt * CONFIG.spells.ultimate.chargePerDamageTaken);
+    if (this.health <= 0) {
+      this.health = 0;
+      this.alive = false;
+      this.cast = null;
+      this.shieldTime = 0;
+    }
+    return dealt;
+  }
+
+  addKnockback(dirX: number, dirZ: number, speed: number): void {
+    const l = Math.hypot(dirX, dirZ) || 1;
+    this.knock.x += (dirX / l) * speed;
+    this.knock.z += (dirZ / l) * speed;
+  }
+
+  applyStun(seconds: number): void {
+    this.stunTime = Math.max(this.stunTime, seconds);
+    this.cast = null;
+    this.vel.multiplyScalar(0.2);
+  }
+
+  /** Called once per fixed tick before movement. */
+  updateTimers(dt: number): void {
+    // Presses made mid-roll are held until the roll ends instead of expiring.
+    this.intent.tick(this.dodging ? 0 : dt);
+    for (const k in this.cd) {
+      const key = k as CooldownKey;
+      if (this.cd[key] > 0) this.cd[key] = Math.max(0, this.cd[key] - dt);
+    }
+    if (this.dodgeTime > 0) this.dodgeTime = Math.max(0, this.dodgeTime - dt);
+    if (this.iframes > 0) this.iframes = Math.max(0, this.iframes - dt);
+    if (this.stunTime > 0) this.stunTime = Math.max(0, this.stunTime - dt);
+    if (this.shieldTime > 0) {
+      this.shieldTime = Math.max(0, this.shieldTime - dt);
+      this.shieldAge += dt;
+    }
+    if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
+    if (this.castPulse > 0) this.castPulse = Math.max(0, this.castPulse - dt * 5);
+
+    if (this.manaDelay > 0) this.manaDelay -= dt;
+    else if (!this.sprinting) this.mana = Math.min(W.maxMana, this.mana + W.manaRegen * dt);
+  }
+
+  /** Movement, dodge and knockback integration through the character controller. */
+  updateMovement(dt: number, physics: Physics): void {
+    this.prevPos.copy(this.pos);
+    this.prevFacing = this.facing;
+    const intent = this.intent;
+
+    if (this.alive && !this.stunned) {
+      this.facing = dampAngle(this.facing, intent.facing, 30, dt);
+    }
+
+    // Start a dodge roll. Cancels any windup: rolling out of a cast should always be possible.
+    if (intent.wants('dodge') && this.alive && !this.stunned && !this.dodging && this.cd.dodge <= 0) {
+      intent.consume('dodge');
+      const dir = tmpMove.copy(intent.move);
+      if (dir.lengthSq() < 0.01) this.forward(dir).negate();
+      dir.y = 0;
+      this.dodgeDir.copy(dir.normalize());
+      this.dodgeTime = W.dodge.duration;
+      this.iframes = W.dodge.iframes;
+      this.cd.dodge = W.dodge.duration + W.dodge.cooldown;
+      this.cast = null;
+      this.stats.dodges++;
+      events.emit('dodge', { wizard: this });
+    }
+
+    this.sprinting = false;
+    if (!this.alive || this.stunned) {
+      tmpTarget.set(0, 0, 0);
+      this.vel.lerp(tmpTarget, 1 - Math.exp(-12 * dt));
+    } else if (this.dodging) {
+      const t = 1 - this.dodgeTime / W.dodge.duration; // 0 -> 1
+      const speed = W.dodge.speed * (1 - 0.55 * t * t);
+      this.vel.copy(this.dodgeDir).multiplyScalar(speed);
+    } else {
+      let speed = W.moveSpeed;
+      const moving = intent.move.lengthSq() > 0.01;
+      if (this.sprintExhausted && this.mana >= W.sprintRecoverMana) this.sprintExhausted = false;
+      if (intent.sprint && moving && this.cast === null && !this.sprintExhausted) {
+        speed = W.sprintSpeed;
+        this.sprinting = true;
+        this.mana = Math.max(0, this.mana - W.sprintManaPerSecond * dt);
+        this.manaDelay = W.manaRegenDelay;
+        if (this.mana <= 0) this.sprintExhausted = true;
+      }
+      if (this.cast) speed *= W.castMoveMultiplier;
+      tmpTarget.copy(intent.move).multiplyScalar(speed);
+      const rate = moving ? W.acceleration : W.deceleration;
+      // Move velocity toward target at a fixed rate: crisp starts and stops.
+      tmpMove.subVectors(tmpTarget, this.vel);
+      const len = tmpMove.length();
+      const step = rate * dt;
+      if (len <= step) this.vel.copy(tmpTarget);
+      else this.vel.addScaledVector(tmpMove, step / len);
+    }
+
+    this.knock.multiplyScalar(Math.exp(-W.knockbackDamping * dt));
+    tmpMove.copy(this.vel).add(this.knock).multiplyScalar(dt);
+    physics.moveCharacter(this.collider, tmpMove, tmpTarget);
+    this.pos.x += tmpTarget.x;
+    this.pos.z += tmpTarget.z;
+    this.syncBody();
+  }
+
+  syncBody(): void {
+    this.body.setNextKinematicTranslation({ x: this.pos.x, y: this.centerY, z: this.pos.z });
+  }
+
+  /** Teleport the physics body immediately (round resets). */
+  placeBody(): void {
+    this.body.setTranslation({ x: this.pos.x, y: this.centerY, z: this.pos.z }, true);
+  }
+}
