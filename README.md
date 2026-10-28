@@ -166,7 +166,8 @@ aimed high at Obama can fly over his head. Every boss's hurtbox grows with its s
   reports per boss: win rate, fight length, stage reached, minutes per stage, the bosses' damage
   per second per stage, life pack use and wins the packs saved. `{ immortal: true }` measures
   stage lengths and damage without the fight ending; `{ only: [4], seed: 1 }` picks fights and
-  repeats runs. `__duel.qa.runAll('campaign.')`, `'stages.'`, `'cinematic.'`, `'lifepacks.'` and
+  repeats runs; `{ spells: 'none' }` (or `'all'`, or a list) changes the boss spells the reference
+  AI brings (default: the ones it would have learned on the way, see [Boss spells](#boss-spells)). `__duel.qa.runAll('campaign.')`, `'stages.'`, `'cinematic.'`, `'lifepacks.'` and
   `'duo.'` check the rules. `__duel.config` and `__duel.bosses` are the live tuning tables.
 
 ## Boss spells
@@ -206,6 +207,22 @@ never cast these.
   [src/fx/RewardFx.ts](src/fx/RewardFx.ts) (carpet, phones and chart, flames); the carpet's flight
   is in `Wizard.updateMovement`, the smoke in `Arena.addSmoke`. Tuning: `CONFIG.rewardSpells`; keys:
   `CONFIG.controls` / `CONFIG.gamepad.bindings`. Icons: `ui/spells/spell_<id>.png`.
+
+**Reference ladder** (`await __duel.qa.campaignSoak(20, { seed: 2026 })`, the reference AI bringing
+the boss spells it would have learned by then; 20 single-life fights per boss, about 3 minutes):
+
+| Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Damage taken / healed (packs / vape) |
+|---|---|---|---|---|---|---|
+| Sahil | none | 100% (20/20) | 15.6 min | 3 | 5.1 / 5.3 / 5.2 | 242 / 150 / 0 |
+| Bitcoin Obama & The Midget | carpet | 75% (15/20) | 13.4 min | 3 / 3 | 5.5 / 6.3 / 3.3 | 343 / 183 / 0 |
+| Broccoli Head | carpet, pump | 45% (9/20) | 13.6 min | 3 | 4.5 / 4.6 / 5.0 | 429 / 240 / 0 |
+| Glowie | carpet, pump, vape | 10% (2/20) | 13.2 min | 3 | 5.0 / 5.2 / 5.9 | 582 / 240 / 128 |
+| Tinubu | carpet, pump, vape, lock-on | 0% (0/20) | 10.1 min | 2.7 (stage 3 in most fights) | 4.6 / 5.3 / – | 588 / 203 / 164 |
+
+The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
+fights), so a 20-fight rate moves by ±10–15 points between runs: the duo measured 50–85% and
+Glowie 5–35% around these settings. Glowie (damage ×1.35, bars +8%) and Tinubu (×1.32, bars +10%)
+were buffed for the spells; the vape cloud's healing and cover is what the reference AI leans on most.
 
 ## God mode (testing)
 
@@ -369,7 +386,7 @@ prompts and specs. Drop a file at its manifest path and it replaces the placehol
 
 ## QA
 
-A QA harness runs inside the game. Open the browser console:
+A QA harness runs inside the game (215 scenarios, about 2.5 minutes in a real-sized window). Open the browser console:
 
 ```js
 await __duel.qa.runAll()            // deterministic scenarios over the real simulation

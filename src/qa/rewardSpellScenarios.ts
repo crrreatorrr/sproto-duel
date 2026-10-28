@@ -9,6 +9,7 @@ import { rewardLabels } from '../core/Gamepad';
 import type { Game } from '../core/Game';
 import { AIController } from '../enemy/AIController';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
+import { GROUP } from '../physics/Physics';
 import type { Wizard } from '../wizard/Wizard';
 import { button, finishMatch, record, withMatchFlow, withSeededRandom, withStashedSave } from './campaignScenarios';
 import { FakePad, withPad } from './gamepadScenarios';
@@ -185,14 +186,20 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       const p = game.player;
       const C = RS.carpet;
       const pool = arena.hazards[0];
-      c.setup({ player: [0, -6], enemy: [0, 10] });
+      c.setup({ player: [0, -6], enemy: [-12, 12] });
+      // Fly along a lane with no cover in the way (a body-wide sweep at the rider's height; after
+      // setup, which steps the physics so the queries see this arena's cover).
+      const start = new THREE.Vector3(0, 1.0, -6);
+      const lane = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 1)]
+        .find((d) => !game.physics.sphereCast(start, d.clone().multiplyScalar(13), 0.8, GROUP.WORLD));
+      c.expect(!!lane, 'no clear lane to fly');
       learn(p, ['carpet']);
       const mana = p.mana;
       c.expect(cast(c, p, 'carpet') && p.riding, 'the carpet did not start');
       c.near(mana - p.mana, C.manaCost, 1e-6, 'carpet mana');
       c.near(p.rcd.carpet, C.cooldown, 1e-6, 'carpet cooldown');
-      c.step(0.3, () => p.intent.move.set(1, 0, 0));
-      const v = speedOver(c, p, 0.6, () => p.intent.move.set(1, 0, 0));
+      c.step(0.3, () => p.intent.move.copy(lane!));
+      const v = speedOver(c, p, 0.5, () => p.intent.move.copy(lane!));
       c.near(v, W.moveSpeed * C.speedMultiplier, 0.4, 'carpet m/s');
       c.near(p.pos.y, C.hover, 0.05, 'hover height');
       // No casting on the carpet: bolts, blasts and the shield stay off.
@@ -279,7 +286,8 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
     const p = game.player, e = game.enemy;
     const V = RS.vape;
     // A sharp-eyed AI: no aim error, no lead, so its aim shows where it thinks you are.
-    const profile: AIProfile = { ...CONFIG.ai.difficulty.normal, aimError: 0, leadFactor: 0, dodgeChance: 0, burstPause: [0.2, 0.3] };
+    // It holds fire, so no bolt knocks the player out of the cloud mid-test.
+    const profile: AIProfile = { ...CONFIG.ai.difficulty.normal, aimError: 0, leadFactor: 0, dodgeChance: 0, burst: [0, 0], blastChance: 0, stunChance: 0 };
     const ai = new AIController(e, p, game.spells, game.physics, arena, 'normal');
     ai.setProfile(profile);
     try {
@@ -551,8 +559,12 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       c.setup();
       p.intent.press('lockon');
       c.step(DT);
+      // The over-the-shoulder camera, as a rendered frame would place it, looking at the target.
+      game.rig.snap(p.pos, p.facing);
+      game.rig.update(DT, p.pos, game.physics, false, false);
+      game.renderer.camera.updateMatrixWorld();
       app.hud.update(0);
-      c.expect(root.querySelector('.lock-reticle')!.classList.contains('on'), 'no lock reticle');
+      c.expect(game.spells.rewards.lockTarget(p) === game.enemy && root.querySelector('.lock-reticle')!.classList.contains('on'), 'no lock reticle');
     } finally {
       app.hud.setRewardKeyLabels(rewardLabels(game.input.pad.device, game.input.pad.style));
       app.hud.show(app.state === 'playing' || app.state === 'paused');
