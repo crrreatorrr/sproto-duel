@@ -189,7 +189,7 @@ function measureBossThreat(c: Ctx, game: Game, boss: BossDef, seed: number, seco
 const fmt = (s: ThreatSample) => `${s.name}: ${s.dps.toFixed(1)}dps hit${(s.hitRate * 100).toFixed(0)}% threat=${s.threat.toFixed(2)}`;
 
 /** Run `fn` with the real campaign save stashed away, then put it back. */
-function withStashedSave(app: App, fn: () => void): void {
+export function withStashedSave(app: App, fn: () => void): void {
   let saved: string | null = null;
   try {
     saved = localStorage.getItem(CAMPAIGN_STORAGE_KEY);
@@ -211,7 +211,7 @@ function withStashedSave(app: App, fn: () => void): void {
 }
 
 /** Finish the current match as if `playerWon` (1-0 in the gauntlet, 2-0 in Quick Duel), then show results immediately. */
-function finishMatch(app: App, playerWon: boolean): void {
+export function finishMatch(app: App, playerWon: boolean): void {
   const g = app.game;
   const m = app.match;
   const n = m.roundsToWin;
@@ -223,10 +223,10 @@ function finishMatch(app: App, playerWon: boolean): void {
   app.showResults();
 }
 
-const button = (app: App, act: string) => app.menus.root.querySelector<HTMLButtonElement>(`.menu-screen [data-act="${act}"]`);
+export const button = (app: App, act: string) => app.menus.root.querySelector<HTMLButtonElement>(`.menu-screen [data-act="${act}"]`);
 
 /** Collect events of `type` until the returned function is called; it returns what was seen. */
-function record<K extends keyof GameEvents>(type: K): () => GameEvents[K][] {
+export function record<K extends keyof GameEvents>(type: K): () => GameEvents[K][] {
   const seen: GameEvents[K][] = [];
   const off = events.on(type, (e) => void seen.push({ ...e }));
   return () => {
@@ -236,7 +236,7 @@ function record<K extends keyof GameEvents>(type: K): () => GameEvents[K][] {
 }
 
 /** Let Match see KOs and the clock while `fn` runs (scenarios run in qaMode, which it ignores). */
-function withMatchFlow(game: Game, fn: () => void): void {
+export function withMatchFlow(game: Game, fn: () => void): void {
   game.qaMode = false;
   try {
     fn();
@@ -520,8 +520,11 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       button(app, 'begin')!.click();
       finishMatch(app, true);
       c.expect(app.campaign.saved.next === 1, `win not saved (next=${app.campaign.saved.next})`);
-      const next = button(app, 'rematch')!;
-      c.expect(next.textContent!.includes(BOSSES[1].name), `results button reads "${next.textContent}"`);
+      // A first win teaches the boss's spell: the results lead to its reveal, then on to fight 2.
+      button(app, 'rematch')!.click();
+      c.expect(app.menus.current === 'reveal', `results led to ${app.menus.current}, not the spell reveal`);
+      const next = button(app, 'continue')!;
+      c.expect(next.textContent!.includes(BOSSES[1].name), `reveal button reads "${next.textContent}"`);
       next.click();
       c.expect(app.menus.current === 'boss' && app.campaign.boss === BOSSES[1], 'Next did not show the fight 2 card');
       c.expect(game.enemy.name === BOSSES[1].name && game.arena.theme === BOSSES[1].theme, 'fight 2 rival/arena not applied');
@@ -538,6 +541,8 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       app.startBossFight();
       finishMatch(app, true);
       button(app, 'rematch')!.click();
+      // Its spell is new too: the reveal, then the completion screen.
+      if (app.menus.current === 'reveal') button(app, 'continue')!.click();
       c.expect(app.menus.current === 'complete', `final win led to ${app.menus.current}`);
       c.expect(!app.campaign.canContinue && app.campaign.saved.clears >= 1, 'completion did not reset the run');
     });

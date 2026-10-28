@@ -1,6 +1,7 @@
 import type { ArenaThemeId } from '../arena/themes';
 import { CONFIG, type Difficulty } from '../config';
-import { BOSSES, bossDisplayName, type BossDef } from '../campaign/levels';
+import { BOSSES, bossDisplayName, rewardsBefore, type BossDef } from '../campaign/levels';
+import { REWARD_SPELLS, type RewardSpellId } from '../spells/rewardCatalog';
 import { GauntletClock } from '../core/Match';
 import { events } from '../core/events';
 import { nearestStanding, type Game } from '../core/Game';
@@ -97,6 +98,10 @@ export interface FightResult {
   /** Health checks over a long fight: a NaN position ended it; the most projectiles and tickets alive at once. */
   nan: boolean;
   peak: { projectiles: number; tickets: number };
+  /** Reward spells the reference player knew, and how often it cast each; HP its vape clouds healed. */
+  spells: RewardSpellId[];
+  rewardCasts: Partial<Record<RewardSpellId, number>>;
+  vapeHealed: number;
 }
 
 /**
@@ -115,7 +120,7 @@ function playFight(game: Game, player: AIController, enemies: AIController[], im
   const out: FightResult = {
     seconds: 0, won: false, capped: false, stageCapped: 0, stages: [], stageSeconds: [], stageDamage: [0, 0, 0], stageTime: [0, 0, 0],
     packsSpawned: 0, packsCollected: 0, healed: 0, damageTaken: 0, byKind: {},
-    nan: false, peak: { projectiles: 0, tickets: 0 },
+    nan: false, peak: { projectiles: 0, tickets: 0 }, spells: [...p.learned], rewardCasts: {}, vapeHealed: 0,
   };
   let stageStart = 0;
   let t = 0;
@@ -134,6 +139,12 @@ function playFight(game: Game, player: AIController, enemies: AIController[], im
       stageStart = t;
     }),
     events.on('lifePackPickup', (ev) => (out.healed += ev.healed)),
+    events.on('rewardCast', (ev) => {
+      if (ev.wizard === p) out.rewardCasts[ev.spell] = (out.rewardCasts[ev.spell] ?? 0) + 1;
+    }),
+    events.on('rewardHeal', (ev) => {
+      if (ev.wizard === p) out.vapeHealed += ev.amount;
+    }),
   ];
   game.tickets.enabled = true;
   game.tickets.spawnInterval = CONFIG.tickets.bossSpawnInterval;
@@ -206,6 +217,11 @@ export interface BossSoakRow {
   /** Fights that hit a NaN, and the busiest any fight got (projectiles / tickets alive). */
   nan: number;
   peak: string;
+  /** Reward spells the reference player had, with casts per fight of each. */
+  spells: string;
+  /** Per fight: damage the player took from the bosses, and HP healed by life packs / vape clouds. */
+  taken: number;
+  healed: string;
 }
 
 const avgOf = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
@@ -242,6 +258,9 @@ export function summarizeFights(boss: BossDef, results: FightResult[]): BossSoak
     capped: results.filter((r) => r.capped).length,
     nan: results.filter((r) => r.nan).length,
     peak: ['projectiles', 'tickets'].map((k) => Math.max(...results.map((r) => r.peak[k as keyof FightResult['peak']]))).join(' / '),
+    taken: Math.round(avgOf(results.map((r) => r.damageTaken))),
+    healed: `${Math.round(avgOf(results.map((r) => r.healed)))} / ${Math.round(avgOf(results.map((r) => r.vapeHealed)))}`,
+    spells: (results[0]?.spells ?? []).map((id) => `${id} ${(results.reduce((a, r) => a + (r.rewardCasts[id] ?? 0), 0) / n).toFixed(1)}`).join(' ') || 'none',
     damageShare: (() => {
       const tot: Record<string, number> = {};
       for (const r of results) for (const [k, v] of Object.entries(r.byKind)) tot[k] = (tot[k] ?? 0) + v;
@@ -256,8 +275,13 @@ export function summarizeFights(boss: BossDef, results: FightResult[]): BossSoak
  * per sandbox; scenarios can call it directly): stages live, the boss's stats and AI (and its
  * partner's), a reference player AI with stock stats; the previous rival is restored afterwards.
  */
-export function fightBoss(qa: QAHarness, game: Game, boss: BossDef, reference: Difficulty = 'normal', immortal = false): FightResult {
+export function fightBoss(
+  qa: QAHarness, game: Game, boss: BossDef, reference: Difficulty = 'normal', immortal = false,
+  /** The reference player's reward spells: by default the ones it would have learned on the way here. */
+  spells: readonly RewardSpellId[] = rewardsBefore(BOSSES.indexOf(boss)),
+): FightResult {
   const p = game.player, e = game.enemy, q = game.partner;
+  const prevLearned = [...p.learned];
   const prev = game.boss;
   const suspended = [game.stages.suspended, game.partnerStages.suspended];
   // The sandbox runs on stock stats with stages suspended; a real fight has neither.
@@ -277,9 +301,13 @@ export function fightBoss(qa: QAHarness, game: Game, boss: BossDef, reference: D
     p.maxHealth = CONFIG.wizard.maxHealth;
     p.health = p.maxHealth;
     p.damageMultiplier = 1;
+    p.learned.clear();
+    for (const id of spells) p.learned.add(id);
     for (const b of [brainA, ...enemyBrains]) b.reset();
     return playFight(game, brainA, enemyBrains, immortal);
   } finally {
+    p.learned.clear();
+    for (const id of prevLearned) p.learned.add(id);
     brainA.dispose();
     for (const b of enemyBrains) b.dispose();
     game.setupEnemy(prev);
@@ -300,6 +328,11 @@ export interface CampaignSoakOptions {
   immortal?: boolean;
   /** Seed for Math.random, per fight (seed + fight number), so runs repeat. */
   seed?: number;
+  /**
+   * The reference player's boss reward spells: 'ladder' (default) the ones it would have learned by
+   * that fight (fight N: spells 1..N-1), 'none', or 'all' five.
+   */
+  spells?: 'ladder' | 'none' | 'all' | readonly RewardSpellId[];
   /** Called after every fight (progress for long runs). */
   progress?: (boss: BossDef, done: number, result: FightResult) => void;
 }
@@ -333,7 +366,9 @@ export async function campaignSoak(qa: QAHarness, game: Game, fights = 4, opts: 
           const t0 = performance.now();
           do {
             const n = f;
-            const run = () => fightBoss(qa, game, boss, opts.reference ?? 'normal', opts.immortal);
+            const pick = opts.spells;
+            const spells = Array.isArray(pick) ? pick : pick === 'none' ? [] : pick === 'all' ? REWARD_SPELLS : rewardsBefore(bi);
+            const run = () => fightBoss(qa, game, boss, opts.reference ?? 'normal', opts.immortal, spells);
             const r = opts.seed !== undefined ? withSeededRandom(opts.seed + bi * 1000 + n, run) : run();
             results.push(r);
             f++;

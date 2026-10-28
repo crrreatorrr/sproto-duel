@@ -22,7 +22,7 @@ interface FakeButton {
 }
 
 /** A scripted standard-mapping pad, shaped like the Gamepad snapshots Chrome returns. */
-class FakePad {
+export class FakePad {
   readonly index = 0;
   readonly mapping = 'standard';
   connected = true;
@@ -55,7 +55,7 @@ class FakePad {
   }
 }
 
-interface PadRig {
+export interface PadRig {
   pad: FakePad;
   gp: GamepadInput;
   /**
@@ -75,7 +75,7 @@ interface PadRig {
  * Inject a fake pad by overriding navigator.getGamepads for the duration of `fn`, then restore the
  * real API, the pad state, the active device, HUD labels and the controller settings.
  */
-function withPad(game: Game, app: App, fn: (r: PadRig) => void, pad = new FakePad()): void {
+export function withPad(game: Game, app: App, fn: (r: PadRig) => void, pad = new FakePad()): void {
   const gp = game.input.pad;
   const pc = game.playerController;
   const own = Object.getOwnPropertyDescriptor(navigator, 'getGamepads');
@@ -135,7 +135,8 @@ const ACTIONS: [PadButton, ActionKey][] = [
   [G.bindings.dodge[0] as PadButton, 'dodge'],
 ];
 
-const hudLabels = (app: App) => [...app.hud.root.querySelectorAll('.slot kbd')].map((k) => k.textContent ?? '');
+// The five core spell slots (the reward-spell row below has its own labels).
+const hudLabels = (app: App) => [...app.hud.root.querySelectorAll('.slots .slot kbd')].map((k) => k.textContent ?? '');
 
 export function registerGamepadScenarios(qa: QAHarness, game: Game, app: App): void {
   qa.add('pad.left_stick_moves_camera_relative', (c) => {

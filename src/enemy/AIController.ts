@@ -25,6 +25,8 @@ const SP = CONFIG.spells;
 const VOLLEY = CONFIG.campaign.volley;
 const DUO = CONFIG.campaign.duo;
 const TK = CONFIG.tickets;
+const RS = CONFIG.rewardSpells;
+const RAI = CONFIG.ai.rewards;
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -93,6 +95,12 @@ export class AIController implements TickController {
   private ticketGoalTime = 0;
   private ticketCheck = 0;
   private lastHurtAt = -1e9;
+  /** Boss reward spells (only if this AI's wizard learned some: the soak's reference player). */
+  private rewardCheck = 0;
+  /** When an enemy last fired a signature volley within range. */
+  private volleyAlertAt = -1e9;
+  /** Seconds the target has been strafing across our line of fire (Lock-On). */
+  private targetStrafe = 0;
 
   constructor(
     private readonly self: Wizard,
@@ -153,6 +161,9 @@ export class AIController implements TickController {
     this.ticketGoal = null;
     this.goalIsPack = false;
     this.lastHurtAt = -1e9;
+    this.rewardCheck = 0;
+    this.volleyAlertAt = -1e9;
+    this.targetStrafe = 0;
   }
 
   /** First volley of a stage comes a little after it begins. */
@@ -189,6 +200,9 @@ export class AIController implements TickController {
       }),
       events.on('damage', (e) => {
         if (e.target === this.self) this.lastHurtAt = this.time;
+      }),
+      events.on('volley', (e) => {
+        if (e.wizard.side !== this.self.side && e.pos.distanceTo(this.self.pos) < VOLLEY.range + 4) this.volleyAlertAt = this.time;
       }),
     );
   }
@@ -250,8 +264,72 @@ export class AIController implements TickController {
     this.runReactions();
     this.chooseState(dist);
     this.thinkTickets(dt);
+    this.thinkRewards(dt, toTarget, dist);
     this.steer(dt, toTarget, dist);
     this.aimAndAttack(dt, dist);
+  }
+
+  // ------------------------------------------------------------------ reward spells
+
+  /**
+   * Boss reward spells, by simple rules (CONFIG.ai.rewards), only for spells this wizard learned
+   * (the soak's reference player; bosses never have any): the carpet to escape when low and under
+   * fire or when a volley comes in, the vape cloud when low, Pump It before a burst (aimAndAttack),
+   * Lock-On while the target strafes, Hellfire Breath at close range.
+   */
+  private thinkRewards(dt: number, toTarget: THREE.Vector3, dist: number): void {
+    const w = this.self;
+    if (w.learned.size === 0) return;
+    const t = this.target;
+    // How fast the target crosses our line of fire.
+    const lateral = Math.abs(t.vel.x * -toTarget.z + t.vel.z * toTarget.x);
+    this.targetStrafe = lateral > RAI.strafeSpeed ? this.targetStrafe + dt : Math.max(0, this.targetStrafe - dt * 2);
+    this.rewardCheck -= dt;
+    if (this.rewardCheck > 0) return;
+    this.rewardCheck = RAI.checkInterval;
+    const R = this.spells.rewards;
+    const ready = (id: Parameters<typeof R.ready>[1]) => R.ready(w, id) && !w.intent.wants(id);
+    const hp = w.health / w.maxHealth;
+    const incoming = this.incomingCount(RAI.incomingHorizon);
+    const volley = this.time - this.volleyAlertAt < RAI.volleyMemory;
+    if (ready('carpet') && ((hp < RAI.carpetHealth && this.underFire()) || incoming >= RAI.carpetIncoming || (volley && incoming >= 2))) {
+      w.intent.press('carpet');
+      return;
+    }
+    if (ready('vape') && hp < RAI.vapeHealth) {
+      w.intent.press('vape');
+      return;
+    }
+    const sees = this.hasLos && !this.lost;
+    if (ready('breath') && sees && dist < RS.breath.range * RAI.breathRange && !t.shielded && this.facingTarget(RAI.breathFacing)) {
+      w.intent.press('breath');
+      return;
+    }
+    if (ready('lockon') && sees && this.state === 'attack' && this.targetStrafe > RAI.strafeTime) w.intent.press('lockon');
+  }
+
+  /** Enemy projectiles on course to pass within ~1 m of our chest in the next `horizon` s. */
+  private incomingCount(horizon: number): number {
+    const w = this.self;
+    const chest = w.chest(tmpC);
+    let n = 0;
+    for (const proj of this.spells.pool.active) {
+      if (proj.owner.side === w.side) continue;
+      const rx = chest.x - proj.pos.x, ry = chest.y - proj.pos.y, rz = chest.z - proj.pos.z;
+      const v2 = proj.vel.lengthSq();
+      if (v2 < 1e-4) continue;
+      const tt = (rx * proj.vel.x + ry * proj.vel.y + rz * proj.vel.z) / v2;
+      if (tt < 0 || tt > horizon) continue;
+      if (Math.hypot(rx - proj.vel.x * tt, ry - proj.vel.y * tt, rz - proj.vel.z * tt) < 1.1) n++;
+    }
+    return n;
+  }
+
+  /** The wizard faces the target within `degrees`. */
+  private facingTarget(degrees: number): boolean {
+    const w = this.self, t = this.target;
+    const want = Math.atan2(t.pos.x - w.pos.x, t.pos.z - w.pos.z);
+    return Math.abs(wrapAngle(want - w.facing)) < THREE.MathUtils.degToRad(degrees);
   }
 
   // ------------------------------------------------------------------ perception
@@ -530,6 +608,21 @@ export class AIController implements TickController {
       sprint = d > 5 && w.mana > CONFIG.wizard.sprintRecoverMana;
     }
     if (this.state !== 'evade') this.keepFormation(move);
+    // On the carpet: get away fast, sideways and back (a life pack goal above still wins).
+    if (w.riding && !goal) move.copy(toTarget).multiplyScalar(-0.55).addScaledVector(strafe, 1);
+    // Hurt, in our own vape cloud: stay inside it (healing, hidden) and keep moving within it.
+    const smoke = w.learned.has('vape') && w.health < w.maxHealth * RAI.vapeStayHealth ? this.arena.smokeAt(w.pos.x, w.pos.z, w) ?? this.ownSmokeNear() : null;
+    if (smoke && this.state !== 'evade' && !goal) {
+      const dx = smoke.x - w.pos.x, dz = smoke.z - w.pos.z;
+      const d = Math.hypot(dx, dz);
+      const pull = clamp((d - smoke.radius * 0.45) / (smoke.radius * 0.3), -0.6, 1.2);
+      move.copy(strafe).multiplyScalar(0.7);
+      if (d > 1e-3) {
+        move.x += (dx / d) * pull;
+        move.z += (dz / d) * pull;
+      }
+      sprint = false;
+    }
 
     // Stay out of lava and the fire.
     this.arena.avoidHazards(w.pos, move);
@@ -547,6 +640,13 @@ export class AIController implements TickController {
     if (this.state !== 'evade') this.desiredMove.lerp(move, 1 - Math.exp(-10 * dt));
     w.intent.move.copy(this.desiredMove);
     w.intent.sprint = sprint;
+  }
+
+  /** Our own vape cloud within a few metres (to step back into), if any. */
+  private ownSmokeNear(): { x: number; z: number; radius: number } | null {
+    const w = this.self;
+    for (const s of this.arena.smokes) if (s.owner === w && Math.hypot(w.pos.x - s.x, w.pos.z - s.z) < s.radius + 3) return s;
+    return null;
   }
 
   /**
@@ -616,7 +716,8 @@ export class AIController implements TickController {
       aim.y += feetY - t.pos.y;
     }
     if (usingBlast) aim.y = 0.5; // splash at the feet
-    if (w.cast?.spell !== 'stun') aim.add(this.aimNoise);
+    // A stun beam and the fire breath aim true (the breath is a short cone anyway).
+    if (w.cast?.spell !== 'stun' && !w.breathing) aim.add(this.aimNoise);
     intent.facing = Math.atan2(aim.x - w.pos.x, aim.z - w.pos.z);
 
     intent.holdBolt = false;
@@ -672,6 +773,10 @@ export class AIController implements TickController {
       return;
     }
     if (this.burstLeft <= 0) {
+      // Pump It before a burst, if it was learned and there is mana to spare for the burst.
+      if (w.learned.has('pump') && this.spells.rewards.ready(w, 'pump') && w.mana >= RS.pump.manaCost + RAI.pumpManaSpare) {
+        intent.press('pump');
+      }
       this.burstLeft = randInt(p.burst[0], p.burst[1]) + (this.punishTimer > 0 ? 2 : 0);
       this.burstCastsAtStart = w.stats.casts;
     }

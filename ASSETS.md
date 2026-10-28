@@ -313,6 +313,18 @@ Square PNG or WebP, transparent background, 256². Without these, built-in vecto
 | `stun` | `ui/icon_stun.png` | Spell icon, icy white-blue snowflake rune with frost, fantasy game UI, transparent background |
 | `ultimate` | `ui/icon_ultimate.png` | Spell icon, golden starburst shockwave ring, radiant, fantasy game UI, transparent background |
 
+Boss reward spells (`src/spells/rewardCatalog.ts`): round 256² icons with alpha, shown in the HUD's
+second spell row, on the boss cards, in How to Play and on the "new spell learned" screen. Without
+them, built-in vector glyphs are used.
+
+| Spell | File | Prompt |
+|---|---|---|
+| Magic Carpet | `ui/spells/spell_carpet.png` | Round spell icon, a flying Persian carpet with gold tassels swooping on a trail of sparkles, warm orange glow |
+| Pump It | `ui/spells/spell_pump.png` | Round spell icon, a green candlestick chart arrow shooting upward with gold coins, neon green glow |
+| Vape Cloud | `ui/spells/spell_vape.png` | Round spell icon, a billowing lavender vapour cloud swirling out of a vape pen |
+| Lock-On | `ui/spells/spell_lockon.png` | Round spell icon, a green targeting reticle with crosshair brackets locked on a glowing bolt |
+| Hellfire Breath | `ui/spells/spell_breath.png` | Round spell icon, a cone of roaring hellfire bursting from a demon's mouth, deep orange and red |
+
 ## Sounds
 
 MP3 or OGG preferred (WAV works). Keep effects short and dry: the game adds pitch variation,
@@ -361,6 +373,12 @@ distance falloff and stereo panning. Loops must start and end seamlessly.
 | `ticketSpawn` | `audio/ticket_spawn.mp3` | 0.8 s | A golden ticket appearing, soft single bell ding with a short sparkle |
 | `ticketPickup` | `audio/ticket_pickup.mp3` | 1.3 s | Golden ticket collected, bright rising magical chime arpeggio with a shimmering tail |
 | `ticketExpire` | `audio/ticket_expire.mp3` | 0.7 s | Magic fading away, soft falling tone (a ticket vanishing, or your mana boost running out) |
+| `carpetWhoosh` | `audio/carpet_whoosh.mp3` | 0.9 s | A magic carpet swooping into the air, big cloth whoosh and flap with a rising shimmer |
+| `pumpCoin` | `audio/pump_coin.mp3` | 1 s | Cash register ka-ching followed by a rising synth sweep, "number go up" |
+| `vapePuff` | `audio/vape_puff.mp3` | 1.1 s | A long breathy exhale, a thick cloud of vapour blooming and hanging in the air |
+| `lockBeep` | `audio/lock_beep.mp3` | 0.75 s | Targeting system acquiring a lock, beeps speeding up into a solid lock tone |
+| `breathRoar` | `audio/breath_roar.mp3` | 2.3 s | A demon breathing fire for two seconds, whoomp then roaring flames with crackles, fading tail |
+| `spellLearned` | `audio/spell_learned.mp3` | 2.2 s | A new spell learned, triumphant magical arpeggio into a held shimmering chord |
 | `musicMenu` | `audio/music_menu.mp3` | 30-90 s, loop | Mysterious fantasy menu music, slow ethereal pads, distant choir, harp, A minor, seamless loop |
 | `musicBattle` | `audio/music_battle.mp3` | 60-120 s, loop | Intense fantasy duel battle music, driving percussion, staccato strings, 120 BPM, D minor, seamless loop |
 

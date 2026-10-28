@@ -129,7 +129,9 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
  * unlocks more attacks each time; `ai` is stage 1 and CONFIG.campaign.stageAI sharpens it. Fight 1
  * is very easy; each fight after it is a clear step up, and Tinubu is close to impossible. Fight 2
  * is a double fight (`partner`): the pair together is tuned as one step on the ladder.
- * Tuned with `__duel.qa.campaignSoak` (reference win rates: README / the final report).
+ * Each fight is tuned for a player who arrives with the boss spells (`reward`) of every fight before
+ * it: fight N against spells 1..N-1. Tuned with `__duel.qa.campaignSoak` (its reference AI uses those
+ * spells; reference win rates: README / the final report).
  */
 export const BOSSES: BossDef[] = [
   boss({
@@ -343,8 +345,9 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.95,
       preferredRange: [8, 13],
     },
-    stageHealth: [1015, 1035, 1180],
-    damageMultiplier: 1.04,
+    // Retuned for the player's carpet, Pump It and vape cloud (the cloud's healing and cover especially).
+    stageHealth: [1096, 1118, 1274],
+    damageMultiplier: 1.35,
   }),
   boss({
     id: 'tinubu',
@@ -392,8 +395,9 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 1.05,
       preferredRange: [8, 13],
     },
-    stageHealth: [1000, 1010, 1020],
-    damageMultiplier: 1.27,
+    // Retuned for the four spells the player brings (bigger bars keep stages at ~5 minutes).
+    stageHealth: [1100, 1111, 1122],
+    damageMultiplier: 1.32,
   }),
 ];
 

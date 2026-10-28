@@ -779,6 +779,29 @@ export const CONFIG = {
     /** Minimum seconds between retreats. */
     retreatCooldown: 5,
     /**
+     * Boss reward spells for an AI that learned some (the campaign soak's reference player; bosses
+     * never do). Simple rules, checked every `checkInterval` s: the carpet to escape when below
+     * `carpetHealth` and under fire, or when `carpetIncoming` spells are about to hit (2 right after
+     * an enemy volley); the vape cloud below `vapeHealth` (then staying in it while below
+     * `vapeStayHealth`); Pump It before a bolt burst with `pumpManaSpare` mana left over; Lock-On once
+     * the target has crossed the line of fire faster than `strafeSpeed` m/s for `strafeTime` s;
+     * Hellfire Breath within `breathRange` x its range, facing the target within `breathFacing` degrees.
+     */
+    rewards: {
+      checkInterval: 0.1,
+      incomingHorizon: 0.6,
+      volleyMemory: 0.5,
+      carpetHealth: 0.35,
+      carpetIncoming: 3,
+      vapeHealth: 0.4,
+      vapeStayHealth: 0.8,
+      pumpManaSpare: 30,
+      strafeSpeed: 3.2,
+      strafeTime: 0.5,
+      breathRange: 0.85,
+      breathFacing: 25,
+    },
+    /**
      * AI profiles. The game has one difficulty: Quick Duel always uses `normal` (the Rival), and the
      * Boss Gauntlet's bosses (src/campaign/levels.ts) are the difficulty ladder. `easy` and `hard`
      * are not selectable; they are reference opponents for QA soaks and balance probes.

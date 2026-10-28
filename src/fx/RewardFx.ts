@@ -13,9 +13,9 @@ const tmp2 = new THREE.Vector3();
 const tmpColor = new THREE.Color();
 const GOLD = new THREE.Color(1, 0.78, 0.35);
 const GREEN = new THREE.Color(0.35, 1, 0.5);
-const FLAME_A = new THREE.Color(1, 0.62, 0.18);
-const FLAME_B = new THREE.Color(1, 0.3, 0.06);
-const FLAME_HOT = new THREE.Color(1, 0.92, 0.6);
+const FLAME_A = new THREE.Color(1, 0.42, 0.07);
+const FLAME_B = new THREE.Color(0.95, 0.17, 0.03);
+const FLAME_HOT = new THREE.Color(1, 0.78, 0.35);
 const SMOKE = new THREE.Color(0.32, 0.3, 0.3);
 const VAPOR = new THREE.Color(0.86, 0.84, 0.97);
 
@@ -310,25 +310,29 @@ export class RewardFx {
     dir.normalize();
     this.breathLight.position.copy(origin).addScaledVector(dir, 1.5);
     const spread = Math.tan(THREE.MathUtils.degToRad(B.coneDegrees / 2));
-    this.flameAcc += dt * 260;
+    this.flameAcc += dt * 280;
     while (this.flameAcc >= 1) {
       this.flameAcc -= 1;
-      const life = 0.28 + Math.random() * 0.12;
-      const speed = B.range / life;
+      const life = 0.3 + Math.random() * 0.14;
+      const speed = (B.range / life) * (0.75 + Math.random() * 0.3);
       // A random direction inside the cone.
       const rx = (Math.random() * 2 - 1) * spread, ry = (Math.random() * 2 - 1) * spread * 0.7;
       const ux = -dir.z, uz = dir.x; // horizontal perpendicular
       const vx = dir.x + ux * rx, vy = dir.y + ry, vz = dir.z + uz * rx;
       const l = Math.hypot(vx, vy, vz);
       const t = Math.random();
-      tmpColor.copy(t < 0.25 ? FLAME_HOT : t < 0.65 ? FLAME_A : FLAME_B);
-      this.fx.sparks.emit(origin.x, origin.y, origin.z, (vx / l) * speed, (vy / l) * speed + 0.8, (vz / l) * speed,
-        tmpColor, 2.8, 0.22 + Math.random() * 0.2, life, { drag: 1.2 });
+      const hot = t < 0.15;
+      tmpColor.copy(hot ? FLAME_HOT : t < 0.6 ? FLAME_A : FLAME_B);
+      // Tongues of flame that swell as they fly; a white-hot core only near the staff.
+      // Start a little out from the staff so the core doesn't pile up into a white blob.
+      const s0 = 0.15 + Math.random() * 0.35;
+      this.fx.sparks.emit(origin.x + (vx / l) * s0, origin.y + (vy / l) * s0, origin.z + (vz / l) * s0, (vx / l) * speed, (vy / l) * speed + 0.6, (vz / l) * speed,
+        tmpColor, hot ? 1.5 : 1.2, 0.08 + Math.random() * 0.06, hot ? life * 0.45 : life, { drag: 1.4, sizeEnd: hot ? 0.35 : 0.85 + Math.random() * 0.55 });
     }
-    if (Math.random() < dt * 14) {
-      const d = B.range * (0.6 + Math.random() * 0.4);
-      this.fx.smoke.emit(origin.x + dir.x * d, origin.y + dir.y * d + 0.3, origin.z + dir.z * d, dir.x * 1.5, 1 + Math.random(), dir.z * 1.5,
-        SMOKE, 1, 0.6, 0.9, { drag: 1.5, gravity: -0.8, sizeEnd: 1.8 });
+    if (Math.random() < dt * 22) {
+      const d = B.range * (0.55 + Math.random() * 0.45);
+      this.fx.smoke.emit(origin.x + dir.x * d, origin.y + dir.y * d + 0.2, origin.z + dir.z * d, dir.x * 1.5, 1 + Math.random(), dir.z * 1.5,
+        SMOKE, 1, 0.5, 1.0, { drag: 1.5, gravity: -0.8, sizeEnd: 2 });
     }
   }
 
