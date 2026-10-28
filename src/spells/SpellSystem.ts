@@ -318,7 +318,8 @@ export class SpellSystem {
     w.ultAnnounced = false;
     w.castPulse = 1;
     w.stats.casts++;
-    const origin = w.pos.clone();
+    // The shockwave runs along the floor even if the caster is airborne or on a stump.
+    const origin = new THREE.Vector3(w.pos.x, 0, w.pos.z);
     const color = w.team.ultimate;
     this.waves.push({
       owner: w,
@@ -662,7 +663,8 @@ export class SpellSystem {
   private waveHit(wave: UltWave, o: Wizard): void {
     const U = S.ultimate;
     const chest = o.chest(new THREE.Vector3());
-    if (o.invulnerable) {
+    // Rolling through it, or feet high enough above the ground as the wavefront passes underneath.
+    if (o.invulnerable || o.airHeight >= CONFIG.wizard.jump.waveClearance) {
       this.callout(chest, 'EVADED', 'perfect');
       events.emit('dodgeEvade', { wizard: o, pos: chest });
       return;

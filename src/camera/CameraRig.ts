@@ -5,6 +5,7 @@ import { clamp, damp, dampVec3 } from '../core/math';
 import { GROUP, type Physics } from '../physics/Physics';
 
 const C = CONFIG.camera;
+const J = CONFIG.wizard.jump;
 
 
 /**
@@ -81,7 +82,12 @@ export class CameraRig {
     this.pullBack = damp(this.pullBack, this.pullBackTarget, 10, dt);
     this.pullBackTarget = damp(this.pullBackTarget, 0, 1.6, dt);
     this.tmp.set(target.x, target.y + C.height, target.z);
+    const lastY = this.pivot.y;
     dampVec3(this.pivot, this.tmp, C.followSharpness, dt);
+    // Height has its own follow: rise lazily (a jump doesn't yank the crosshair off target, and
+    // never trails more than cameraMaxLag), but drop with the player so landings never lag.
+    const ty = this.tmp.y;
+    this.pivot.y = ty > lastY ? Math.max(damp(lastY, ty, J.cameraRiseSharpness, dt), ty - J.cameraMaxLag) : ty;
     if (!Number.isFinite(this.pivot.x + this.pivot.y + this.pivot.z)) this.pivot.copy(this.tmp);
 
     const cp = Math.cos(this.pitch);

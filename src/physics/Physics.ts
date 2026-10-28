@@ -15,9 +15,13 @@ export const GROUP = {
   WORLD: 1 << 0, // walls + pillars
   WIZARD: 1 << 1,
   GROUND: 1 << 2,
+  /** Invisible wall extension that only wizards collide with, so jumps can't clear the low wall. */
+  BARRIER: 1 << 3,
 } as const;
 
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
+/** How far the wizards-only barrier reaches above the visible wall. */
+const BARRIER_HEIGHT = 6;
 
 export interface QueryHit {
   tag: ColliderTag;
@@ -25,6 +29,14 @@ export interface QueryHit {
   distance: number;
   point: Vector3;
   normal: Vector3;
+}
+
+/** What the last `moveCharacter` call ended up standing on. */
+export interface CharacterSupport {
+  /** Resting on a walkable surface (stump top). The floor is handled by the caller. */
+  grounded: boolean;
+  /** Resting on another wizard's head: not walkable, slide off. */
+  onWizard: Wizard | null;
 }
 
 export class Physics {
@@ -36,6 +48,11 @@ export class Physics {
   private readonly identity = { x: 0, y: 0, z: 0, w: 1 };
   private readonly unitDir = { x: 0, y: 0, z: 0 };
   private readonly losDir = new Vector3();
+  private readonly collision = new RAPIER.CharacterCollision();
+  private readonly down = { x: 0, y: -1, z: 0 };
+  private readonly probePos = { x: 0, y: 0, z: 0 };
+  /** Result of the latest `moveCharacter`. */
+  readonly support: CharacterSupport = { grounded: false, onWizard: null };
   /** One persistent predicate so per-projectile queries don't allocate closures. */
   private activeSkip: ((tag: ColliderTag) => boolean) | null = null;
   private readonly predicate = (c: RAPIER.Collider) => {
@@ -53,6 +70,9 @@ export class Physics {
     this.characterController = this.world.createCharacterController(0.02);
     this.characterController.setSlideEnabled(true);
     this.characterController.setApplyImpulsesToDynamicBodies(false);
+    // Vertical motion is ours (gravity, jumps): no snapping down ledges, no auto-climbing stumps.
+    this.characterController.disableSnapToGround();
+    this.characterController.disableAutostep();
   }
 
   tagOf(collider: RAPIER.Collider): ColliderTag | undefined {
@@ -79,6 +99,12 @@ export class Physics {
         .setRotation(q)
         .setCollisionGroups(groups(GROUP.WORLD, 0xffff));
       this.tags.set(this.world.createCollider(desc, body).handle, { kind: 'wall' });
+      // Wizards-only extension above the visible wall. Spells, camera and line of sight ignore it.
+      const barrier = RAPIER.ColliderDesc.cuboid(halfLen, BARRIER_HEIGHT / 2, thickness / 2)
+        .setTranslation(Math.sin(a) * r, height + BARRIER_HEIGHT / 2, Math.cos(a) * r)
+        .setRotation(q)
+        .setCollisionGroups(groups(GROUP.BARRIER, GROUP.WIZARD));
+      this.tags.set(this.world.createCollider(barrier, body).handle, { kind: 'wall' });
     }
   }
 
@@ -111,18 +137,47 @@ export class Physics {
   }
 
   /**
-   * Slide a wizard capsule by `delta` against walls, pillars and the other wizard.
-   * Writes the allowed movement into `out`.
+   * Slide a wizard capsule by `delta` (3D) against walls, pillars, stumps and the other wizard.
+   * Writes the allowed movement into `out` and what it ended up resting on into `support`.
+   * The floor is not part of this query: callers keep y >= 0 themselves.
    */
   moveCharacter(collider: RAPIER.Collider, delta: Vector3, out: Vector3): Vector3 {
-    this.characterController.computeColliderMovement(
+    const kcc = this.characterController;
+    kcc.computeColliderMovement(
       collider,
-      { x: delta.x, y: 0, z: delta.z },
+      { x: delta.x, y: delta.y, z: delta.z },
       RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
-      groups(0xffff, GROUP.WORLD | GROUP.WIZARD),
+      groups(0xffff, GROUP.WORLD | GROUP.WIZARD | GROUP.BARRIER),
     );
-    const m = this.characterController.computedMovement();
-    return out.set(m.x, 0, m.z);
+    const m = kcc.computedMovement();
+    this.support.grounded = kcc.computedGrounded();
+    this.support.onWizard = null;
+    for (let i = 0, n = kcc.numComputedCollisions(); i < n; i++) {
+      const hit = kcc.computedCollision(i, this.collision);
+      if (!hit?.collider || hit.normal1.y < 0.3) continue;
+      const tag = this.tags.get(hit.collider.handle);
+      if (tag?.kind === 'wizard') this.support.onWizard = tag.wizard;
+    }
+    if (this.support.onWizard) this.support.grounded = false;
+    return out.set(m.x, m.y, m.z);
+  }
+
+  /**
+   * Height of the highest walkable thing (floor, stump top) under a disc of `radius` at `pos`,
+   * searching down from `pos.y`. Used for airborne ground markers and wave clearance.
+   */
+  groundHeightBelow(pos: Vector3, radius: number): number {
+    if (pos.y <= 0) return 0;
+    let shape = this.ball.get(radius);
+    if (!shape) this.ball.set(radius, (shape = new RAPIER.Ball(radius)));
+    this.probePos.x = pos.x;
+    this.probePos.y = pos.y + radius;
+    this.probePos.z = pos.z;
+    const hit = this.world.castShape(
+      this.probePos, this.identity, this.down, shape, 0, pos.y + radius, true,
+      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WORLD),
+    );
+    return hit ? Math.max(0, Math.min(pos.y, hit.witness1.y)) : 0;
   }
 
   /**

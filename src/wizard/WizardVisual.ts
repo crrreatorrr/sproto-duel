@@ -43,6 +43,7 @@ const SHIELD_FRAG = /* glsl */ `
   }
 `;
 
+const J = CONFIG.wizard.jump;
 const tmpColor = new THREE.Color();
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
@@ -72,6 +73,12 @@ export class WizardVisual {
   private lastShieldAge = 0;
   private leanX = 0;
   private leanZ = 0;
+  /** Jump squash/stretch spring: + stretches, - squashes (fraction of height). */
+  private stretch = 0;
+  private stretchVel = 0;
+  /** Last takeoff/touchdown counts seen (-1 = not synced yet, so a fresh visual doesn't replay one). */
+  private seenJumps = -1;
+  private seenLandings = -1;
   celebrate = false;
   readonly usesModel: boolean;
 
@@ -233,8 +240,9 @@ export class WizardVisual {
   update(w: Wizard, dt: number, alpha: number): void {
     this.time += dt;
     const x = lerp(w.prevPos.x, w.pos.x, alpha);
+    const y = lerp(w.prevPos.y, w.pos.y, alpha);
     const z = lerp(w.prevPos.z, w.pos.z, alpha);
-    this.root.position.set(x, 0, z);
+    this.root.position.set(x, y, z);
     const facing = w.prevFacing + wrapAngle(w.facing - w.prevFacing) * alpha;
     this.root.rotation.y = facing;
 
@@ -247,7 +255,9 @@ export class WizardVisual {
     const frozen = w.stunned;
 
     if (!frozen) {
-      this.leanX = damp(this.leanX, (localZ / CONFIG.wizard.sprintSpeed) * 0.28, 10, dt);
+      // Rising leans back a touch, falling tips forward into the landing.
+      const air = w.grounded ? 0 : -w.vy * 0.012;
+      this.leanX = damp(this.leanX, (localZ / CONFIG.wizard.sprintSpeed) * 0.28 + air, 10, dt);
       this.leanZ = damp(this.leanZ, (-localX / CONFIG.wizard.sprintSpeed) * 0.3, 10, dt);
     }
 
@@ -281,15 +291,41 @@ export class WizardVisual {
     }
     this.pivot.quaternion.copy(tmpQ);
 
+    // Jump squash & stretch: takeoff and touchdown kick a springy scale; airborne speed stretches.
+    if (this.seenJumps < 0) {
+      this.seenJumps = w.jumps;
+      this.seenLandings = w.landings;
+    }
+    if (w.jumps !== this.seenJumps) {
+      this.seenJumps = w.jumps;
+      this.stretch = Math.max(this.stretch, J.takeoffStretch);
+      this.stretchVel = 0;
+    }
+    if (w.landings !== this.seenLandings) {
+      this.seenLandings = w.landings;
+      this.stretch = -Math.min(J.maxLandSquash, w.landSpeed * J.landSquash);
+      this.stretchVel = 0;
+    }
+    // Elongate along the motion, rising or falling; neutral at the apex.
+    const restStretch = w.grounded ? 0 : Math.min(0.08, Math.abs(w.vy) * 0.01);
+    // Fixed sub-steps keep the spring stable through long frames.
+    for (let left = dt; left > 1e-5; left -= 1 / 120) {
+      const h = Math.min(left, 1 / 120);
+      this.stretchVel += (-320 * (this.stretch - restStretch) - 16 * this.stretchVel) * h;
+      this.stretch += this.stretchVel * h;
+    }
+    squash *= 1 + this.stretch;
+    const thin = 1 - this.stretch * 0.5;
+
     // Bob / breathe / celebrate.
-    const moving = speed > 0.5 && !w.dodging && w.alive;
+    const moving = speed > 0.5 && !w.dodging && w.alive && w.grounded;
     let bob = 0;
-    if (frozen) bob = 0;
+    if (frozen || !w.grounded) bob = 0;
     else if (this.celebrate) bob = Math.abs(Math.sin(this.time * 7)) * 0.25;
     else if (moving) bob = Math.abs(Math.sin(this.time * (w.sprinting ? 15 : 12))) * 0.06;
     else bob = Math.sin(this.time * 2.2) * 0.012;
     this.pivot.position.y = 0.9 * squash + bob - (w.alive ? 0 : this.deathT * 0.55);
-    this.pivot.scale.set(1, squash, 1);
+    this.pivot.scale.set(thin, squash, thin);
 
     // Stun jitter.
     if (frozen) this.pivot.position.x = (Math.random() - 0.5) * 0.03;
@@ -350,8 +386,13 @@ export class WizardVisual {
       this.ice.rotation.y = this.time * 0.3;
     }
 
+    // The team ring stays on the ground under an airborne wizard (a landing marker), shrinking with height.
     this.ring.visible = w.alive;
-    (this.ring.material as THREE.MeshBasicMaterial).opacity = 0.35 + (w.invulnerable ? 0.4 : 0);
+    const ground = Math.min(y, w.grounded ? y : w.groundY);
+    const lift = y - ground;
+    this.ring.position.y = 0.03 - lift;
+    this.ring.scale.setScalar(1 - 0.3 * saturate(lift / 1.5));
+    (this.ring.material as THREE.MeshBasicMaterial).opacity = (0.35 + (w.invulnerable ? 0.4 : 0)) * (1 - 0.4 * saturate(lift / 1.5));
 
     // Animation clips for real models.
     if (this.mixer) {
@@ -362,7 +403,12 @@ export class WizardVisual {
       else if (w.cast) this.play(w.cast.spell === 'ultimate' ? 'castBig' : 'cast', 0.06);
       else if (w.castPulse > 0.75) this.play('cast', 0.05, w.castPulse > 0.97);
       else if (w.hitFlash > 0.08) this.play('hit', 0.05);
-      else if (moving) {
+      else if (!w.grounded) {
+        // No jump clip: hold a slowed run pose through the air.
+        this.play('run', 0.15);
+        const run = this.actions.get('run');
+        if (run) run.timeScale = 0.3;
+      } else if (moving) {
         this.play('run', 0.15);
         const run = this.actions.get('run');
         if (run) run.timeScale = speed / CONFIG.wizard.moveSpeed;

@@ -110,6 +110,8 @@ export class Game {
 
   private bindPopups(): void {
     events.on('dodge', (e) => this.fx.roll(e.wizard.pos, e.wizard.dodgeDir, e.wizard.team.spell));
+    events.on('jump', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), 2, 0.5));
+    events.on('land', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), Math.round(2 + e.speed * 0.6), 1.1));
     events.on('damage', (e) => {
       const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' ? 'burn' : 'dmg';
       this.popups.spawn(e.target.chest(tmp), String(Math.round(e.amount)), style);
@@ -216,7 +218,7 @@ export class Game {
     this.dustTimer -= simDt;
     if (this.dustTimer <= 0) {
       this.dustTimer = 0.06;
-      for (const w of this.wizards) if (w.sprinting) this.fx.footDust(w.pos);
+      for (const w of this.wizards) if (w.sprinting && w.grounded && w.pos.y === 0) this.fx.footDust(w.pos);
     }
     this.fx.update(simDt);
 

@@ -12,7 +12,7 @@ export type AIState = 'approach' | 'attack' | 'evade' | 'retreat';
 
 interface Reaction {
   at: number;
-  action: 'dodge' | 'shield';
+  action: 'dodge' | 'shield' | 'jump';
   dir: THREE.Vector3;
 }
 
@@ -209,11 +209,18 @@ export class AIController implements TickController {
         this.biasAwayFromHazards(dir);
         this.reactions.push({ at: Math.max(reactAt, this.time + remaining - 0.08), action: 'dodge', dir: dir.clone() });
       } else if (tc.spell === 'ultimate') {
-        // Roll through the wave as it arrives.
         const d = this.self.pos.distanceTo(this.target.pos);
         const arrive = this.time + remaining + d / SP.ultimate.waveSpeed;
-        const dir = tmpC.subVectors(this.target.pos, this.self.pos).setY(0).normalize();
-        this.reactions.push({ at: Math.max(reactAt, arrive - CONFIG.wizard.dodge.iframes * 0.5), action: 'dodge', dir: dir.clone() });
+        const J = CONFIG.wizard.jump;
+        if (chance(J.aiWaveJump * p.dodgeChance)) {
+          // Hop over it: takeoff timed so the apex meets the wavefront, less precisely when less skilled.
+          const error = rand(-1, 1) * J.aiWaveJumpError * (1 - p.dodgeChance);
+          this.reactions.push({ at: Math.max(reactAt, arrive - J.velocity / J.gravity + error), action: 'jump', dir: new THREE.Vector3() });
+        } else {
+          // Roll through the wave as it arrives.
+          const dir = tmpC.subVectors(this.target.pos, this.self.pos).setY(0).normalize();
+          this.reactions.push({ at: Math.max(reactAt, arrive - CONFIG.wizard.dodge.iframes * 0.5), action: 'dodge', dir: dir.clone() });
+        }
       }
     }
   }
@@ -225,8 +232,14 @@ export class AIController implements TickController {
       if (this.time < r.at) continue;
       this.reactions.splice(i, 1);
       if (w.stunned) continue;
-      if (r.action === 'shield' && w.cd.shield <= 0 && w.mana >= SP.shield.manaCost) {
+      const canShield = w.cd.shield <= 0 && w.mana >= SP.shield.manaCost;
+      if (r.action === 'shield' && canShield) {
         w.intent.press('shield');
+      } else if (r.action === 'jump') {
+        w.intent.press('jump');
+      } else if (!w.grounded && !w.dodging) {
+        // Mid-hop there is no roll: shield instead if it's ready.
+        if (canShield) w.intent.press('shield');
       } else if (w.cd.dodge <= 0 && !w.dodging) {
         if (r.dir.lengthSq() < 0.01) r.dir.set(-Math.cos(w.facing), 0, Math.sin(w.facing));
         w.intent.move.copy(r.dir);
@@ -320,6 +333,10 @@ export class AIController implements TickController {
         const ideal = this.punishTimer > 0 ? near * 0.7 : (near + far) / 2;
         const radial = clamp((dist - ideal) / 4, -1, 1);
         move.copy(strafe).multiplyScalar(p.strafeSpeed).addScaledVector(toTarget, radial * 0.8);
+        // Skilled duelists hop now and then mid-strafe (it also slips bolts aimed at the chest).
+        const J = CONFIG.wizard.jump;
+        const hopSkill = clamp((p.dodgeChance - J.aiHopMinSkill) / (1 - J.aiHopMinSkill), 0, 1);
+        if (hopSkill > 0 && w.grounded && !w.cast && chance(J.aiHopRate * hopSkill * dt)) w.intent.press('jump');
         break;
       }
       case 'retreat': {
