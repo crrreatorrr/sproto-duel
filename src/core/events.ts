@@ -1,7 +1,7 @@
 import type { Vector3 } from 'three';
 import type { Wizard } from '../wizard/Wizard';
 import type { SpellId } from '../spells/types';
-import type { BossDef, ProjectileSkin } from '../campaign/levels';
+import type { BossFighter, ProjectileSkin } from '../campaign/levels';
 
 export type DamageKind = SpellId | 'fire' | 'splash';
 
@@ -10,7 +10,7 @@ export interface GameEvents {
   cast: { wizard: Wizard; spell: SpellId; pos: Vector3 };
   /**
    * A bolt or blast with an object look (a boss's rug, phone, bullet...; see ProjectileSkins) left
-   * the caster's hand: one per projectile, volley shots and sidekick throws included. Audio plays
+   * the caster's hand: one per projectile, volley shots included. Audio plays
    * the object's launch sound instead of the spell's cast sound.
    */
   skinLaunch: { wizard: Wizard; kind: 'bolt' | 'blast'; skin: ProjectileSkin; pos: Vector3 };
@@ -43,11 +43,15 @@ export interface GameEvents {
   suddenDeath: Record<string, never>;
   /**
    * A campaign boss's stage was set: 0 at every round start, 1 or 2 when it evolves. `boss` is null
-   * (stage 0) when the rival stops being a boss. The AI and HUD follow it. See BossStages.
+   * (stage 0) when the wizard stops being a boss. The AI and HUD follow it. See BossStages. Fired
+   * per boss wizard: the rival, and in a double fight its partner too.
    */
-  bossStage: { wizard: Wizard; boss: BossDef | null; stage: number };
-  /** A campaign boss starts transforming from stage `from` into `stage` (a big hit can skip one). */
-  bossEvolve: { wizard: Wizard; boss: BossDef; stage: number; from: number; pos: Vector3 };
+  bossStage: { wizard: Wizard; boss: BossFighter | null; stage: number };
+  /**
+   * A campaign boss starts transforming from stage `from` into `stage` (a big hit can skip one).
+   * `enraged`: its partner just fell, so it goes straight to its last stage.
+   */
+  bossEvolve: { wizard: Wizard; boss: BossFighter; stage: number; from: number; pos: Vector3; enraged: boolean };
   /** A boss fired its signature multi-shot (levels.ts VolleyDef). */
   volley: { wizard: Wizard; name: string; count: number; pos: Vector3 };
   /** Text popup without damage, e.g. "PERFECT!" or "DODGE". */

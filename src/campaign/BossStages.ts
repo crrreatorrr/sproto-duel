@@ -3,11 +3,11 @@ import { CONFIG, type AIProfile } from '../config';
 import { MODELS, type ModelKey } from '../assets/manifest';
 import { events } from '../core/events';
 import { feel } from '../core/feel';
-import { clamp, rand } from '../core/math';
+import { clamp } from '../core/math';
 import type { Game } from '../core/Game';
 import { glowTexture } from '../fx/textures';
 import type { Wizard } from '../wizard/Wizard';
-import type { BossDef, BossStage, StageAttacks } from './levels';
+import type { BossFighter, BossStage, StageAttacks } from './levels';
 
 const C = CONFIG.campaign;
 /** Every boss has three stages (levels.ts `BossDef.stages`). */
@@ -15,7 +15,6 @@ export const STAGE_COUNT = 3;
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
-const tmpAim = new THREE.Vector3();
 const tmpColor = new THREE.Color();
 const tmpColor2 = new THREE.Color();
 const WHITE = new THREE.Color(1, 1, 1);
@@ -27,7 +26,7 @@ export function stageForHealth(fraction: number): number {
 }
 
 /** The boss's base AI scaled for `stage` (0..2) by CONFIG.campaign.stageAI. A fresh object each call. */
-export function stageProfile(boss: BossDef, stage: number): AIProfile {
+export function stageProfile(boss: BossFighter, stage: number): AIProfile {
   const s = clamp(Math.floor(stage), 0, STAGE_COUNT - 1);
   const A = C.stageAI;
   const b = boss.ai;
@@ -44,7 +43,7 @@ export function stageProfile(boss: BossDef, stage: number): AIProfile {
 }
 
 /** What a stage brings, for menus: stage 1 lists what it can cast, later stages what they add. */
-export function stageAttackSummary(boss: BossDef, stage: number): string {
+export function stageAttackSummary(boss: BossFighter, stage: number): string {
   const a = boss.stages[stage].attacks;
   const prev = stage > 0 ? boss.stages[stage - 1].attacks : null;
   const parts: string[] = [];
@@ -63,21 +62,22 @@ export function stageAttackSummary(boss: BossDef, stage: number): string {
  * and immune, a shockwave pushes the player back, a pillar of light rises, and part way through it
  * puts on the stage's model. Without that GLB the current look grows and glows instead
  * (`placeholderScale`, `aura`). Each stage also brings its attacks (levels.ts StageAttacks) and a
- * sharper AI (`stageAI`), which the AI picks up from the `bossStage` event; stages with
- * `sidekickFires` have the boss's companion throw bolts too, while CONFIG.campaign.sidekick.enabled.
+ * sharper AI (`stageAI`), which the AI picks up from the `bossStage` event.
  *
- * Everything is keyed to one `owner` wizard and its own health bar, so a second boss wizard can get
- * its own instance. Game owns one for the rival: `setBoss` from setupEnemy, `reset` from resetArena
- * (every round start), `update` every tick. With no boss (Quick Duel, the default rival) it idles.
+ * Everything is keyed to one `owner` wizard and its own health bar, so each boss wizard has its own
+ * instance: Game.stages for the rival and Game.partnerStages for a double fight's partner. Game
+ * calls `setBoss` from setupEnemy, `reset` from resetArena (every round start), `update` every
+ * tick, and `enrage` on the survivor when one of a pair falls. With no boss (Quick Duel, the
+ * default rival, a parked partner) it idles.
  */
 export class BossStages {
-  /** The boss the rival is dressed as, or null (then nothing here runs). */
-  boss: BossDef | null = null;
+  /** The boss the owner is dressed as, or null (then nothing here runs). */
+  boss: BossFighter | null = null;
   /** Current stage, 0..2. Set when a transformation starts, so it leads the look by half a transform. */
   stage = 0;
   /**
    * QA scenarios run on stock stats (Game.useDefaultStats): no health-triggered evolution, no
-   * sidekick bolts and no `bossStage` events, so the AI keeps every attack.
+   * enrage and no `bossStage` events, so the AI keeps every attack.
    */
   suspended = false;
   /** Stage model currently on the rival, or null for the primitive placeholder. */
@@ -85,7 +85,8 @@ export class BossStages {
   /** Visual-root scale for the current look, before the transformation pop. */
   private scale = 1;
   private swapPending = false;
-  private sidekickTimer = 0;
+  /** The partner fell mid-transformation: enrage as soon as this one is done. */
+  private enragePending = false;
   private moteTimer = 0;
   private time = 0;
   private auraLevel = 0;
@@ -95,8 +96,8 @@ export class BossStages {
   private readonly auraRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
 
   /**
-   * `owner`: the boss wizard whose health drives the stages (the rival, `game.enemy`). `target`: who
-   * the evolution shockwave and sidekick bolts are aimed at (the player).
+   * `owner`: the boss wizard whose health drives the stages (`game.enemy` or `game.partner`).
+   * `target`: who the evolution shockwave pushes (the player).
    */
   constructor(private readonly game: Game, readonly owner: Wizard, private readonly target: Wizard) {
     this.auraGlow = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -155,8 +156,8 @@ export class BossStages {
     return this.scale;
   }
 
-  /** Called by Game.setupEnemy after it dressed the rival (stage 1's model, or the default rival). */
-  setBoss(boss: BossDef | null): void {
+  /** Called by Game.setupEnemy after it dressed the owner (stage 1's model, or the default rival). */
+  setBoss(boss: BossFighter | null): void {
     if (boss !== this.boss) {
       // setupEnemy just put on stage 1's model (or the placeholder when that GLB is missing).
       this.shownModel = boss && this.owner.visual.usesModel ? boss.stages[0].model : null;
@@ -165,6 +166,10 @@ export class BossStages {
         this.auraRing.material.color.setHex(boss.palette.ultimate).multiplyScalar(1.4);
       }
     }
+    // The aura sits around the body, so a short boss gets a lower, smaller one.
+    const k = this.owner.sizeScale;
+    this.auraGlow.position.y = 1.1 * k;
+    this.aura.scale.setScalar(Math.max(0.6, k));
     this.boss = boss;
     this.toStage(0);
   }
@@ -177,8 +182,9 @@ export class BossStages {
   /**
    * Start the transformation into `stage` (1 or 2) now. Health thresholds call this; public for QA
    * and screenshots. Ignored without a boss, mid-transformation, or for a stage not above the current.
+   * `enraged`: the partner fell (see `enrage`), announced as such.
    */
-  evolveTo(stage: number): void {
+  evolveTo(stage: number, enraged = false): void {
     const boss = this.boss;
     const g = this.game;
     const e = this.owner, p = this.target;
@@ -217,11 +223,25 @@ export class BossStages {
     feel.screenFlash(pal.ultimate, C.evolveFlash);
     feel.shakeAt(e.pos, C.evolveShake, 40);
 
-    events.emit('bossEvolve', { wizard: e, boss, stage, from, pos: e.pos });
+    events.emit('bossEvolve', { wizard: e, boss, stage, from, pos: e.pos, enraged });
     this.announce();
   }
 
-  /** Every fixed tick (Game.tick): the look swap, the light pillar, aura motes, sidekick bolts. */
+  /**
+   * A double fight's other boss just fell: go straight to the last stage (its AI, attacks, damage
+   * and look) with an "enraged" transformation, unless already there. Mid-transformation it waits
+   * for the current one to finish. Ignored while suspended (QA stock stats), without a boss, or KO'd.
+   * Returns true if this boss will enrage.
+   */
+  enrage(): boolean {
+    const last = STAGE_COUNT - 1;
+    if (!this.active || !this.owner.alive || this.stage >= last) return false;
+    if (this.owner.evolving) this.enragePending = true;
+    else this.evolveTo(last, true);
+    return true;
+  }
+
+  /** Every fixed tick (Game.tick): the look swap, the light pillar, aura motes, a waiting enrage. */
   update(dt: number): void {
     const boss = this.boss;
     if (!boss) return;
@@ -234,17 +254,31 @@ export class BossStages {
       g.fx.explosion(e.chest(tmpA), boss.palette.spell, 1.6);
       feel.shakeAt(e.pos, C.evolveShake * 0.5, 40);
     }
+    if (this.enragePending && !e.evolving) {
+      this.enragePending = false;
+      if (e.alive && this.active) this.evolveTo(STAGE_COUNT - 1, true);
+    }
     if (e.evolving) this.emitPillar(boss);
     else if (this.auraLevel > 0 && e.alive) this.emitMotes(boss, dt);
-    this.updateSidekick(dt);
+  }
+
+  /**
+   * The stage this boss belongs in right now, never below the current one. The single place a
+   * stage change is decided: today its health against CONFIG.campaign.stageThresholds on one bar.
+   * (A per-stage-bar mode would decide here instead; `enrage` is the only other trigger.)
+   */
+  desiredStage(): number {
+    const e = this.owner;
+    return Math.max(this.stage, stageForHealth(e.health / e.maxHealth));
   }
 
   // ------------------------------------------------------------------ internals
 
+  /** After every hit on the owner: transform if it now belongs in a later stage. */
   private checkHealth(): void {
     const e = this.owner;
     if (!this.active || !e.alive || e.evolving) return;
-    const target = stageForHealth(e.health / e.maxHealth);
+    const target = this.desiredStage();
     if (target > this.stage) this.evolveTo(target);
   }
 
@@ -253,8 +287,8 @@ export class BossStages {
     const e = this.owner;
     this.stage = stage;
     this.swapPending = false;
+    this.enragePending = false;
     e.evolveTime = 0;
-    this.sidekickTimer = rand(C.sidekick.interval[0], C.sidekick.interval[1]);
     this.applyDamage();
     if (this.boss) {
       this.applyLook(stage);
@@ -308,7 +342,7 @@ export class BossStages {
   }
 
   /** Sparks streaming up the light pillar while the boss transforms. */
-  private emitPillar(boss: BossDef): void {
+  private emitPillar(boss: BossFighter): void {
     const fx = this.game.fx;
     const pos = this.owner.pos;
     tmpColor.setHex(boss.palette.ultimate);
@@ -326,7 +360,7 @@ export class BossStages {
   }
 
   /** A few motes drifting up off a stage 2/3 boss. */
-  private emitMotes(boss: BossDef, dt: number): void {
+  private emitMotes(boss: BossFighter, dt: number): void {
     this.moteTimer -= dt * this.auraLevel;
     if (this.moteTimer > 0) return;
     this.moteTimer = 0.07;
@@ -339,32 +373,6 @@ export class BossStages {
       0, 1.2 + Math.random() * 1.6, 0,
       tmpColor, 2, 0.1 + Math.random() * 0.08, 0.8 + Math.random() * 0.5, { drag: 0.6, gravity: -0.4 },
     );
-  }
-
-  /**
-   * Stages with `sidekickFires`: the companion throws one of the boss's bolts at the target every
-   * CONFIG.campaign.sidekick.interval s, from WizardVisual.companionMuzzle (no companion, no throw).
-   * Never during round intros/ends, a transformation, or while the boss is stunned. Off unless
-   * CONFIG.campaign.sidekick.enabled (Obama's partner is to become a wizard of his own).
-   */
-  private updateSidekick(dt: number): void {
-    const g = this.game;
-    const e = this.owner, p = this.target;
-    if (!C.sidekick.enabled || !this.attacks?.sidekickFires || this.suspended || g.actionsLocked) return;
-    if (!e.alive || !p.alive || e.evolving || e.stunned) return;
-    this.sidekickTimer -= dt;
-    if (this.sidekickTimer > 0) return;
-    const S = C.sidekick;
-    this.sidekickTimer = rand(S.interval[0], S.interval[1]);
-    if (!e.visual.companionMuzzle(tmpA)) return;
-    // Lead the player a little, plus some wobble.
-    const travel = tmpA.distanceTo(p.pos) / CONFIG.spells.bolt.speed;
-    p.chest(tmpAim).addScaledVector(p.vel, travel * S.lead);
-    tmpB.subVectors(tmpAim, tmpA).normalize();
-    tmpB.x += rand(-1, 1) * S.aimError;
-    tmpB.y += rand(-0.5, 0.5) * S.aimError;
-    tmpB.z += rand(-1, 1) * S.aimError;
-    g.spells.castSidekickBolt(e, tmpA, tmpB.normalize());
   }
 
   /** Render frames: aura pulse and the crouch-and-burst pop through a transformation. */

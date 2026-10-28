@@ -45,7 +45,10 @@ const SHIELD_FRAG = /* glsl */ `
 
 const J = CONFIG.wizard.jump;
 /** Placeholder silhouettes: the default wizard hat, or a campaign boss's headgear. */
-export type PlaceholderVariant = 'wizard' | 'obama' | 'tinubu' | 'agent' | 'sahil' | 'broccoli';
+export type PlaceholderVariant = 'wizard' | 'obama' | 'midget' | 'tinubu' | 'agent' | 'sahil' | 'broccoli';
+
+/** Placeholders built smaller than a standard wizard (The Midget's 1.25 m hitbox). */
+const PLACEHOLDER_SCALE: Partial<Record<PlaceholderVariant, number>> = { midget: 1.25 / CONFIG.wizard.height };
 
 /** Top of the default placeholder's hat, in meters. */
 const WIZARD_TOP = 2.33;
@@ -58,6 +61,7 @@ const SKIN_TONES: Record<PlaceholderVariant, number> = {
   wizard: 0xe8c4a8,
   sahil: 0xc68d5e,
   obama: 0x7a4e34,
+  midget: 0xd9a77e,
   broccoli: 0xa9c97a,
   agent: 0xe2bfa2,
   tinubu: 0x6b4630,
@@ -105,14 +109,6 @@ export class WizardVisual {
   celebrate = false;
   /** True when a GLB is shown, false for the primitive placeholder. */
   usesModel = false;
-
-  /**
-   * World position a visual companion would throw from. There is no visual companion (a boss's
-   * sidekick is its own Wizard), so this always returns false.
-   */
-  companionMuzzle(_out: THREE.Vector3): boolean {
-    return false;
-  }
   /** Height of the top of the current look (hat, crown or model), in meters. The HUD tag sits above it. */
   topHeight = WIZARD_TOP;
 
@@ -213,6 +209,8 @@ export class WizardVisual {
 
   /** Remove the current look and free what it created (GLB geometry stays shared with its template). */
   private clearLook(): void {
+    this.body.scale.setScalar(1);
+    this.body.position.y = 0;
     this.mixer?.stopAllAction();
     this.mixer = null;
     this.actions.clear();
@@ -269,6 +267,14 @@ export class WizardVisual {
     wand.rotation.x = Math.PI / 2;
     wand.castShadow = false;
     add(new THREE.SphereGeometry(0.04, 8, 6), tip, -0.04, 0.9, 0.77, this.armPivot).castShadow = false;
+
+    // A short boss: the same build, scaled down about the feet.
+    const k = PLACEHOLDER_SCALE[variant] ?? 1;
+    if (k !== 1) {
+      this.body.scale.setScalar(k);
+      this.body.position.y = -0.9 * (1 - k);
+      this.topHeight *= k;
+    }
   }
 
   /** Headgear and body cues for the placeholder (who it is at a glance). Returns the height of its top. */
@@ -319,6 +325,16 @@ export class WizardVisual {
         add(new THREE.TorusGeometry(0.17, 0.012, 5, 20, Math.PI), trim, 0, 1.36, 0.17).rotation.set(Math.PI + 0.35, 0, 0);
         add(new THREE.CylinderGeometry(0.055, 0.055, 0.015, 16), glowing(t.spell, 2.2), 0, 1.19, 0.26).rotation.x = Math.PI / 2 - 0.15;
         return 2.02;
+      }
+      case 'midget': {
+        // The Midget: a short gold top hat, a gold chain and a glowing coin (scaled down after).
+        const gold = standard(t.trim, 0.4);
+        add(new THREE.CylinderGeometry(0.3, 0.3, 0.03, 24), gold, 0, 1.77, 0);
+        add(new THREE.CylinderGeometry(0.17, 0.18, 0.34, 20), gold, 0, 1.95, 0);
+        add(new THREE.CylinderGeometry(0.185, 0.185, 0.05, 20), standard(t.robe, 0.7), 0, 1.81, 0);
+        add(new THREE.TorusGeometry(0.17, 0.014, 5, 20, Math.PI), gold, 0, 1.36, 0.17).rotation.set(Math.PI + 0.35, 0, 0);
+        add(new THREE.CylinderGeometry(0.06, 0.06, 0.015, 16), glowing(t.spell, 2.2), 0, 1.19, 0.26).rotation.x = Math.PI / 2 - 0.15;
+        return 2.12;
       }
       case 'broccoli': {
         // A broccoli-floret head: florets crowd the top and back of a pale green stalk of a face.
@@ -521,7 +537,8 @@ export class WizardVisual {
     if (w.cast) {
       this.chargeGlow.visible = true;
       // Root is already rotated by facing, so the wand tip offset is constant in local space.
-      this.chargeGlow.position.set(-0.34, 1.36 + winding * 0.1, 0.72 + this.armPivot.position.z);
+      const k = w.sizeScale;
+      this.chargeGlow.position.set(-0.34 * k, (1.36 + winding * 0.1) * k, (0.72 + this.armPivot.position.z) * k);
       const spellColor = w.cast.spell === 'stun' ? w.team.stun : w.cast.spell === 'ultimate' ? w.team.ultimate : w.team.blast;
       this.chargeGlow.material.color.setHex(spellColor).multiplyScalar(2.5);
       const size = (w.cast.spell === 'ultimate' ? 2.6 : 1.1) * (0.4 + winding) * (1 + Math.sin(this.time * 40) * 0.08);
@@ -557,13 +574,16 @@ export class WizardVisual {
       u.uOpacity.value = this.shieldScale;
       const pop = 1 + Math.max(0, 0.15 - w.shieldAge) * 1.5;
       this.shield.scale.setScalar(this.shieldScale * pop);
+      this.shield.position.y = w.shieldCenterY;
     }
 
     // Ice shell.
     this.iceScale = damp(this.iceScale, frozen ? 1 : 0, frozen ? 25 : 12, dt);
     this.ice.visible = this.iceScale > 0.02;
     if (this.ice.visible) {
-      this.ice.scale.set(this.iceScale, this.iceScale * 1.45, this.iceScale);
+      const k = this.iceScale * w.sizeScale;
+      this.ice.scale.set(k, k * 1.45, k);
+      this.ice.position.y = w.shieldCenterY;
       this.ice.rotation.y = this.time * 0.3;
     }
 

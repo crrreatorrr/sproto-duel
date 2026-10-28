@@ -85,20 +85,42 @@ ticket face is `textures/golden_ticket.png` (a canvas-drawn face is used without
 
 ## Boss Gauntlet
 
-Five bosses in a row, each a best-of-three duel in their own arena: Bramble (grove), Cinder
-(volcano), Ysolde (glacier), Khepri (desert) and Morvane (void). Fight 1 is very easy and every
-fight after it is harder; this ladder is the game's only difficulty setting (Quick Duel is one
-fixed rival). A card introduces each boss; beat them to unlock the next, lose and you retry the
-same boss. Progress is saved in the browser, so **Continue** on the main menu resumes at the next
-boss. Beating Morvane clears the gauntlet.
+Five fights in a row, each a best-of-three duel in the boss's own arena: Sahil, the RugMaster
+(desert); **Bitcoin Obama & The Midget** (void, a double fight); Broccoli Head (grove); Glowie
+(glacier); and Tinubu (volcano). Fight 1 is very easy and every fight after it is harder; this
+ladder is the game's only difficulty setting (Quick Duel is one fixed rival). A card introduces
+each fight; win to unlock the next, lose and you retry the same one. Progress is saved in the
+browser, so **Continue** on the main menu resumes at the next fight. Beating Tinubu clears the
+gauntlet.
 
-- Bosses, their AI profiles, health/damage multipliers, palettes, themes and intro lines:
-  [src/campaign/levels.ts](src/campaign/levels.ts). Flow: `src/App.ts`; progress: `src/campaign/Campaign.ts`.
-- Boss models load from `models/bosses/<id>.glb` and portraits from `ui/bosses/<id>.png` when
-  present; otherwise the rival is a primitive wizard in the boss's colours and headgear, and the
-  portrait is a stylized silhouette.
-- `await __duel.qa.campaignSoak(6)` plays a reference AI against each boss and reports round
-  lengths and win rates; `__duel.qa.run('campaign.ladder_escalates')` checks the ladder.
+Every boss evolves twice per round, at 2/3 and 1/3 of its health: a short invulnerable
+transformation into a bigger form with more attacks (Blast, Stun, the Ultimate, a signature
+volley) and a sharper AI. The HUD shows the stage under the boss's health bar.
+
+**The double fight.** In fight 2 you face Bitcoin Obama (tall) and The Midget (short, quick and
+jumpy) at the same time. Each has his own health bar, stages, AI and palette (both throw phones
+and pigs), and the two keep apart and try to flank you. Spells never hurt, push, stun, block or
+clash with their own side, so their shots pass through each other. The round is yours once both
+are down (a fallen boss stays down and doesn't block shots) and theirs if you fall. When one of
+them falls, the other is **enraged**: he transforms straight into his last stage. On time-out
+your health fraction is compared with their combined fraction. Aim assist locks onto whichever
+standing boss is nearest your crosshair. The Midget's hitbox is 1.25 m tall, so a bolt aimed high
+at Obama can fly over his head.
+
+- Bosses, stages, AI profiles, health/damage multipliers, palettes, themes, intro lines and the
+  double fight's `partner`: [src/campaign/levels.ts](src/campaign/levels.ts). Stages:
+  `src/campaign/BossStages.ts` (one per boss wizard). The partner is a third wizard
+  (`Game.partner`, side 1) that joins `Game.wizards` only during that fight. Flow: `src/App.ts`;
+  rounds: `src/core/Match.ts`; progress: `src/campaign/Campaign.ts`. Tuning: `CONFIG.campaign`
+  (`duo` for the pair's spawn gap, spacing and flanking).
+- Stage models load from `models/bosses/<id>/stage1..3.glb` and portraits from
+  `ui/bosses/<id>.png` (`<id>_stage2.png`, `<id>_stage3.png` for later stages) when present;
+  otherwise the boss is a primitive wizard in its colours and headgear that grows each stage, and
+  the portrait is a stylized silhouette. See [ASSETS.md](ASSETS.md).
+- `await __duel.qa.campaignSoak(12)` plays a reference AI against each fight (the double fight
+  with both bosses; the reference AI targets the nearest standing one) and reports round lengths,
+  win rates, stages reached and the pair's damage split; `__duel.qa.run('campaign.ladder_escalates')`
+  checks the ladder and `__duel.qa.runAll('duo.')` the double fight.
 
 ## God mode (testing)
 

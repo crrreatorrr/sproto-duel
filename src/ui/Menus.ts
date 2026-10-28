@@ -4,7 +4,7 @@ import { MenuNav } from './MenuNav';
 import { resolveImage } from '../assets/AssetLoader';
 import { bossStagePortrait } from '../assets/manifest';
 import { STAGE_COUNT, stageAttackSummary } from '../campaign/BossStages';
-import { ARENA_NAMES, BOSSES, type BossDef } from '../campaign/levels';
+import { ARENA_NAMES, BOSSES, bossDisplayName, type BossDef, type BossFighter } from '../campaign/levels';
 import { bossPortraitHtml, bossStyleVars } from '../campaign/portrait';
 
 export interface Settings {
@@ -91,6 +91,10 @@ export interface StageInfo {
   /** 0-based stage. */
   index: number;
   name: string;
+  /** Whose stage, in a double fight (shown before it); '' for a lone boss. */
+  who?: string;
+  /** That boss is knocked out this round. */
+  down?: boolean;
 }
 
 const NUMERALS = ['I', 'II', 'III'];
@@ -238,7 +242,7 @@ export class Menus {
     const g = this.h.gauntletStatus();
     const cont = g.canContinue && g.next
       ? `<button class="gauntlet-btn continue" data-act="continue" style="${bossStyleVars(g.next)}">
-           <b>Continue</b><small>Fight ${g.nextIndex + 1} of ${BOSSES.length} · ${g.next.name}</small>
+           <b>Continue</b><small>Fight ${g.nextIndex + 1} of ${BOSSES.length} · ${bossDisplayName(g.next)}</small>
          </button>`
       : '';
     const s = this.mount(`
@@ -335,14 +339,18 @@ export class Menus {
     this.on(s, '[data-act="back"]', back);
   }
 
-  /** `subtitle`: e.g. the boss being fought in the gauntlet; `stage`: that boss's current stage. */
-  showPause(subtitle = '', stage: StageInfo | null = null): void {
-    const pips = stage ? Array.from({ length: STAGE_COUNT }, (_, i) => `<i class="${i < stage.index ? 'done' : i === stage.index ? 'on' : ''}"></i>`).join('') : '';
+  /** `subtitle`: e.g. the boss being fought in the gauntlet; `stages`: each boss's current stage (two in a double fight). */
+  showPause(subtitle = '', stages: StageInfo[] = []): void {
+    const line = (st: StageInfo) => {
+      const pips = Array.from({ length: STAGE_COUNT }, (_, i) => `<i class="${i < st.index ? 'done' : i === st.index ? 'on' : ''}"></i>`).join('');
+      const who = st.who ? `${st.who}: ` : '';
+      return `<p class="pause-stage${st.down ? ' down' : ''}"><span class="stage-pips">${pips}</span>${who}Stage ${st.index + 1} of ${STAGE_COUNT} · ${st.name}${st.down ? ' (down)' : ''}</p>`;
+    };
     const s = this.mount(`
       <div class="menu-panel pause">
         <h2>Paused</h2>
         ${subtitle ? `<p class="note pause-sub">${subtitle}</p>` : ''}
-        ${stage ? `<p class="pause-stage"><span class="stage-pips">${pips}</span>Stage ${stage.index + 1} of ${STAGE_COUNT} · ${stage.name}</p>` : ''}
+        ${stages.map(line).join('')}
         <button class="primary" data-act="resume">Resume</button>
         <button data-act="restart">Restart Match</button>
         <button data-act="howto">How to Play</button>
@@ -351,8 +359,8 @@ export class Menus {
       </div>`, 'pause');
     this.on(s, '[data-act="resume"]', () => this.h.resume());
     this.on(s, '[data-act="restart"]', () => this.h.restart());
-    this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stage)));
-    this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stage)));
+    this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stages)));
+    this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stages)));
     this.on(s, '[data-act="quit"]', () => this.h.quit());
   }
 
@@ -360,24 +368,33 @@ export class Menus {
   private ladderHtml(current: number, cleared: number): string {
     return `<ol class="boss-ladder">${BOSSES.map((b, i) => {
       const state = i < cleared ? 'cleared' : i === current ? 'current' : 'locked';
-      return `<li class="${state}" style="${bossStyleVars(b)}" title="${i < cleared || i === current ? b.name : '???'}"><span>${i < cleared ? '✓' : i + 1}</span></li>`;
+      return `<li class="${state}" style="${bossStyleVars(b)}" title="${i < cleared || i === current ? bossDisplayName(b) : '???'}"><span>${i < cleared ? '✓' : i + 1}</span></li>`;
     }).join('')}</ol>`;
   }
 
-  /** The boss's three stages: concept art (or a numeral), name, and what each one unlocks. */
-  private stagesHtml(b: BossDef): string {
-    return `<ol class="boss-stages">${b.stages.map((st, i) => {
+  /** A boss's three stages: concept art (or a numeral), name, and what each one unlocks. */
+  private stagesHtml(b: BossFighter, cls = '', style = ''): string {
+    return `<ol class="boss-stages${cls}"${style ? ` style="${style}"` : ''}>${b.stages.map((st, i) => {
       const art = resolveImage(bossStagePortrait(b.id, i));
       return `<li><div class="stage-art">${art ? `<img src="${art}" alt="${st.name}" draggable="false">` : NUMERALS[i]}</div>
         <b><i>${NUMERALS[i]}</i>${st.name}</b><small>${stageAttackSummary(b, i)}</small></li>`;
     }).join('')}</ol>`;
   }
 
-  /** Pre-fight card: portrait, name, title, intro line, fight number, and the three stages. */
+  /**
+   * Pre-fight card: portrait, name, title, intro line, fight number, and the three stages. A double
+   * fight names both bosses, lists both health pools, and shows each one's stages under its name.
+   */
   showBossIntro(info: BossIntro, actions: { begin(): void; back(): void }): void {
     const b = info.boss;
-    const hp = Math.round(CONFIG.wizard.maxHealth * b.healthMultiplier);
+    const pair = b.partner;
+    const hpOf = (f: BossFighter) => Math.round(CONFIG.wizard.maxHealth * f.healthMultiplier);
+    const hp = pair ? `${hpOf(b)} + ${hpOf(pair)} HP` : `${hpOf(b)} HP`;
     const threat = BOSSES.map((_, i) => `<i class="${i <= info.index ? 'on' : ''}"></i>`).join('');
+    const stages = pair
+      ? `<p class="boss-stages-who">${b.name}</p>${this.stagesHtml(b)}
+        <p class="boss-stages-who partner" style="${bossStyleVars(pair)}">${pair.name}</p>${this.stagesHtml(pair, ' partner', bossStyleVars(pair))}`
+      : this.stagesHtml(b);
     const s = this.mount(`
       <div class="menu-panel boss-card" style="${bossStyleVars(b)}">
         ${this.ladderHtml(info.index, info.index)}
@@ -385,17 +402,17 @@ export class Menus {
           ${bossPortraitHtml(b, 'large')}
           <div class="boss-text">
             <p class="boss-fight">Fight ${info.index + 1} of ${info.total}</p>
-            <h1 class="boss-name">${b.name}</h1>
+            <h1 class="boss-name${pair ? ' duo' : ''}">${pair ? `<span>${b.name}</span> <span>&amp; ${pair.name}</span>` : b.name}</h1>
             <p class="boss-title">${b.title}</p>
             <p class="boss-intro">${b.intro}</p>
             <dl class="boss-facts">
               <dt>Arena</dt><dd>${ARENA_NAMES[b.theme]}</dd>
-              <dt>Vitality</dt><dd>${hp} HP</dd>
+              <dt>Vitality</dt><dd>${hp}</dd>
               <dt>Threat</dt><dd class="threat">${threat}</dd>
             </dl>
           </div>
         </div>
-        ${this.stagesHtml(b)}
+        ${stages}
         <button class="primary" data-act="begin">Begin</button>
         <button class="ghost" data-act="menu">Main Menu</button>
       </div>`, 'boss');
@@ -411,7 +428,7 @@ export class Menus {
         <h1 class="result-title">Conquered</h1>
         <p class="tagline">All ${BOSSES.length} bosses have fallen to your wand.</p>
         <ol class="complete-roll">
-          ${BOSSES.map((b) => `<li style="${bossStyleVars(b)}">${bossPortraitHtml(b, 'small')}<b>${b.name}</b><small>${b.title}</small></li>`).join('')}
+          ${BOSSES.map((b) => `<li style="${bossStyleVars(b)}">${bossPortraitHtml(b, 'small')}<b>${bossDisplayName(b)}</b><small>${b.title}</small></li>`).join('')}
         </ol>
         <p class="note">${info.clears > 1 ? `Gauntlet cleared ${info.clears} times.` : 'First clear. Well duelled.'}</p>
         <button class="primary" data-act="again">Run It Again</button>

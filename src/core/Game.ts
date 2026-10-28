@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
 import { MODELS, type ModelKey } from '../assets/manifest';
-import type { BossDef } from '../campaign/levels';
+import type { BossDef, BossPartner } from '../campaign/levels';
 import { BossStages } from '../campaign/BossStages';
 import { Arena } from '../arena/Arena';
 import { FireRing } from '../arena/FireRing';
@@ -28,6 +28,21 @@ export interface TickController {
 
 const tmp = new THREE.Vector3();
 
+/** The standing wizard in `list` nearest `from`, or null if all are down. */
+export function nearestStanding(from: Wizard, list: readonly Wizard[]): Wizard | null {
+  let best: Wizard | null = null;
+  let bestD = Infinity;
+  for (const w of list) {
+    if (!w.alive) continue;
+    const d = w.pos.distanceToSquared(from.pos);
+    if (d < bestD) {
+      bestD = d;
+      best = w;
+    }
+  }
+  return best;
+}
+
 export class Game {
   readonly renderer: Renderer;
   readonly input: Input;
@@ -36,19 +51,35 @@ export class Game {
   readonly fx: Effects;
   readonly fire: FireRing;
   readonly spells: SpellSystem;
+  /**
+   * Every wizard in the fight, the single source of truth (SpellSystem holds this same array).
+   * [player, enemy], plus `partner` while a double fight is on. Mutated in place, never replaced.
+   */
   readonly wizards: Wizard[];
   readonly player: Wizard;
+  /** The rival (index 1, side 1): the Quick Duel opponent or the campaign boss. */
   readonly enemy: Wizard;
+  /**
+   * A double fight's second boss (index 2, side 1), created once. Only in `wizards` (and solid and
+   * visible) while the current boss has a `partner`; otherwise parked. See setupPartner.
+   */
+  readonly partner: Wizard;
+  /** The player's opponents in this fight, alive or not: [enemy], or [enemy, partner]. Mutated in place. */
+  readonly enemies: Wizard[];
   readonly playerController: PlayerController;
   readonly popups: DamageNumbers;
   /** Golden-ticket pickups (mana boost). Match enables spawning during the fight phase. */
   readonly tickets: GoldenTickets;
+  /** Drives the enemies inside the fixed tick (App: the rival's AI, and the partner's in a double fight). */
   enemyController: TickController | null = null;
   /** The campaign boss the rival is dressed as, or null for the default rival. */
   boss: BossDef | null = null;
   /** The boss's three in-round stages (evolution, stage looks and attacks). Idle without a boss. */
   readonly stages: BossStages;
+  /** The partner's own stages, keyed to its own health bar. Idle outside a double fight. */
+  readonly partnerStages: BossStages;
   private enemyLook = 'rival';
+  private partnerLook = '';
 
   /** False while paused or in menus: the simulation doesn't advance. */
   simulating = true;
@@ -93,23 +124,33 @@ export class Game {
     this.fire = new FireRing(scene, this.fx);
     this.arena.attach(this.fire);
 
-    const makeWizard = (index: 0 | 1) => {
-      const team = CONFIG.teams[index];
+    const makeWizard = (index: 0 | 1 | 2) => {
+      const team = CONFIG.teams[index === 0 ? 0 : 1];
       const modelKey = index === 0 ? 'wizardPlayer' : 'wizardRival';
       const visual = new WizardVisual(team, assets.instantiate(modelKey), MODELS[modelKey]);
       scene.add(visual.root);
-      return new Wizard(index, team, team.name, visual, physics);
+      return new Wizard(index, index === 0 ? 0 : 1, team, team.name, visual, physics);
     };
     this.player = makeWizard(0);
     this.enemy = makeWizard(1);
+    this.partner = makeWizard(2);
     this.wizards = [this.player, this.enemy];
+    this.enemies = [this.enemy];
     feel.local = this.player;
 
     this.spells = new SpellSystem(scene, physics, this.fx, this.wizards, this.arena);
     this.tickets = new GoldenTickets(scene, physics, this.fx, this.wizards, this.arena, assets);
-    this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemy);
+    this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemies);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
     this.stages = new BossStages(this, this.enemy, this.player);
+    this.partnerStages = new BossStages(this, this.partner, this.player);
+    this.parkPartner();
+    // A double fight: when one boss falls, the other is enraged (straight to its last stage).
+    events.on('ko', (e) => {
+      if (!this.partnerActive || e.loser.side !== 1) return;
+      const survivor = e.loser === this.enemy ? this.partner : e.loser === this.partner ? this.enemy : null;
+      if (survivor?.alive) this.stagesOf(survivor)?.enrage();
+    });
 
     const syncPointScale = () => {
       this.fx.setPointScale(this.renderer.pointScale);
@@ -154,6 +195,7 @@ export class Game {
     feel.reset();
     this.accumulator = 0;
     this.stages.reset();
+    this.partnerStages.reset();
   }
 
   /**
@@ -180,6 +222,69 @@ export class Game {
       e.visual.setAppearance(team, this.assets.instantiate(modelKey), MODELS[modelKey], boss ? boss.id : 'wizard');
     }
     this.stages.setBoss(boss);
+    this.setupPartner(boss?.partner ?? null);
+  }
+
+  /** A double fight is on: the partner is in `wizards` and `enemies`. */
+  get partnerActive(): boolean {
+    return this.enemies.length > 1;
+  }
+
+  /** The stages driving boss wizard `w` (the rival's or the partner's), or null for anyone else. */
+  stagesOf(w: Wizard): BossStages | null {
+    return w === this.enemy ? this.stages : w === this.partner ? this.partnerStages : null;
+  }
+
+  /**
+   * Dress the partner as a double fight's second boss and bring it into the fight (`def`), or park
+   * it (`null`). Called by setupEnemy with the boss's `partner`; public so QA can bench it.
+   * Parked: out of `wizards`/`enemies`, collider disabled, visual hidden, nothing in flight.
+   */
+  setupPartner(def: BossPartner | null): void {
+    const w = this.partner;
+    if (!def) {
+      this.partnerStages.setBoss(null);
+      this.parkPartner();
+      return;
+    }
+    w.team = def.palette;
+    w.name = def.name;
+    w.maxHealth = Math.round(CONFIG.wizard.maxHealth * def.healthMultiplier);
+    w.damageMultiplier = def.damageMultiplier;
+    w.setHitbox(def.hitbox.radius, def.hitbox.height);
+    this.spells.pool.setTeamPalette(w.index, def.palette);
+    w.skins = def.skins;
+    this.spells.pool.prepareSkins(w.index, w.skins);
+    if (this.partnerLook !== def.id) {
+      this.partnerLook = def.id;
+      const key = def.stages[0].model;
+      w.visual.setAppearance(def.palette, this.assets.instantiate(key), MODELS[key], def.id);
+    }
+    if (!this.partnerActive) {
+      this.wizards.push(w);
+      this.enemies.push(w);
+      w.setEnabled(true);
+      w.resetForRound(false);
+      w.resetStats();
+      w.visual.root.visible = true;
+      const [x, z, facing] = this.spawnSpot(w);
+      w.spawn(x, z, facing);
+    }
+    w.health = Math.min(w.health, w.maxHealth);
+    this.partnerStages.setBoss(def);
+  }
+
+  private parkPartner(): void {
+    const w = this.partner;
+    const i = this.wizards.indexOf(w);
+    if (i >= 0) this.wizards.splice(i, 1);
+    const j = this.enemies.indexOf(w);
+    if (j >= 0) this.enemies.splice(j, 1);
+    this.spells.releaseOwned(w);
+    // Free its object looks (phones, pigs...): nothing of its is in flight any more.
+    this.spells.pool.prepareSkins(w.index, null);
+    w.setEnabled(false);
+    w.visual.root.visible = false;
   }
 
   /** God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash power. */
@@ -196,7 +301,7 @@ export class Game {
   }
 
   /**
-   * Give both wizards default combat stats, and suspend boss stages, until the returned function is
+   * Give every wizard default combat stats, and suspend boss stages, until the returned function is
    * called (QA scenarios assume stock health and damage, whatever boss or god mode is active).
    */
   useDefaultStats(): () => void {
@@ -209,7 +314,8 @@ export class Game {
       w.immune = w.infiniteMana = w.noCooldowns = false;
     }
     const stagesSuspended = this.stages.suspended;
-    this.stages.suspended = true;
+    const partnerSuspended = this.partnerStages.suspended;
+    this.stages.suspended = this.partnerStages.suspended = true;
     return () => {
       for (const s of saved) {
         s.w.maxHealth = s.max;
@@ -221,16 +327,28 @@ export class Game {
         s.w.noCooldowns = s.cds;
       }
       this.stages.suspended = stagesSuspended;
+      this.partnerStages.suspended = partnerSuspended;
     };
   }
 
-  /** Put both wizards on their spawn marks facing each other. */
-  spawnWizards(): void {
+  /**
+   * Spawn mark (x, z, facing) for `w`: the player and the rival face each other across the arena;
+   * in a double fight the two bosses stand side by side, CONFIG.campaign.duo.spawnSpacing apart.
+   */
+  spawnSpot(w: Wizard): [number, number, number] {
     const d = CONFIG.arena.spawnDistance / 2;
-    this.player.spawn(0, -d, 0);
-    this.enemy.spawn(0, d, Math.PI);
-    this.player.aimPoint.set(0, 1.2, d);
-    this.enemy.aimPoint.set(0, 1.2, -d);
+    if (w.side === 0) return [0, -d, 0];
+    const half = this.partnerActive ? CONFIG.campaign.duo.spawnSpacing / 2 : 0;
+    return [w === this.partner ? -half : half, d, Math.PI];
+  }
+
+  /** Put every wizard on its spawn mark, facing the other side. */
+  spawnWizards(): void {
+    for (const w of this.wizards) {
+      const [x, z, facing] = this.spawnSpot(w);
+      w.spawn(x, z, facing);
+      w.aimPoint.set(x, 1.2, -z);
+    }
     this.physics.step();
     this.rig.snap(this.player.pos, 0);
   }
@@ -294,6 +412,7 @@ export class Game {
     }
     for (const w of this.wizards) w.updateTimers(dt);
     this.stages.update(dt);
+    this.partnerStages.update(dt);
     this.spells.update(dt);
     for (const w of this.wizards) w.updateMovement(dt, this.physics);
     this.physics.step();

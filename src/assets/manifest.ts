@@ -75,6 +75,10 @@ function bossStages<Id extends string>(id: Id, heights: [number, number, number]
   return out;
 }
 
+/** The Midget's stages. Stage 1's mesh has a ~4.6° yaw baked into its node (2 and 3 don't): cancel it so the swap doesn't twist him. */
+const MIDGET_STAGES = bossStages('midget', [1.25, 1.4, 1.6]);
+MIDGET_STAGES.bossMidget1.rotationY = -94.6;
+
 export const MODELS = {
   // Player: Higgsfield/Tripo static mesh (faces +X), animated procedurally like the bosses.
   wizardPlayer: { path: 'models/wizard_player.glb', fitHeight: 1.9, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS },
@@ -89,7 +93,8 @@ export const MODELS = {
   // thin robes and capes render double-sided. Each stage stands a little taller.
   ...bossStages('sahil', [2.0, 2.25, 2.55]),
   ...bossStages('obama', [2.1, 2.3, 2.55]),
-  bossObamaSidekick: { path: 'models/bosses/midget/stage1.glb', fitHeight: 1.25, rotationY: -90, doubleSided: true, anchor: 'feet' },
+  // Bitcoin Obama's partner in the double fight: short (his hitbox is 1.25 m), a little bigger each stage.
+  ...MIDGET_STAGES,
   ...bossStages('broccoli', [2.0, 2.35, 2.8]),
   ...bossStages('agent', [2.0, 2.2, 2.5]),
   ...bossStages('tinubu', [2.1, 2.45, 2.9]),
@@ -189,10 +194,11 @@ export const THEME_ASSETS: Record<ArenaThemeId, ThemeAssets> = {
   void: themeAssets('void', 6),
 };
 
-/** Boss portraits for the campaign screens (square PNG/WebP). */
+/** Boss portraits for the campaign screens (square PNG/WebP). `obama` shows the duo; `midget` is his partner alone. */
 export const BOSS_PORTRAITS = {
   sahil: 'ui/bosses/sahil.png',
   obama: 'ui/bosses/obama.png',
+  midget: 'ui/bosses/midget.png',
   broccoli: 'ui/bosses/broccoli.png',
   agent: 'ui/bosses/agent.png',
   tinubu: 'ui/bosses/tinubu.png',

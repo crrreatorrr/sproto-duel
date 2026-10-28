@@ -3,7 +3,7 @@ import { CONFIG, type TeamPalette } from '../config';
 import type { App } from '../App';
 import { SOUNDS, type SoundKey } from '../assets/manifest';
 import { skinSound } from '../audio/AudioManager';
-import { BOSSES, type BossDef } from '../campaign/levels';
+import { BOSSES, bossFighters, type BossDef } from '../campaign/levels';
 import { events, type GameEvents } from '../core/events';
 import type { Game } from '../core/Game';
 import type { Projectile } from '../spells/Projectile';
@@ -160,11 +160,11 @@ export function registerSkinScenarios(qa: QAHarness, game: Game, app: App): void
       c.expect(cast(c, game, game.player, 'bolt')?.skin === 'phone', 'player bolt is not a phone');
       c.expect(cast(c, game, game.player, 'blast')?.skin === 'pig', 'player blast is not a pig');
     });
-    // ...and a wizard index beyond the two built-in teams (a third wizard), in its own palette.
+    // ...and a wizard index beyond the built-in ones (2 is a double fight's partner), in its own palette.
     c.setup();
     const pool = game.spells.pool;
-    const palette: TeamPalette = { ...CONFIG.teams[1], name: 'Third', spell: 0x33ff99, blast: 0xff33cc };
-    const third = { index: 2, team: palette, skins: { bolt: 'bullet', blast: 'grenade' } } as unknown as Wizard;
+    const palette: TeamPalette = { ...CONFIG.teams[1], name: 'Fourth', spell: 0x33ff99, blast: 0xff33cc };
+    const third = { index: 3, side: 1, team: palette, skins: { bolt: 'bullet', blast: 'grenade' } } as unknown as Wizard;
     const spawn = (kind: 'bolt' | 'blast') => {
       const p = pool.spawn(kind)!;
       p.owner = p.caster = third;
@@ -177,15 +177,15 @@ export function registerSkinScenarios(qa: QAHarness, game: Game, app: App): void
       return p;
     };
     const b = spawn('bolt'), g = spawn('blast');
-    c.expect(b.skin === 'bullet' && g.skin === 'grenade', `third wizard threw ${b.skin}/${g.skin}`);
-    c.expect(pool.skins.stats().skins.includes('bullet:2'), `no batch for wizard 2: ${pool.skins.stats().skins}`);
+    c.expect(b.skin === 'bullet' && g.skin === 'grenade', `extra wizard threw ${b.skin}/${g.skin}`);
+    c.expect(pool.skins.stats().skins.includes('bullet:3'), `no batch for wizard 3: ${pool.skins.stats().skins}`);
     const want = new THREE.Color(palette.spell).multiplyScalar(1.8);
-    const got = pool.teamBoltColor(2);
-    c.expect(Math.abs(got.r - want.r) + Math.abs(got.g - want.g) + Math.abs(got.b - want.b) < 1e-3, 'third wizard glow not in its palette');
+    const got = pool.teamBoltColor(3);
+    c.expect(Math.abs(got.r - want.r) + Math.abs(got.g - want.g) + Math.abs(got.b - want.b) < 1e-3, 'extra wizard glow not in its palette');
     pool.release(b);
     pool.release(g);
-    pool.prepareSkins(2, null);
-    c.expect(!pool.skins.stats().skins.some((k) => k.endsWith(':2')), 'idle third-wizard batches not freed');
+    pool.prepareSkins(3, null);
+    c.expect(!pool.skins.stats().skins.some((k) => k.endsWith(':3')), 'idle extra-wizard batches not freed');
   });
 
   qa.add('skins.reflect_keeps_skin', (c) => {
@@ -253,7 +253,8 @@ export function registerSkinScenarios(qa: QAHarness, game: Game, app: App): void
       c.expect(pool.active.length === 0 && pool.skins.stats().active === 0, `leaked: ${pool.active.length} projectiles, ${pool.skins.stats().active} instances`);
       c.note(`${casts} casts, meshes ${meshes.length}`);
     });
-    // Cycle every boss twice: batches follow the current boss and never pile up.
+    // Cycle every boss twice: batches follow the current boss and never pile up. A double fight's
+    // partner has its own (its phones and pigs are in its colours), freed when it leaves.
     let peak = 0;
     for (let round = 0; round < 2; round++) {
       for (const boss of BOSSES) {
@@ -261,13 +262,14 @@ export function registerSkinScenarios(qa: QAHarness, game: Game, app: App): void
           c.setup();
           cast(c, game, e, 'bolt');
           cast(c, game, e, 'blast');
-          peak = Math.max(peak, skinMeshes(game).length);
+          peak = Math.max(peak, skinMeshes(game).length - 2 * (bossFighters(boss).length - 1));
           c.step(S.blast.lifetime + 0.3);
         });
       }
     }
     withBoss(null, () => {
-      c.expect(!pool.skins.stats().skins.some((k) => k.endsWith(`:${e.index}`)), `rival batches kept after Quick Duel: ${pool.skins.stats().skins}`);
+      const kept = pool.skins.stats().skins.filter((k) => k.endsWith(`:${e.index}`) || k.endsWith(`:${game.partner.index}`));
+      c.expect(kept.length === 0, `rival/partner batches kept after Quick Duel: ${kept}`);
     });
     c.expect(peak <= 4, `up to ${peak} skin meshes for one boss`);
     c.note(`peak meshes per boss ${peak}`);

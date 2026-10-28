@@ -401,6 +401,8 @@ export function registerTicketScenarios(qa: QAHarness, game: Game, app: App): vo
       ai.update(DT);
       if (ai.seekingTicket) sought++;
       if (shoot) {
+        // Keep the fire up for real: a Stun from the AI would otherwise pause it and open a window.
+        c.player.stunTime = 0;
         c.player.mana = 1e6;
         c.enemy.chest(c.player.aimPoint);
         c.player.intent.facing = Math.atan2(c.enemy.pos.x - c.player.pos.x, c.enemy.pos.z - c.player.pos.z);
@@ -466,7 +468,8 @@ export function registerTicketScenarios(qa: QAHarness, game: Game, app: App): vo
   qa.add('tickets.works_with_three_wizards', (c) => {
     // A temporary third wizard: spawn spots avoid it, it can collect, all three get auras and boosts.
     c.setup({ player: [-10, 0], enemy: [10, 0] });
-    const third = new Wizard(game.wizards.length, CONFIG.teams[1], 'Third', new WizardVisual(CONFIG.teams[1], null, MODELS.wizardRival), game.physics);
+    // Index 3: 2 is the double fight's partner (parked here). Side 1, an enemy.
+    const third = new Wizard(3, 1, CONFIG.teams[1], 'Third', new WizardVisual(CONFIG.teams[1], null, MODELS.wizardRival), game.physics);
     game.wizards.push(third);
     const ends = new Set<Wizard>();
     let collector: Wizard | null = null;

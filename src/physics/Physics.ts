@@ -20,6 +20,7 @@ export const GROUP = {
 } as const;
 
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
+const capsuleHalfHeight = (radius: number, height: number) => Math.max(0.05, height / 2 - radius);
 /** How far the wizards-only barrier reaches above the visible wall. */
 const BARRIER_HEIGHT = 6;
 
@@ -127,13 +128,29 @@ export class Physics {
 
   /** Kinematic capsule whose bottom sits on y = 0 when the body is at `capsuleCenterY`. */
   addWizard(radius: number, height: number, wizard: Wizard) {
-    const halfHeight = Math.max(0.05, height / 2 - radius);
     const centerY = height / 2 + 0.02;
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, centerY, 0));
-    const desc = RAPIER.ColliderDesc.capsule(halfHeight, radius).setCollisionGroups(groups(GROUP.WIZARD, 0xffff));
+    const desc = RAPIER.ColliderDesc.capsule(capsuleHalfHeight(radius, height), radius).setCollisionGroups(groups(GROUP.WIZARD, 0xffff));
     const collider = this.world.createCollider(desc, body);
     this.tags.set(collider.handle, { kind: 'wizard', wizard });
     return { body, collider, centerY };
+  }
+
+  /** Reshape a wizard capsule (a short boss). Returns the new body centre height (see addWizard). */
+  resizeWizard(collider: RAPIER.Collider, radius: number, height: number): number {
+    collider.setRadius(radius);
+    collider.setHalfHeight(capsuleHalfHeight(radius, height));
+    return height / 2 + 0.02;
+  }
+
+  /**
+   * A knocked-out wizard stops being solid: nothing walks into, aims at or hits the body (its own
+   * moves still slide against the world). An inactive one (a parked boss partner) is removed from
+   * the world entirely with `enabled` false.
+   */
+  setWizardSolid(collider: RAPIER.Collider, solid: boolean, enabled = true): void {
+    collider.setCollisionGroups(groups(solid ? GROUP.WIZARD : 0, 0xffff));
+    collider.setEnabled(enabled);
   }
 
   /**

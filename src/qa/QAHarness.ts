@@ -26,8 +26,11 @@ interface Ctx {
   enemy: Wizard;
   /** Step the simulation for `seconds` of game time. */
   step(seconds: number, each?: () => void): void;
-  /** Reset everything and place the wizards. */
-  setup(opts?: { player?: [number, number]; enemy?: [number, number] }): void;
+  /**
+   * Reset everything and place the wizards. In a double fight the partner goes to `partner`
+   * (default: CONFIG.campaign.duo.spawnSpacing to the enemy's side), facing the player.
+   */
+  setup(opts?: { player?: [number, number]; enemy?: [number, number]; partner?: [number, number] }): void;
   aimAt(w: Wizard, target: Wizard): void;
   expect(cond: boolean, msg: string): void;
   near(actual: number, expected: number, tolerance: number, label: string): void;
@@ -89,7 +92,11 @@ export class QAHarness {
     return { name, pass, detail, ms: Math.round(performance.now() - t0) };
   }
 
-  /** Run `fn` with the live loop, match flow and enemy controller detached, then restore a clean game. */
+  /**
+   * Run `fn` with the live loop, match flow and enemy controller detached, then restore a clean game.
+   * Scenarios are 1v1: a double fight's partner is benched for the run (scenarios that want it dress
+   * a boss with a partner themselves) and brought back afterwards if that fight is still set up.
+   */
   async sandbox(fn: () => void): Promise<void> {
     const g = this.game;
     const saved = { simulating: g.simulating, playerControl: g.playerControl, controller: g.enemyController, locked: g.actionsLocked };
@@ -98,11 +105,14 @@ export class QAHarness {
     g.actionsLocked = false;
     g.qaMode = true;
     g.enemyController = null;
+    const duo = g.partnerActive ? g.boss : null;
+    if (duo) g.setupPartner(null);
     const restoreStats = g.useDefaultStats(); // boss and god-mode stats stay out of scenarios
     try {
       fn();
     } finally {
       restoreStats();
+      if (duo?.partner && g.boss === duo && !g.partnerActive) g.setupPartner(duo.partner);
       this.reset();
       g.qaMode = false;
       g.enemyController = saved.controller;
@@ -180,9 +190,14 @@ export class QAHarness {
         const [ex, ez] = opts?.enemy ?? [0, 6];
         g.player.spawn(px, pz, Math.atan2(ex - px, ez - pz));
         g.enemy.spawn(ex, ez, Math.atan2(px - ex, pz - ez));
+        if (g.partnerActive) {
+          const [qx, qz] = opts?.partner ?? [ex - CONFIG.campaign.duo.spawnSpacing, ez];
+          g.partner.spawn(qx, qz, Math.atan2(px - qx, pz - qz));
+        }
         g.physics.step();
         ctx.aimAt(g.player, g.enemy);
         ctx.aimAt(g.enemy, g.player);
+        if (g.partnerActive) ctx.aimAt(g.partner, g.player);
       },
       aimAt(w, target) {
         target.chest(w.aimPoint);

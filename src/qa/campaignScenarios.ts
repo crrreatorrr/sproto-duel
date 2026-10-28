@@ -5,9 +5,9 @@ import { resolveAsset } from '../assets/AssetLoader';
 import { MODELS } from '../assets/manifest';
 import { STAGE_COUNT, stageProfile } from '../campaign/BossStages';
 import { CAMPAIGN_STORAGE_KEY, Campaign } from '../campaign/Campaign';
-import { BOSSES, type BossDef } from '../campaign/levels';
+import { BOSSES, bossDisplayName, bossFighters, type BossDef } from '../campaign/levels';
 import { events } from '../core/events';
-import type { Game } from '../core/Game';
+import { nearestStanding, type Game } from '../core/Game';
 import { AIController } from '../enemy/AIController';
 import { loadSettings } from '../ui/Menus';
 import type { QAHarness } from './QAHarness';
@@ -28,8 +28,14 @@ export interface ThreatSample {
   killsYouIn: number;
   /** Seconds for sustained (mana-limited) bolt fire to kill the AI at that hit rate. */
   youKillIn: number;
-  /** youKillIn / killsYouIn: higher is harder. */
+  /**
+   * Damage you take while killing them, as a share of your health (youKillIn / killsYouIn for one
+   * opponent): higher is harder. A pair is fought one at a time (see fightThreat).
+   */
   threat: number;
+  /** Per opponent (the boss, then a double fight's partner): damage per second and max health. */
+  dpsBy: number[];
+  hpBy: number[];
 }
 
 /** Sustained bolt DPS once mana is the limit (what a player can keep up). */
@@ -53,54 +59,91 @@ export function withSeededRandom<T>(seed: number, fn: () => T): T {
   }
 }
 
+/** Max health of everyone in a fight (both bosses of a double fight). */
+const fightHp = (boss: BossDef | null) => (boss ? bossFighters(boss).map((f) => Math.round(W.maxHealth * f.healthMultiplier)) : [W.maxHealth]);
+
+/**
+ * Threat of a fight from each opponent's damage per second and health, at `hitRate`. One opponent:
+ * the damage it deals in the time you need to kill it. A pair is fought one at a time, in the better
+ * order: both hit you until the first falls, then the survivor alone, at `survivorDps` (its enraged,
+ * last-stage rate) if given.
+ */
+function fightThreat(name: string, dpsBy: number[], hpBy: number[], hitRate: number, survivorDps = dpsBy): ThreatSample {
+  const rate = Math.max(0.01, SUSTAINED_BOLT_DPS * hitRate);
+  const t = hpBy.map((h) => h / rate);
+  const dps = dpsBy.reduce((a, b) => a + b, 0);
+  let taken = dps * t[0];
+  if (dpsBy.length === 2) {
+    const order = (a: number, b: number) => dps * t[a] + survivorDps[b] * t[b];
+    taken = Math.min(order(0, 1), order(1, 0));
+  }
+  const youKillIn = t.reduce((a, b) => a + b, 0);
+  return { name, dps, hitRate, killsYouIn: W.maxHealth / Math.max(0.01, dps), youKillIn, threat: taken / W.maxHealth, dpsBy, hpBy };
+}
+
 /**
  * Headless difficulty probe for one opponent: (1) its AI attacks a target strafing left/right
  * that never shoots back, (2) a scripted shooter fires perfectly-led bolts at it. The rival is
  * dressed with `boss` (null = default rival stats). With `stage`, the boss fights as that stage:
- * its scaled profile, gated attacks and stage damage (`profile` is then ignored).
+ * its scaled profile, gated attacks and stage damage (`profile` is then ignored). A double fight
+ * runs both bosses (each its own AI, in the same stage, damage counted per boss) and the shooter
+ * aims at the nearest; you have to get through both health bars (fightThreat).
  */
 export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile: AIProfile, seconds = 12, trials = 2, stage?: number): ThreatSample {
   const prevBoss = game.boss;
   game.setupEnemy(boss);
-  const p = game.player, e = game.enemy;
-  const ai = new AIController(e, p, game.spells, game.physics, game.arena, 'normal');
+  const p = game.player;
   const staged = boss && stage !== undefined;
-  ai.setProfile(staged ? stageProfile(boss, stage) : profile);
-  if (staged) {
-    ai.attacks = boss.stages[stage].attacks;
-    e.damageMultiplier = boss.damageMultiplier * CONFIG.campaign.stageDamage[stage];
-  }
-  let dmg = 0;
+  const fighters = boss ? bossFighters(boss) : [];
+  const ais = game.enemies.map((w, i) => {
+    const ai = new AIController(w, p, game.spells, game.physics, game.arena, 'normal');
+    const f = fighters[i];
+    ai.setProfile(staged && f ? stageProfile(f, stage) : f && i > 0 ? f.ai : profile);
+    if (staged && f) {
+      ai.attacks = f.stages[stage].attacks;
+      w.damageMultiplier = f.damageMultiplier * CONFIG.campaign.stageDamage[stage];
+    } else if (f && i > 0) {
+      w.damageMultiplier = f.damageMultiplier;
+    }
+    ai.allies = game.enemies;
+    return ai;
+  });
+  const dmg = game.enemies.map(() => 0);
   let time = 0;
   const off = events.on('damage', (ev) => {
-    if (ev.source === e && ev.target === p) dmg += ev.amount;
+    const i = ev.source && ev.target === p ? game.enemies.indexOf(ev.source) : -1;
+    if (i >= 0) dmg[i] += ev.amount;
   });
   let hits = 0;
   let shots = 0;
+  const full = () => {
+    p.health = p.maxHealth;
+    for (const w of game.enemies) w.health = w.maxHealth;
+  };
   try {
     for (let trial = 0; trial < trials; trial++) {
       // Offense: the target strafes, reversing every ~1.3 s, and never fires.
       c.setup();
-      ai.reset();
+      for (const ai of ais) ai.reset();
       let t = 0;
       c.step(seconds, () => {
         t += DT;
-        ai.update(DT);
-        p.health = p.maxHealth;
-        e.health = e.maxHealth;
+        for (const ai of ais) ai.update(DT);
+        full();
+        const e = game.enemy;
         p.intent.move.set(Math.sin(t * 2.4 + trial) > 0 ? 1 : -1, 0, 0);
         p.intent.facing = Math.atan2(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
       });
       time += seconds;
 
-      // Defense: perfectly-led bolts at the AI, unlimited mana.
+      // Defense: perfectly-led bolts at the (nearest) AI, unlimited mana.
       c.setup();
-      ai.reset();
+      for (const ai of ais) ai.reset();
       c.step(seconds * 0.75, () => {
-        ai.update(DT);
-        p.health = p.maxHealth;
-        e.health = e.maxHealth;
+        for (const ai of ais) ai.update(DT);
+        full();
         p.mana = 1e6;
+        const e = nearestStanding(p, game.enemies) ?? game.enemy;
         const travel = p.pos.distanceTo(e.pos) / B.speed;
         e.chest(p.aimPoint).addScaledVector(e.vel, travel);
         p.intent.holdBolt = true;
@@ -111,25 +154,22 @@ export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile:
     }
   } finally {
     off();
-    ai.dispose();
+    for (const ai of ais) ai.dispose();
     game.setupEnemy(prevBoss);
   }
-  const dps = dmg / time;
   const hitRate = hits / Math.max(1, shots);
-  const maxHp = Math.round(W.maxHealth * (boss?.healthMultiplier ?? 1));
-  const killsYouIn = W.maxHealth / Math.max(0.01, dps);
-  const youKillIn = maxHp / Math.max(0.01, SUSTAINED_BOLT_DPS * hitRate);
-  return { name: boss?.name ?? profile.label, dps, hitRate, killsYouIn, youKillIn, threat: youKillIn / killsYouIn };
+  return fightThreat(boss ? bossDisplayName(boss) : profile.label, dmg.map((d) => d / time), fightHp(boss), hitRate);
 }
 
-/** A boss over its whole fight: each stage probed in turn, damage and hit rate averaged across the stages. */
+/**
+ * A boss over its whole fight: each stage probed in turn, damage and hit rate averaged across the
+ * stages. In a double fight the survivor fights on enraged, at its last stage's damage.
+ */
 function measureBossThreat(c: Ctx, game: Game, boss: BossDef, seed: number, seconds: number, trials: number): ThreatSample {
   const per = Array.from({ length: STAGE_COUNT }, (_, s) => withSeededRandom(seed + s * 101, () => measureThreat(c, game, boss, boss.ai, seconds, trials, s)));
-  const dps = per.reduce((a, x) => a + x.dps, 0) / per.length;
+  const dpsBy = per[0].dpsBy.map((_, i) => per.reduce((a, x) => a + x.dpsBy[i], 0) / per.length);
   const hitRate = per.reduce((a, x) => a + x.hitRate, 0) / per.length;
-  const killsYouIn = W.maxHealth / Math.max(0.01, dps);
-  const youKillIn = Math.round(W.maxHealth * boss.healthMultiplier) / Math.max(0.01, SUSTAINED_BOLT_DPS * hitRate);
-  return { name: boss.name, dps, hitRate, killsYouIn, youKillIn, threat: youKillIn / killsYouIn };
+  return fightThreat(bossDisplayName(boss), dpsBy, fightHp(boss), hitRate, per[STAGE_COUNT - 1].dpsBy);
 }
 
 const fmt = (s: ThreatSample) => `${s.name}: ${s.dps.toFixed(1)}dps hit${(s.hitRate * 100).toFixed(0)}% threat=${s.threat.toFixed(2)}`;
