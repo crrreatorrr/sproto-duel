@@ -27,6 +27,12 @@ export interface ModelAsset {
   maxTriangles?: number;
   /** Render both faces of every material (thin capes and robes from image-to-3D tools). */
   doubleSided?: boolean;
+  /**
+   * How to centre the model on its origin across the ground: 'bounds' (default) uses the bounding
+   * box; 'feet' uses the vertices near the ground, so a gun, wing or cape sticking out to one side
+   * doesn't shift the body off its collider.
+   */
+  anchor?: 'bounds' | 'feet';
 }
 
 export interface TextureAsset {
@@ -64,7 +70,7 @@ function bossStages<Id extends string>(id: Id, heights: [number, number, number]
   const name = `boss${id[0].toUpperCase()}${id.slice(1)}` as `boss${Capitalize<Id>}`;
   const out = {} as Record<`${typeof name}${1 | 2 | 3}`, ModelAsset>;
   heights.forEach((fitHeight, i) => {
-    out[`${name}${(i + 1) as 1 | 2 | 3}`] = { path: `models/bosses/${id}/stage${i + 1}.glb`, fitHeight, rotationY: -90, doubleSided: true };
+    out[`${name}${(i + 1) as 1 | 2 | 3}`] = { path: `models/bosses/${id}/stage${i + 1}.glb`, fitHeight, rotationY: -90, doubleSided: true, anchor: 'feet' };
   });
   return out;
 }
@@ -82,7 +88,7 @@ export const MODELS = {
   // thin robes and capes render double-sided. Each stage stands a little taller.
   ...bossStages('sahil', [2.0, 2.25, 2.55]),
   ...bossStages('obama', [2.1, 2.3, 2.55]),
-  bossObamaSidekick: { path: 'models/bosses/obama/sidekick.glb', fitHeight: 1.25, rotationY: -90, doubleSided: true },
+  bossObamaSidekick: { path: 'models/bosses/obama/sidekick.glb', fitHeight: 1.25, rotationY: -90, doubleSided: true, anchor: 'feet' },
   ...bossStages('broccoli', [2.0, 2.35, 2.8]),
   ...bossStages('agent', [2.0, 2.2, 2.5]),
   ...bossStages('tinubu', [2.1, 2.45, 2.9]),

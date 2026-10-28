@@ -171,6 +171,35 @@ export class AssetLoader {
   }
 }
 
+/** Fraction of the model's height, from the ground up, whose vertices count as its feet. */
+const FEET_BAND = 0.12;
+
+/**
+ * XZ centre of the vertices in the lowest FEET_BAND of `box` (in `inner`'s parent space), or the
+ * box centre if there are none. Keeps a model standing on its collider when something sticks out.
+ */
+function feetCenter(inner: THREE.Object3D, box: THREE.Box3): THREE.Vector3 {
+  const out = box.getCenter(new THREE.Vector3());
+  const top = box.min.y + (box.max.y - box.min.y) * FEET_BAND;
+  const v = new THREE.Vector3();
+  const sum = new THREE.Vector3();
+  let n = 0;
+  inner.updateMatrixWorld(true);
+  inner.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const pos = mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      if (v.y > top) continue;
+      sum.add(v);
+      n++;
+    }
+  });
+  if (n) out.set(sum.x / n, out.y, sum.z / n);
+  return out;
+}
+
 /** Fit to height, stand on y=0, center on XZ, enable shadows, and check the triangle budget. */
 function normalizeModel(key: string, scene: THREE.Object3D, animations: THREE.AnimationClip[], spec: ModelAsset): ModelTemplate {
   const wrapper = new THREE.Group();
@@ -186,7 +215,7 @@ function normalizeModel(key: string, scene: THREE.Object3D, animations: THREE.An
   if (spec.fitHeight && size.y > 1e-4) inner.scale.setScalar(spec.fitHeight / size.y);
   inner.updateMatrixWorld(true);
   box.setFromObject(inner);
-  const center = box.getCenter(new THREE.Vector3());
+  const center = spec.anchor === 'feet' ? feetCenter(inner, box) : box.getCenter(new THREE.Vector3());
   inner.position.set(-center.x, -box.min.y + (spec.yOffset ?? 0), -center.z);
 
   let triangles = 0;
