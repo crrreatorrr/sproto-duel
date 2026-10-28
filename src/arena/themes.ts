@@ -235,7 +235,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
         gap: '#8094b8', stone: [58, 74, 106], stoneRange: 24, grit: [90, 110, 140], gritRange: 50, gritAlpha: 0.2,
         rune: 'rgba(200,150,255,0.8)', glyph: 'rgba(215,180,255,0.9)', mark: 'rgba(255,255,255,0.18)', extras: 'frost',
       },
-      roughness: 0.35, metalness: 0.1, emissive: 0.05,
+      roughness: 0.55, metalness: 0.1, emissive: 0.05,
     },
     stone: { bg: '#71809c', brick: [104, 122, 156], brickRange: 26, grit: [150, 166, 196], gritRange: 40, gritAlpha: 0.25, extras: 'frost' },
     wall: { color: 0xaab8d8, emissive: 0 },
