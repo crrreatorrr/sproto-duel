@@ -112,6 +112,43 @@ export const CONFIG = {
       iframes: 0.28,
       cooldown: 0.55,
     },
+    jump: {
+      /** Takeoff speed (m/s). Apex = velocity^2 / (2 * gravity), airtime = 2 * velocity / gravity. */
+      velocity: 8.2,
+      /** m/s^2. With velocity 8.2: a 1.4 m apex and 0.68 s in the air. */
+      gravity: 24,
+      maxFallSpeed: 22,
+      /** Fraction of ground acceleration available for steering in the air. */
+      airControl: 0.3,
+      /** Fraction of ground deceleration applied in the air with no input, so momentum carries. */
+      airBrake: 0.12,
+      /** Seconds after walking off a ledge during which a jump still works. */
+      coyoteTime: 0.1,
+      /** Downward probe while standing on a raised surface (stump), to notice walking off it. */
+      groundProbe: 0.05,
+      /**
+       * Feet at least this high above the ground as the Ultimate's wavefront passes: it goes underneath.
+       * 1.05 gives a ~0.34 s window around the apex (a roll's i-frames last 0.28 s).
+       */
+      waveClearance: 1.05,
+      /** Sideways speed that slides a wizard off the other wizard's head. */
+      headSlide: 5,
+      /** Visual stretch on takeoff and squash per m/s of landing speed (fractions of height). */
+      takeoffStretch: 0.2,
+      landSquash: 0.025,
+      maxLandSquash: 0.32,
+      /** Camera height follow: rises lazily (a jump doesn't yank the crosshair), falls with the player. */
+      cameraRiseSharpness: 2.5,
+      /** Most the camera may trail below the player's head height. */
+      cameraMaxLag: 0.9,
+      /** AI: share of Ultimate reactions that jump instead of roll, times profile.dodgeChance. */
+      aiWaveJump: 0.7,
+      /** AI: takeoff timing error (+/- s) on wave jumps at zero skill, shrinking with profile.dodgeChance. */
+      aiWaveJumpError: 0.3,
+      /** AI: hops per second while strafing at top skill; none at or below aiHopMinSkill (profile.dodgeChance). */
+      aiHopRate: 0.3,
+      aiHopMinSkill: 0.45,
+    },
   },
 
   spells: {

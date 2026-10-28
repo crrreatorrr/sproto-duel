@@ -163,6 +163,9 @@ export class AudioManager {
     on('block', (e) => this.play(e.perfect ? 'shieldPerfect' : 'shieldBlock', { pos: e.pos, exactPitch: e.perfect }));
     on('clash', (e) => this.play('clash', { pos: e.pos }));
     on('dodge', (e) => this.play('dodge', { pos: e.wizard.pos }));
+    // No dedicated jump sounds: a quick high whoosh for takeoff, a soft low thud for touchdown.
+    on('jump', (e) => this.play('dodge', { pos: e.pos, rate: 1.45, volume: 0.45 }));
+    on('land', (e) => this.play('pillarHit', { pos: e.pos, rate: 0.75, volume: THREE.MathUtils.clamp(e.speed / 14, 0.12, 0.45) }));
     on('stunned', (e) => this.play('stunHit', { pos: e.wizard.pos }));
     on('burn', (e) => this.play('fireBurn', { pos: e.wizard.pos }));
     on('pillarBreak', (e) => this.play('pillarCrumble', { pos: e.pos }));

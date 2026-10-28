@@ -16,6 +16,10 @@ export interface GameEvents {
   clash: { pos: Vector3; winner: SpellId | null };
   dodge: { wizard: Wizard };
   dodgeEvade: { wizard: Wizard; pos: Vector3 };
+  /** Takeoff. `pos` is the feet. */
+  jump: { wizard: Wizard; pos: Vector3 };
+  /** Touchdown on the floor or a stump. `speed` is the downward impact speed (m/s). */
+  land: { wizard: Wizard; pos: Vector3; speed: number };
   stunned: { wizard: Wizard };
   burn: { wizard: Wizard };
   pillarHit: { pos: Vector3 };

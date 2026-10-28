@@ -24,6 +24,7 @@ npm run gen:audio  # regenerate the synthesized placeholder sounds
 | W A S D | Move |
 | Shift | Sprint (drains mana; runs dry, then needs to recover) |
 | Space | Dodge roll, with brief invulnerability |
+| F / C | Jump: hop the Ultimate's shockwave (feet clear at the wavefront) or onto crumbled pillar stumps. Cast freely in the air; no rolling until you land |
 | Left click / 1 | **Bolt**: fast, cheap, no cooldown, hold to fire |
 | Right click / 2 | **Blast**: slow big orb, area damage, 3 s cooldown |
 | Q / 3 | **Shield**: blocks for 0.8 s. Raise it in the last 0.2 s before a hit to reflect the spell back, faster and stronger |

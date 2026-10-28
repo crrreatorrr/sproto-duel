@@ -50,14 +50,30 @@ export class WizardIntent {
 }
 
 const W = CONFIG.wizard;
+const J = W.jump;
 const tmpMove = new Vector3();
 const tmpTarget = new Vector3();
+/** Below this the wizard counts as standing on the floor (y = 0). */
+const FLOOR_EPS = 1e-3;
 
 export class Wizard {
   readonly pos = new Vector3();
   readonly prevPos = new Vector3();
   readonly vel = new Vector3();
   readonly knock = new Vector3();
+  /** Vertical velocity (m/s). `vel` stays horizontal. */
+  vy = 0;
+  /** Standing on the floor or a stump top. */
+  grounded = true;
+  /** Height of whatever is under the wizard: 0 for the floor, the top of a stump. */
+  groundY = 0;
+  /** Jump grace left after walking off a ledge. */
+  private coyote = 0;
+  /** Takeoff / touchdown counters, so per-frame visuals never miss one between ticks. */
+  jumps = 0;
+  landings = 0;
+  /** Downward speed at the last touchdown (m/s). */
+  landSpeed = 0;
   facing = 0;
   prevFacing = 0;
   /** Where spells are aimed (world space). Controllers update this. */
@@ -121,6 +137,14 @@ export class Wizard {
   get shielded(): boolean {
     return this.shieldTime > 0;
   }
+  /** Feet height above whatever is underneath (0 when grounded). */
+  get airHeight(): number {
+    return this.grounded ? 0 : Math.max(0, this.pos.y - this.groundY);
+  }
+  /** Can leave the ground: standing, or just walked off a ledge (coyote time). No double jump. */
+  get canJump(): boolean {
+    return this.alive && !this.stunned && !this.dodging && (this.grounded || this.coyote > 0);
+  }
   /** Can start a new action (cast/dodge). */
   get canAct(): boolean {
     return this.alive && !this.stunned && !this.dodging && this.cast === null;
@@ -147,6 +171,8 @@ export class Wizard {
     this.facing = this.prevFacing = this.intent.facing = facing;
     this.vel.set(0, 0, 0);
     this.knock.set(0, 0, 0);
+    this.vy = this.groundY = this.coyote = 0;
+    this.grounded = true;
     this.placeBody();
     this.syncBody();
   }
@@ -248,7 +274,9 @@ export class Wizard {
     }
 
     // Start a dodge roll. Cancels any windup: rolling out of a cast should always be possible.
-    if (intent.wants('dodge') && this.alive && !this.stunned && !this.dodging && this.cd.dodge <= 0) {
+    // Rolls need footing: in the air the press stays buffered and fires if you land in time.
+    const footing = this.grounded || this.coyote > 0;
+    if (intent.wants('dodge') && footing && this.alive && !this.stunned && !this.dodging && this.cd.dodge <= 0) {
       intent.consume('dodge');
       const dir = tmpMove.copy(intent.move);
       if (dir.lengthSq() < 0.01) this.forward(dir).negate();
@@ -260,6 +288,16 @@ export class Wizard {
       this.cast = null;
       this.stats.dodges++;
       events.emit('dodge', { wizard: this });
+    }
+
+    // Jump. Casting continues through it; a press during a roll waits for the roll to end.
+    if (intent.wants('jump') && this.canJump) {
+      intent.consume('jump');
+      this.vy = J.velocity;
+      this.grounded = false;
+      this.coyote = 0;
+      this.jumps++;
+      events.emit('jump', { wizard: this, pos: this.pos });
     }
 
     this.sprinting = false;
@@ -283,7 +321,9 @@ export class Wizard {
       }
       if (this.cast) speed *= W.castMoveMultiplier;
       tmpTarget.copy(intent.move).multiplyScalar(speed);
-      const rate = moving ? W.acceleration : W.deceleration;
+      let rate = moving ? W.acceleration : W.deceleration;
+      // Reduced air control: steer a little, and momentum mostly carries without input.
+      if (!this.grounded) rate *= moving ? J.airControl : J.airBrake;
       // Move velocity toward target at a fixed rate: crisp starts and stops.
       tmpMove.subVectors(tmpTarget, this.vel);
       const len = tmpMove.length();
@@ -294,18 +334,70 @@ export class Wizard {
 
     this.knock.multiplyScalar(Math.exp(-W.knockbackDamping * dt));
     tmpMove.copy(this.vel).add(this.knock).multiplyScalar(dt);
+
+    // Vertical: exact constant-gravity step in the air; on a raised surface, a short probe down
+    // to notice walking off it. The floor is the plane y = 0.
+    let dy = 0;
+    if (!this.grounded) {
+      dy = this.vy * dt - 0.5 * J.gravity * dt * dt;
+      this.vy = Math.max(-J.maxFallSpeed, this.vy - J.gravity * dt);
+    } else if (this.pos.y > FLOOR_EPS) {
+      dy = -J.groundProbe;
+    }
+    if (this.pos.y + dy < 0) dy = -this.pos.y;
+    tmpMove.y = dy;
+
     physics.moveCharacter(this.collider, tmpMove, tmpTarget);
     this.pos.x += tmpTarget.x;
     this.pos.z += tmpTarget.z;
+    this.pos.y = Math.max(0, this.pos.y + tmpTarget.y);
+    this.updateFooting(dt, dy, tmpTarget.y, physics);
     this.syncBody();
   }
 
+  /** Ground contact after a move: landing, walking off ledges, coyote time, heads. */
+  private updateFooting(dt: number, dy: number, movedY: number, physics: Physics): void {
+    const support = physics.support;
+    const wasGrounded = this.grounded;
+    const onFloor = this.pos.y <= FLOOR_EPS && dy <= 0;
+    if (onFloor) this.pos.y = 0;
+    this.grounded = onFloor || (dy <= 0 && support.grounded);
+
+    if (support.onWizard) {
+      // Nobody stands on heads: stop sinking into it and slide off sideways.
+      const o = support.onWizard;
+      tmpMove.set(this.pos.x - o.pos.x, 0, this.pos.z - o.pos.z);
+      if (tmpMove.lengthSq() < 1e-6) this.forward(tmpMove);
+      tmpMove.normalize();
+      const along = this.knock.x * tmpMove.x + this.knock.z * tmpMove.z;
+      if (along < J.headSlide) this.knock.addScaledVector(tmpMove, J.headSlide - along);
+      if (this.vy < 0) this.vy = 0;
+    } else if (dy > 0 && movedY < dy * 0.5) {
+      this.vy = Math.min(this.vy, 0); // bumped into something above
+    }
+
+    if (this.grounded) {
+      if (!wasGrounded) {
+        this.landSpeed = Math.max(0, -this.vy);
+        this.landings++;
+        events.emit('land', { wizard: this, pos: this.pos, speed: this.landSpeed });
+      }
+      this.vy = 0;
+      this.coyote = J.coyoteTime;
+      this.groundY = this.pos.y;
+    } else {
+      // Walking off a ledge starts the fall from rest; the coyote window counts down.
+      if (this.coyote > 0) this.coyote = Math.max(0, this.coyote - dt);
+      this.groundY = physics.groundHeightBelow(this.pos, W.radius * 0.9);
+    }
+  }
+
   syncBody(): void {
-    this.body.setNextKinematicTranslation({ x: this.pos.x, y: this.centerY, z: this.pos.z });
+    this.body.setNextKinematicTranslation({ x: this.pos.x, y: this.centerY + this.pos.y, z: this.pos.z });
   }
 
   /** Teleport the physics body immediately (round resets). */
   placeBody(): void {
-    this.body.setTranslation({ x: this.pos.x, y: this.centerY, z: this.pos.z }, true);
+    this.body.setTranslation({ x: this.pos.x, y: this.centerY + this.pos.y, z: this.pos.z }, true);
   }
 }
