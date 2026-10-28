@@ -490,6 +490,88 @@ export const CONFIG = {
     },
   },
 
+  /**
+   * Boss reward spells (src/spells/RewardSpells.ts): beating a Boss Gauntlet boss teaches the player
+   * its themed spell for good (Campaign `unlockedSpells`). Only the player ever learns them; bosses
+   * never cast them. Cooldowns start on cast. Keys: CONFIG.controls / CONFIG.gamepad.bindings.
+   */
+  rewardSpells: {
+    /** Sahil: ride a flying carpet. Fast, hovering (no lava or fire-ring burn), no casting. Press again to land early. */
+    carpet: {
+      duration: 2.5,
+      cooldown: 12,
+      manaCost: 20,
+      /** Multiplies CONFIG.wizard.moveSpeed while riding (sprint does nothing more). */
+      speedMultiplier: 2.2,
+      acceleration: 70,
+      deceleration: 40,
+      /** Feet height above whatever is underneath (m). */
+      hover: 0.45,
+      /** Highest low cover (above what is underneath) the carpet rises over (m): rug piles, car hoods, carts. */
+      climb: 1.15,
+      /** Vertical speeds (m/s) toward the hover height: up over cover, down off it. */
+      rise: 9,
+      sink: 4,
+      /** How far ahead to look for cover: radius + speed x this (s). */
+      lookAhead: 0.16,
+    },
+    /** Bitcoin Obama & The Midget: a power surge. More spell damage and Ultimate charge. */
+    pump: {
+      duration: 6,
+      cooldown: 20,
+      manaCost: 25,
+      damageMultiplier: 1.5,
+      ultChargeMultiplier: 1.5,
+    },
+    /** Broccoli Head: a smoke screen at your feet. Hides you from enemy AIs (Arena.obscured); heals you inside. */
+    vape: {
+      duration: 6,
+      cooldown: 22,
+      manaCost: 0,
+      /** 5 m across. */
+      radius: 2.5,
+      height: 3.2,
+      /** HP per second while the caster stands inside its own cloud. */
+      healPerSecond: 3,
+      /** Seconds the cloud takes to billow out, and to thin away at the end. */
+      grow: 0.45,
+      fade: 0.9,
+    },
+    /** Glowie: your bolts home in on the nearest enemy in front of you. */
+    lockon: {
+      duration: 6,
+      cooldown: 20,
+      manaCost: 0,
+      /** Targets within this cone around your aim (full angle, degrees) and range (m). */
+      coneDegrees: 70,
+      range: 45,
+      /** Homing turn rate (rad/s): gentle, so a strafe still has to be tracked and a roll still slips it. */
+      turnRate: 2.4,
+      /** A bolt stops homing once its target is this far behind its heading (degrees). */
+      dropDegrees: 100,
+    },
+    /** Tinubu: channel a cone of fire from your staff. Burns while in the cone, and for a while after. */
+    breath: {
+      duration: 2,
+      cooldown: 18,
+      manaCost: 30,
+      range: 6,
+      /** Full cone angle (degrees); the target's body width counts too. */
+      coneDegrees: 35,
+      /** Damage per second while in the cone, applied every `tick` s. */
+      dps: 16,
+      tick: 0.25,
+      /** The burning debuff a hit leaves: seconds (refreshed by each hit) and damage per second. */
+      burnTime: 4,
+      burnDps: 5,
+      burnTick: 0.5,
+      /** Move speed multiplier while channelling. */
+      moveMultiplier: 0.35,
+    },
+    /** A callout over the caster on every cast (short name). */
+    popups: true,
+  },
+
   clash: {
     hitStopMs: 35,
     shake: 0.25,
@@ -696,6 +778,29 @@ export const CONFIG = {
     punishTime: 1.6,
     /** Minimum seconds between retreats. */
     retreatCooldown: 5,
+    /**
+     * Boss reward spells for an AI that learned some (the campaign soak's reference player; bosses
+     * never do). Simple rules, checked every `checkInterval` s: the carpet to escape when below
+     * `carpetHealth` and under fire, or when `carpetIncoming` spells are about to hit (2 right after
+     * an enemy volley); the vape cloud below `vapeHealth` (then staying in it while below
+     * `vapeStayHealth`); Pump It before a bolt burst with `pumpManaSpare` mana left over; Lock-On once
+     * the target has crossed the line of fire faster than `strafeSpeed` m/s for `strafeTime` s;
+     * Hellfire Breath within `breathRange` x its range, facing the target within `breathFacing` degrees.
+     */
+    rewards: {
+      checkInterval: 0.1,
+      incomingHorizon: 0.6,
+      volleyMemory: 0.5,
+      carpetHealth: 0.35,
+      carpetIncoming: 3,
+      vapeHealth: 0.4,
+      vapeStayHealth: 0.8,
+      pumpManaSpare: 30,
+      strafeSpeed: 3.2,
+      strafeTime: 0.5,
+      breathRange: 0.85,
+      breathFacing: 25,
+    },
     /**
      * AI profiles. The game has one difficulty: Quick Duel always uses `normal` (the Rival), and the
      * Boss Gauntlet's bosses (src/campaign/levels.ts) are the difficulty ladder. `easy` and `hard`
@@ -929,6 +1034,12 @@ export const CONFIG = {
     shield: ['KeyQ', 'Digit3'],
     stun: ['KeyE', 'Digit4'],
     ultimate: ['KeyR', 'Digit5'],
+    /** Boss reward spells (once learned). */
+    carpet: ['KeyZ'],
+    pump: ['KeyX'],
+    vape: ['KeyV'],
+    lockon: ['KeyG'],
+    breath: ['KeyT'],
     pause: ['Escape', 'KeyP'],
     /** Mouse buttons: 0 = left, 2 = right. */
     mouseBolt: 0,
@@ -962,6 +1073,12 @@ export const CONFIG = {
       dodge: ['b'],
       sprint: ['l3'],
       pause: ['start'],
+      // Boss reward spells (once learned): the D-pad and the free face button.
+      carpet: ['left'],
+      pump: ['up'],
+      vape: ['right'],
+      lockon: ['down'],
+      breath: ['x'],
     },
     aimAssist: {
       /** Settings default: 0 = off, 1 = default, 1.5 = strong. Scales everything below. */

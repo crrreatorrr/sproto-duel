@@ -3,6 +3,7 @@ import type { ArenaThemeId } from '../arena/themes';
 import type { ModelKey } from '../assets/manifest';
 import { BOSS_PORTRAITS } from '../assets/manifest';
 import { gunMuzzle, handAndMouth, phoneMuzzle, staffMuzzle, twoPhones, vapeMuzzle, type MuzzleSet } from '../wizard/muzzles';
+import type { RewardSpellId } from '../spells/rewardCatalog';
 
 export type BossId = keyof typeof BOSS_PORTRAITS;
 
@@ -99,6 +100,11 @@ export interface BossDef extends BossFighter {
   model: ModelKey;
   /** A second boss fought at the same time (a double fight): the round is won once both are down. */
   partner?: BossPartner;
+  /**
+   * The spell beating this fight teaches the player for good (src/spells/rewardCatalog.ts; a double
+   * fight teaches one, once both bosses are down). Bosses never cast these themselves.
+   */
+  reward: RewardSpellId;
 }
 
 /** Everyone the player faces in this fight: the boss, then its partner if any. */
@@ -123,13 +129,16 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
  * unlocks more attacks each time; `ai` is stage 1 and CONFIG.campaign.stageAI sharpens it. Fight 1
  * is very easy; each fight after it is a clear step up, and Tinubu is close to impossible. Fight 2
  * is a double fight (`partner`): the pair together is tuned as one step on the ladder.
- * Tuned with `__duel.qa.campaignSoak` (reference win rates: README / the final report).
+ * Each fight is tuned for a player who arrives with the boss spells (`reward`) of every fight before
+ * it: fight N against spells 1..N-1. Tuned with `__duel.qa.campaignSoak` (its reference AI uses those
+ * spells; reference win rates: README / the final report).
  */
 export const BOSSES: BossDef[] = [
   boss({
     id: 'sahil',
     name: 'Sahil',
     title: 'the RugMaster',
+    reward: 'carpet',
     intro: 'Every rug comes with a lifetime guarantee. The rug pull is free.',
     theme: 'desert',
     stages: [
@@ -170,6 +179,7 @@ export const BOSSES: BossDef[] = [
     id: 'obama',
     name: 'Bitcoin Obama',
     title: 'the Pump & Dump Duo',
+    reward: 'pump',
     intro: 'Shiller shills',
     theme: 'void',
     stages: [
@@ -259,6 +269,7 @@ export const BOSSES: BossDef[] = [
     id: 'broccoli',
     name: 'Broccoli Head',
     title: 'the Floret Lord',
+    reward: 'vape',
     intro: 'Leads the LA Vape Cabal.',
     theme: 'city',
     stages: [
@@ -297,6 +308,7 @@ export const BOSSES: BossDef[] = [
     id: 'agent',
     name: 'Glowie',
     title: 'Government Enforcement',
+    reward: 'lockon',
     intro: 'Unknown',
     theme: 'office',
     stages: [
@@ -333,13 +345,15 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.95,
       preferredRange: [8, 13],
     },
-    stageHealth: [1015, 1035, 1180],
-    damageMultiplier: 1.04,
+    // Retuned for the player's carpet, Pump It and vape cloud (the cloud's healing and cover especially).
+    stageHealth: [1096, 1118, 1274],
+    damageMultiplier: 1.35,
   }),
   boss({
     id: 'tinubu',
     name: 'Tinubu',
     title: 'the Unshackled Demon',
+    reward: 'breath',
     intro: 'Infects you to make you sell your tickets.',
     theme: 'volcano',
     stages: [
@@ -381,10 +395,14 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 1.05,
       preferredRange: [8, 13],
     },
-    stageHealth: [1000, 1010, 1020],
-    damageMultiplier: 1.27,
+    // Retuned for the four spells the player brings (bigger bars keep stages at ~5 minutes).
+    stageHealth: [1100, 1111, 1122],
+    damageMultiplier: 1.32,
   }),
 ];
+
+/** The reward spells a player holds on reaching fight `index` for the first time: one per boss before it. */
+export const rewardsBefore = (index: number): RewardSpellId[] => BOSSES.slice(0, Math.max(0, index)).map((b) => b.reward);
 
 /** Display names for the arena environments, shown on the boss cards. */
 export const ARENA_NAMES: Record<ArenaThemeId, string> = {

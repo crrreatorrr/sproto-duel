@@ -8,8 +8,10 @@ import type { PendingCast } from '../spells/types';
 import type { ProjectileSkin } from '../campaign/levels';
 import type { WizardVisual } from './WizardVisual';
 import type { CastKind } from './muzzles';
+import { REWARD_SPELLS, type RewardSpellId } from '../spells/rewardCatalog';
 
-export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump';
+/** Everything a controller can ask for: the core spells, movement actions and the boss reward spells. */
+export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump' | RewardSpellId;
 export type CooldownKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'dodge';
 
 /** What a controller (keyboard, AI) wants the wizard to do this tick. */
@@ -22,7 +24,9 @@ export class WizardIntent {
   /** Desired facing yaw (radians). */
   facing = 0;
   /** Remaining buffer time per action; > 0 means "do this as soon as you can". */
-  readonly buffered: Record<ActionKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, ultimate: 0, dodge: 0, jump: 0 };
+  readonly buffered: Record<ActionKey, number> = {
+    bolt: 0, blast: 0, shield: 0, stun: 0, ultimate: 0, dodge: 0, jump: 0, carpet: 0, pump: 0, vape: 0, lockon: 0, breath: 0,
+  };
 
   press(action: ActionKey): void {
     this.buffered[action] = CONFIG.feel.inputBuffer;
@@ -54,6 +58,7 @@ export class WizardIntent {
 const W = CONFIG.wizard;
 const J = W.jump;
 const T = CONFIG.tickets;
+const RS = CONFIG.rewardSpells;
 const tmpMove = new Vector3();
 const tmpTarget = new Vector3();
 /** Below this the wizard counts as standing on the floor (y = 0). */
@@ -92,6 +97,25 @@ export class Wizard {
   manaBoost = 0;
 
   readonly cd: Record<CooldownKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, dodge: 0 };
+  /**
+   * Boss reward spells this wizard may cast (src/spells/RewardSpells.ts). Only the player ever has
+   * any: App fills it from the campaign save (all five in god mode); bosses and the rival never do.
+   */
+  readonly learned = new Set<RewardSpellId>();
+  /** Reward spell cooldowns (s), started on cast. */
+  readonly rcd: Record<RewardSpellId, number> = { carpet: 0, pump: 0, vape: 0, lockon: 0, breath: 0 };
+  /** Seconds left riding the Magic Carpet (fast, hovering, no casting). */
+  carpetTime = 0;
+  /** Seconds left of Pump It (more damage and Ultimate charge). */
+  pumpTime = 0;
+  /** Seconds left of Lock-On (bolts home in). */
+  lockTime = 0;
+  /** Seconds left channelling Hellfire Breath. */
+  breathTime = 0;
+  /** Burning debuff from Hellfire Breath: seconds left, who lit it, time to the next tick. */
+  scorchTime = 0;
+  scorchBy: Wizard | null = null;
+  scorchTimer = 0;
   dodgeTime = 0;
   iframes = 0;
   readonly dodgeDir = new Vector3();
@@ -191,6 +215,30 @@ export class Wizard {
   get shielded(): boolean {
     return this.shieldTime > 0;
   }
+  /** On the Magic Carpet. */
+  get riding(): boolean {
+    return this.carpetTime > 0;
+  }
+  /** Pump It is on. */
+  get pumped(): boolean {
+    return this.pumpTime > 0;
+  }
+  /** Lock-On is on. */
+  get lockedOn(): boolean {
+    return this.lockTime > 0;
+  }
+  /** Channelling Hellfire Breath. */
+  get breathing(): boolean {
+    return this.breathTime > 0;
+  }
+  /** Burning from Hellfire Breath. */
+  get scorched(): boolean {
+    return this.scorchTime > 0;
+  }
+  /** Fire and lava can't burn it (riding the carpet). */
+  get fireproof(): boolean {
+    return this.riding;
+  }
   /** Mana cap: the normal max, raised while a golden-ticket boost lasts. */
   get maxMana(): number {
     return this.manaBoost > 0 ? W.maxMana * T.maxManaMultiplier : W.maxMana;
@@ -201,11 +249,11 @@ export class Wizard {
   }
   /** Can leave the ground: standing, or just walked off a ledge (coyote time). No double jump. */
   get canJump(): boolean {
-    return this.alive && !this.stunned && !this.evolving && !this.dodging && (this.grounded || this.coyote > 0);
+    return this.alive && !this.stunned && !this.evolving && !this.dodging && !this.riding && (this.grounded || this.coyote > 0);
   }
-  /** Can start a new action (cast/dodge). */
+  /** Can start a new action (cast/dodge). Riding the carpet or breathing fire rules out casting. */
   get canAct(): boolean {
-    return this.alive && !this.stunned && !this.evolving && !this.dodging && this.cast === null;
+    return this.alive && !this.stunned && !this.evolving && !this.dodging && this.cast === null && !this.riding && !this.breathing;
   }
 
   /** Height relative to a standard wizard (1 = CONFIG.wizard.height). Aim points scale with it. */
@@ -251,6 +299,7 @@ export class Wizard {
       this.alive = false;
       this.cast = null;
       this.shieldTime = this.stunTime = this.evolveTime = 0;
+      this.endRewardEffects();
       this.intent.clear();
       this.pos.set(0, -50, 0);
       this.prevPos.copy(this.pos);
@@ -317,6 +366,7 @@ export class Wizard {
     this.knock.set(0, 0, 0);
     this.vy = this.groundY = this.coyote = 0;
     this.grounded = true;
+    this.carpetTime = this.breathTime = 0;
     this.placeBody();
     this.syncBody();
   }
@@ -333,6 +383,8 @@ export class Wizard {
     this.hitFlash = this.castPulse = this.burnTimer = 0;
     this.burning = false;
     this.sprintExhausted = false;
+    for (const k of REWARD_SPELLS) this.rcd[k] = 0;
+    this.endRewardEffects();
     this.alive = true;
     this.intent.clear();
     this.syncSolid();
@@ -350,9 +402,15 @@ export class Wizard {
     return true;
   }
 
+  /** Every reward spell effect off at once (round reset, KO, parked): carpet, pump, lock-on, breath, burning. */
+  endRewardEffects(): void {
+    this.carpetTime = this.pumpTime = this.lockTime = this.breathTime = this.scorchTime = this.scorchTimer = 0;
+    this.scorchBy = null;
+  }
+
   addUlt(amount: number): void {
     const max = CONFIG.spells.ultimate.chargeMax;
-    this.ult = Math.min(max, this.ult + amount * this.ultChargeMultiplier);
+    this.ult = Math.min(max, this.ult + amount * this.ultChargeMultiplier * (this.pumped ? RS.pump.ultChargeMultiplier : 1));
     if (this.ult >= max && !this.ultAnnounced) {
       this.ultAnnounced = true;
       events.emit('ultReady', { wizard: this });
@@ -373,6 +431,7 @@ export class Wizard {
       this.alive = false;
       this.cast = null;
       this.shieldTime = 0;
+      this.endRewardEffects();
       this.syncSolid();
     }
     return dealt;
@@ -388,6 +447,9 @@ export class Wizard {
     if (this.evolving || this.immune) return;
     this.stunTime = Math.max(this.stunTime, seconds);
     this.cast = null;
+    // Knocked off the carpet, and the breath is cut short.
+    if (this.riding) this.endRide();
+    this.breathTime = 0;
     this.vel.multiplyScalar(0.2);
   }
 
@@ -427,6 +489,28 @@ export class Wizard {
       this.cd.blast = this.cd.shield = this.cd.stun = 0;
       this.addUlt(CONFIG.spells.ultimate.chargeMax);
     }
+
+    // Boss reward spells: cooldowns and effect timers. The ride ends with a short drop to the floor.
+    for (const k of REWARD_SPELLS) if (this.rcd[k] > 0) this.rcd[k] = this.noCooldowns ? 0 : Math.max(0, this.rcd[k] - dt);
+    if (this.carpetTime > 0) {
+      this.carpetTime = Math.max(0, this.carpetTime - dt);
+      if (this.carpetTime === 0) this.endRide();
+    }
+    if (this.pumpTime > 0) this.pumpTime = Math.max(0, this.pumpTime - dt);
+    if (this.lockTime > 0) this.lockTime = Math.max(0, this.lockTime - dt);
+    if (this.breathTime > 0) this.breathTime = Math.max(0, this.breathTime - dt);
+  }
+
+  /** Step off the Magic Carpet now (time up, pressed again, stunned): fall from the hover height. */
+  endRide(): void {
+    this.carpetTime = 0;
+    // Hovering: drop onto whatever is underneath (the floor, or the rug pile it was gliding over).
+    if (this.pos.y > FLOOR_EPS) {
+      this.grounded = false;
+      this.vy = 0;
+      this.coyote = 0;
+    }
+    events.emit('rewardEnd', { wizard: this, spell: 'carpet' });
   }
 
   /** Movement, dodge and knockback integration through the character controller. */
@@ -443,7 +527,7 @@ export class Wizard {
     // Start a dodge roll. Cancels any windup: rolling out of a cast should always be possible.
     // Rolls need footing: in the air the press stays buffered and fires if you land in time.
     const footing = this.grounded || this.coyote > 0;
-    if (intent.wants('dodge') && footing && this.alive && !frozen && !this.dodging && this.cd.dodge <= 0) {
+    if (intent.wants('dodge') && footing && this.alive && !frozen && !this.dodging && !this.riding && this.cd.dodge <= 0) {
       intent.consume('dodge');
       const dir = tmpMove.copy(intent.move);
       if (dir.lengthSq() < 0.01) this.forward(dir).negate();
@@ -453,6 +537,7 @@ export class Wizard {
       this.iframes = W.dodge.iframes;
       this.cd.dodge = W.dodge.duration + W.dodge.cooldown;
       this.cast = null;
+      this.breathTime = 0; // rolling out of the fire breath
       this.stats.dodges++;
       events.emit('dodge', { wizard: this });
     }
@@ -475,6 +560,16 @@ export class Wizard {
       const t = 1 - this.dodgeTime / W.dodge.duration; // 0 -> 1
       const speed = W.dodge.speed * (1 - 0.55 * t * t);
       this.vel.copy(this.dodgeDir).multiplyScalar(speed);
+    } else if (this.riding) {
+      // Magic Carpet: much faster, snappy, no sprint (and no mana drain).
+      const C = RS.carpet;
+      const moving = intent.move.lengthSq() > 0.01;
+      tmpTarget.copy(intent.move).multiplyScalar(W.moveSpeed * C.speedMultiplier);
+      tmpMove.subVectors(tmpTarget, this.vel);
+      const len = tmpMove.length();
+      const step = (moving ? C.acceleration : C.deceleration) * dt;
+      if (len <= step) this.vel.copy(tmpTarget);
+      else this.vel.addScaledVector(tmpMove, step / len);
     } else {
       let speed = W.moveSpeed;
       const moving = intent.move.lengthSq() > 0.01;
@@ -487,6 +582,10 @@ export class Wizard {
         if (this.mana <= 0) this.sprintExhausted = true;
       }
       if (this.cast) speed *= W.castMoveMultiplier;
+      if (this.breathing) {
+        speed = W.moveSpeed * RS.breath.moveMultiplier;
+        this.sprinting = false;
+      }
       tmpTarget.copy(intent.move).multiplyScalar(speed);
       let rate = moving ? W.acceleration : W.deceleration;
       // Reduced air control: steer a little, and momentum mostly carries without input.
@@ -505,7 +604,12 @@ export class Wizard {
     // Vertical: exact constant-gravity step in the air; on a raised surface, a short probe down
     // to notice walking off it. The floor is the plane y = 0.
     let dy = 0;
-    if (!this.grounded) {
+    // On the carpet: hold the hover height over whatever is underneath, rising over low cover ahead.
+    const riding = this.riding && this.alive && !frozen;
+    if (riding) {
+      dy = this.rideStep(dt, physics);
+      this.vy = 0;
+    } else if (!this.grounded) {
       dy = this.vy * dt - 0.5 * J.gravity * dt * dt;
       this.vy = Math.max(-J.maxFallSpeed, this.vy - J.gravity * dt);
     } else if (this.pos.y > FLOOR_EPS) {
@@ -518,8 +622,36 @@ export class Wizard {
     this.pos.x += tmpTarget.x;
     this.pos.z += tmpTarget.z;
     this.pos.y = Math.max(0, this.pos.y + tmpTarget.y);
-    this.updateFooting(dt, dy, tmpTarget.y, physics);
+    if (riding) {
+      // The carpet is the footing: the visual stands on it and the jump/landing logic stays out.
+      this.grounded = true;
+      this.coyote = 0;
+      this.groundY = this.pos.y;
+    } else {
+      this.updateFooting(dt, dy, tmpTarget.y, physics);
+    }
     this.syncBody();
+  }
+
+  /**
+   * Vertical step (m) for one carpet tick: toward CONFIG.rewardSpells.carpet.hover above the highest
+   * surface under the wizard, or under the point it is heading for when that is low cover (at most
+   * `climb` above what is underneath): the carpet swoops up over rug piles and car hoods before it
+   * reaches them, and settles back down past them. Taller cover just blocks it.
+   */
+  private rideStep(dt: number, physics: Physics): number {
+    const C = RS.carpet;
+    const r = this.radius * 0.9;
+    const under = physics.surfaceBelow(this.pos.x, this.pos.z, r, this.pos.y + 0.02);
+    let base = Number.isFinite(under) ? under : this.pos.y;
+    const speed = Math.hypot(this.vel.x, this.vel.z);
+    if (speed > 1) {
+      const look = this.radius + speed * C.lookAhead;
+      const ahead = physics.surfaceBelow(this.pos.x + (this.vel.x / speed) * look, this.pos.z + (this.vel.z / speed) * look, r, base + C.climb);
+      if (Number.isFinite(ahead)) base = Math.max(base, ahead);
+    }
+    const d = base + C.hover - this.pos.y;
+    return Math.max(-C.sink * dt, Math.min(C.rise * dt, d));
   }
 
   /** Ground contact after a move: landing, walking off ledges, coyote time, heads. */

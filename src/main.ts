@@ -18,6 +18,7 @@ import { registerDuoScenarios } from './qa/duoScenarios';
 import { registerLifePackScenarios } from './qa/lifePackScenarios';
 import { registerCinematicScenarios } from './qa/cinematicScenarios';
 import { registerMuzzleScenarios } from './qa/muzzleScenarios';
+import { registerRewardSpellScenarios } from './qa/rewardSpellScenarios';
 import { registerAnimScenarios } from './qa/animScenarios';
 import { campaignSoak, soak, type CampaignSoakOptions } from './qa/soak';
 import { CONFIG, type Difficulty } from './config';
@@ -53,6 +54,7 @@ async function boot() {
   registerLifePackScenarios(qa, game, app);
   registerCinematicScenarios(qa, game, app);
   registerMuzzleScenarios(qa, game);
+  registerRewardSpellScenarios(qa, game, app);
   registerAnimScenarios(qa, game);
   registerOfficeScenarios(qa, game);
   registerArenaKitScenarios(qa, game);

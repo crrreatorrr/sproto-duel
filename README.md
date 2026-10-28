@@ -2,8 +2,8 @@
 
 Arena wizard duels in the browser. Quick Duel: best of three rounds against an AI wizard, 60–90
 seconds a round. Boss Gauntlet: five long single-life boss fights, each boss with three stages and
-a cinematic transformation between them. Three.js + TypeScript + Vite, Rapier for physics, Howler
-for audio. Everything is code.
+a cinematic transformation between them, and every boss you beat teaches you its spell for good.
+Three.js + TypeScript + Vite, Rapier for physics, Howler for audio. Everything is code.
 
 ## Run
 
@@ -32,6 +32,7 @@ npm run gen:audio  # regenerate the synthesized placeholder sounds
 | Q / 3 | **Shield**: blocks for 0.8 s. Raise it in the last 0.2 s before a hit to reflect the spell back, faster and stronger |
 | E / 4 | **Stun**: beam that freezes the target for 1 s, 8 s cooldown |
 | R / 5 | **Ultimate**: charged by dealing damage. An arena-wide shockwave. Roll through it, hide behind a pillar, or shield to reduce it |
+| Z X V G T | **Boss spells** once learned: Magic Carpet, Pump It, Vape Cloud, Lock-On, Hellfire Breath (see [Boss spells](#boss-spells)) |
 | Esc / P | Pause |
 
 ### Controller
@@ -53,6 +54,8 @@ DualShock/DualSense). With a controller the game never needs to capture the mous
 | Y | △ | **Ultimate** |
 | A | ✕ | Jump |
 | B | ○ | Dodge roll |
+| D-pad ← ↑ → ↓ | D-pad ← ↑ → ↓ | Boss spells: Magic Carpet, Pump It, Vape Cloud, Lock-On |
+| X | □ | Boss spell: Hellfire Breath |
 | Menu | Options | Pause / resume |
 | D-pad or left stick, A, B | D-pad or left stick, ✕, ○ | Menus: move focus, select, back; left/right adjusts sliders |
 
@@ -66,8 +69,10 @@ ring of fire at the edge burns, and in the last 30 seconds it closes in. Pillars
 enough hits.
 
 The HUD shows each wizard's health, mana and Ultimate charge at the top (yours on the left), the
-round timer and won rounds in the middle, and your spells with their cooldowns at the bottom. A
-golden mana bar with a countdown chip means that wizard has a golden-ticket boost.
+round timer and won rounds in the middle, and your spells with their cooldowns at the bottom (a
+second row above them holds the boss spells you have learned). A golden mana bar with a countdown
+chip means that wizard has a golden-ticket boost. The plates, the clock and the spell rows sit on a
+translucent, blurred dark backing so they read over any sky; the HUD steps aside behind menus.
 
 ## Golden tickets
 
@@ -161,14 +166,70 @@ aimed high at Obama can fly over his head. Every boss's hurtbox grows with its s
   reports per boss: win rate, fight length, stage reached, minutes per stage, the bosses' damage
   per second per stage, life pack use and wins the packs saved. `{ immortal: true }` measures
   stage lengths and damage without the fight ending; `{ only: [4], seed: 1 }` picks fights and
-  repeats runs. `__duel.qa.runAll('campaign.')`, `'stages.'`, `'cinematic.'`, `'lifepacks.'` and
+  repeats runs; `{ spells: 'none' }` (or `'all'`, or a list) changes the boss spells the reference
+  AI brings (default: the ones it would have learned on the way, see [Boss spells](#boss-spells)). `__duel.qa.runAll('campaign.')`, `'stages.'`, `'cinematic.'`, `'lifepacks.'` and
   `'duo.'` check the rules. `__duel.config` and `__duel.bosses` are the live tuning tables.
+
+## Boss spells
+
+Every Boss Gauntlet boss you beat teaches you its themed spell **for good**: it's yours in every
+later gauntlet fight and in Quick Duel. Beating a boss again teaches nothing new, New Gauntlet keeps
+them, and Settings → **Forget learned spells** (press twice) wipes them (progress stays). Bosses
+never cast these.
+
+| Beat | Spell | Key | Pad | Effect |
+|---|---|---|---|---|
+| Sahil | **Magic Carpet** | Z | D-pad ← | 2.5 s on a flying carpet: 2.2× speed, hovering 0.45 m up (no lava or fire-ring burn; it glides up over low cover like rug piles, car hoods and carts). No casting while you ride; press again to hop off. 12 s cooldown, 20 mana |
+| Bitcoin Obama & The Midget | **Pump It** | X | D-pad ↑ | 6 s surge: +50% spell damage and 1.5× Ultimate charge. Phones orbit you and a green chart arrow climbs over your head. 20 s cooldown, 25 mana |
+| Broccoli Head | **Vape Cloud** | V | D-pad → | A 5 m smoke screen at your feet for 6 s. Enemies inside it or looking through it lose track of you and fire at your last known spot (the arena vape-cloud perception, `Arena.obscured`). You heal 3 HP/s inside. 22 s cooldown |
+| Glowie | **Lock-On** | G | D-pad ↓ | 6 s of homing bolts: each bolt turns gently (2.4 rad/s) toward the nearest enemy in a 70° cone in front of you; a green reticle marks it. Rolls still slip them; shields, reflects and clashes work as usual. 20 s cooldown |
+| Tinubu | **Hellfire Breath** | T | X / □ | Channel a 6 m, 35° cone of fire from your staff for 2 s: 16 damage/s in the cone and a 4 s burn (5/s) after; you move at 35% speed. Shields block it, a roll dodges it. 18 s cooldown, 30 mana |
+
+- **Unlocking:** a win saves the spell with the progress (`unlockedSpells` in the campaign save;
+  a double fight teaches its spell once both bosses are down). Saves from before the spells are
+  migrated: every boss before your saved fight counts as beaten, a cleared gauntlet as all five.
+  God mode wins teach nothing, but **god mode itself grants all five** for the session (never saved).
+- **Learning it:** after the victory results, **Continue** opens a "New spell learned" screen
+  with the icon, name, what it does and its key and pad button, then goes on to the next boss's card
+  (or the completion screen). The boss card says "Defeat to learn: …"; How to Play lists all five
+  with their keys and whether you have them.
+- **HUD:** a second row above your spells, one slot per learned spell: icon, key or pad glyph,
+  cooldown sweep and seconds, dimmed when you lack the mana, and a ring that runs down while the
+  effect lasts. Every cast plays its own sound (whoosh, coin pump, puff, lock beep, fire roar) and
+  effect, with the spell's name popping over you.
+- **AI and balance:** bosses never get them. The campaign soak's reference AI uses the spells it
+  would have learned on the way (fight N gets spells 1..N-1) with simple rules (`CONFIG.ai.rewards`):
+  the carpet to escape when low and under fire or under a volley, the vape cloud when low (then it
+  stays inside to heal), Pump It before a bolt burst, Lock-On while the target strafes across its
+  line of fire, the breath at close range. The later bosses were buffed to match (below).
+- Code: [src/spells/RewardSpells.ts](src/spells/RewardSpells.ts) (rules),
+  [src/spells/rewardCatalog.ts](src/spells/rewardCatalog.ts) (names, descriptions, icons),
+  [src/fx/RewardFx.ts](src/fx/RewardFx.ts) (carpet, phones and chart, flames); the carpet's flight
+  is in `Wizard.updateMovement`, the smoke in `Arena.addSmoke`. Tuning: `CONFIG.rewardSpells`; keys:
+  `CONFIG.controls` / `CONFIG.gamepad.bindings`. Icons: `ui/spells/spell_<id>.png`.
+
+**Reference ladder** (`await __duel.qa.campaignSoak(20, { seed: 2026 })`, the reference AI bringing
+the boss spells it would have learned by then; 20 single-life fights per boss, about 3 minutes):
+
+| Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Damage taken / healed (packs / vape) |
+|---|---|---|---|---|---|---|
+| Sahil | none | 100% (20/20) | 15.6 min | 3 | 5.1 / 5.3 / 5.2 | 242 / 150 / 0 |
+| Bitcoin Obama & The Midget | carpet | 75% (15/20) | 13.4 min | 3 / 3 | 5.5 / 6.3 / 3.3 | 343 / 183 / 0 |
+| Broccoli Head | carpet, pump | 45% (9/20) | 13.6 min | 3 | 4.5 / 4.6 / 5.0 | 429 / 240 / 0 |
+| Glowie | carpet, pump, vape | 10% (2/20) | 13.2 min | 3 | 5.0 / 5.2 / 5.9 | 582 / 240 / 128 |
+| Tinubu | carpet, pump, vape, lock-on | 0% (0/20) | 10.1 min | 2.7 (stage 3 in most fights) | 4.6 / 5.3 / – | 588 / 203 / 164 |
+
+The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
+fights), so a 20-fight rate moves by ±10–15 points between runs: the duo measured 50–85% and
+Glowie 5–35% around these settings. Glowie (damage ×1.35, bars +8%) and Tinubu (×1.32, bars +10%)
+were buffed for the spells; the vape cloud's healing and cover is what the reference AI leans on most.
 
 ## God mode (testing)
 
 No damage taken (hits still flash and show **IMMUNE**), unlimited mana (spells never fail, sprint
 never runs dry), no spell cooldowns (Blast, Shield and Stun are ready again at once and the
-Ultimate is always charged; bolts keep their normal fire rate), 5× damage and 5× clash power. Toggle it any time by typing **9 9** quickly, with
+Ultimate is always charged; bolts keep their normal fire rate), all five boss spells (with no
+cooldowns either), 5× damage and 5× clash power. Toggle it any time by typing **9 9** quickly, with
 **F9**, or in Settings; start with it on via `?god` in the URL. A **GOD MODE** badge shows on the
 HUD. It is never saved: a reload turns it off. Tuning: `CONFIG.debug`.
 
@@ -303,7 +364,8 @@ src/
   player/               keyboard + mouse controller (input buffering, aim assist)
   enemy/                AI state machine (approach / attack / evade / retreat)
   spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate,
-                        boss projectile skins (instanced rugs, phones, pigs, bullets...: ProjectileSkins.ts)
+                        boss projectile skins (instanced rugs, phones, pigs, bullets...: ProjectileSkins.ts),
+                        boss reward spells (RewardSpells.ts, rewardCatalog.ts)
   fx/                   particle systems, effect recipes, spell shaders, procedural textures
   arena/                floor, sky, wall, destructible pillars, fire ring, debris, environment themes, golden tickets
   camera/               over-the-shoulder rig with collision and trauma shake
@@ -324,12 +386,14 @@ prompts and specs. Drop a file at its manifest path and it replaces the placehol
 
 ## QA
 
-A QA harness runs inside the game. Open the browser console:
+A QA harness runs inside the game (215 scenarios, about 2.5 minutes in a real-sized window). Open the browser console:
 
 ```js
 await __duel.qa.runAll()            // deterministic scenarios over the real simulation
 await __duel.qa.runAll('muzzles.')  // spells leave each caster's staff, phones, vape, gun, hand, mouth
 await __duel.qa.runAll('anim.')     // rigged files preferred, clip state machine, root pinned, sockets, no leaks
+await __duel.qa.runAll('rewards.')  // boss spells: unlocks, save + migration, each effect, cooldowns, keys, HUD, reveal
+await __duel.qa.runAll('ui.')       // menus fit a 900x560 window (the menus are a size container), banners
 await __duel.qa.soak('normal', 6)   // headless AI-vs-AI rounds: pacing, damage share, tickets per side
 await __duel.qa.perf(8)             // real frame-time stats while you play
 ```

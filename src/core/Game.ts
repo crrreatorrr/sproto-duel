@@ -205,7 +205,7 @@ export class Game {
         }
         return;
       }
-      const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' ? 'burn' : 'dmg';
+      const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' || e.kind === 'scorch' ? 'burn' : 'dmg';
       this.popups.spawn(e.target.chest(tmp), String(Math.round(e.amount)), style);
     });
     events.on('callout', (e) => this.popups.spawn(e.pos, e.text, e.style));
@@ -356,11 +356,14 @@ export class Game {
   useDefaultStats(): () => void {
     const saved = this.wizards.map((w) => ({
       w, max: w.maxHealth, mult: w.damageMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana, cds: w.noCooldowns, ultk: w.ultChargeMultiplier,
+      learned: [...w.learned],
     }));
     for (const w of this.wizards) {
       w.maxHealth = CONFIG.wizard.maxHealth;
       w.damageMultiplier = w.clashPowerMultiplier = w.ultChargeMultiplier = 1;
       w.immune = w.infiniteMana = w.noCooldowns = false;
+      // No reward spells either (a scenario that wants some sets them).
+      w.learned.clear();
     }
     const stagesSuspended = this.stages.suspended;
     const partnerSuspended = this.partnerStages.suspended;
@@ -375,6 +378,8 @@ export class Game {
         s.w.immune = s.immune;
         s.w.infiniteMana = s.mana;
         s.w.noCooldowns = s.cds;
+        s.w.learned.clear();
+        for (const id of s.learned) s.w.learned.add(id);
       }
       this.stages.suspended = stagesSuspended;
       this.partnerStages.suspended = partnerSuspended;

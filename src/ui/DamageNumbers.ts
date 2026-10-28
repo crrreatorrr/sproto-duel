@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 
-/** `boss`: a campaign boss naming its signature attack, in the boss palette. `mana`/`manaFoe`: golden-ticket pickups. `heal`: a life pack. */
-export type PopupStyle = 'dmg' | 'dmgBig' | 'dmgSelf' | 'perfect' | 'info' | 'stun' | 'block' | 'burn' | 'boss' | 'mana' | 'manaFoe' | 'heal';
+/**
+ * `boss`: a campaign boss naming its signature attack, in the boss palette. `mana`/`manaFoe`: golden-ticket
+ * pickups. `heal`: a life pack or the vape cloud. `spell`: a boss reward spell's name as it is cast.
+ */
+export type PopupStyle = 'dmg' | 'dmgBig' | 'dmgSelf' | 'perfect' | 'info' | 'stun' | 'block' | 'burn' | 'boss' | 'mana' | 'manaFoe' | 'heal' | 'spell';
 
 interface Popup {
   el: HTMLDivElement;
@@ -44,8 +47,8 @@ export class DamageNumbers {
     p.pos.y += 0.3 + Math.random() * 0.3;
     p.vx = (Math.random() - 0.5) * 40;
     p.vy = -70 - Math.random() * 20;
-    p.maxLife = p.life = style === 'perfect' || style === 'stun' || style === 'boss' || style === 'mana' || style === 'heal' ? CONFIG.ui.damageNumberLife * 1.6 : CONFIG.ui.damageNumberLife;
-    p.scale = style === 'dmgBig' || style === 'perfect' || style === 'boss' || style === 'mana' || style === 'heal' ? 1.5 : style === 'info' || style === 'burn' || style === 'manaFoe' ? 0.85 : 1;
+    p.maxLife = p.life = style === 'perfect' || style === 'stun' || style === 'boss' || style === 'mana' || style === 'heal' || style === 'spell' ? CONFIG.ui.damageNumberLife * 1.6 : CONFIG.ui.damageNumberLife;
+    p.scale = style === 'dmgBig' || style === 'perfect' || style === 'boss' || style === 'mana' || style === 'heal' || style === 'spell' ? 1.5 : style === 'info' || style === 'burn' || style === 'manaFoe' ? 0.85 : 1;
     p.el.textContent = text;
     p.el.className = `popup popup-${style}`;
   }

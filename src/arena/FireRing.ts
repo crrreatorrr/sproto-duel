@@ -199,7 +199,13 @@ export class FireRing {
       const r = Math.hypot(w.pos.x, w.pos.z);
       const ring = r + CONFIG.wizard.radius > radius;
       const lava = !ring && this.inLava(w);
-      if (!ring && !lava) {
+      // On the Magic Carpet: no burn from either (the ring still shoves it back in).
+      if (w.fireproof && ring) {
+        const ix = -w.pos.x / (r || 1), iz = -w.pos.z / (r || 1);
+        const inward = w.knock.x * ix + w.knock.z * iz;
+        if (inward < A.firePush) w.addKnockback(ix, iz, A.firePush - inward);
+      }
+      if ((!ring && !lava) || w.fireproof) {
         w.burning = false;
         w.burnTimer = 0;
         continue;

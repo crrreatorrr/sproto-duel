@@ -13,6 +13,7 @@ import { SpellFx, type WaveFx } from '../fx/SpellFx';
 import type { CastKind } from '../wizard/muzzles';
 import type { Wizard } from '../wizard/Wizard';
 import { ProjectilePool, type Projectile } from './Projectile';
+import { RewardSpells } from './RewardSpells';
 import type { ChanneledSpell } from './types';
 
 const S = CONFIG.spells;
@@ -67,6 +68,8 @@ export class SpellSystem {
   readonly spellFx: SpellFx;
   /** What plays at the caster's staff, phone, vape, gun, palm or mouth as a spell leaves it. */
   readonly muzzleFx: MuzzleFx;
+  /** The boss reward spells (carpet, pump, vape, lock-on, breath): their rules and effects. */
+  readonly rewards: RewardSpells;
   private readonly waves: UltWave[] = [];
   /** Burst volleys in flight, matched by caster (one per caster at a time); grows only if every slot is busy. */
   private readonly volleys: PendingVolley[];
@@ -82,6 +85,7 @@ export class SpellSystem {
     this.spellFx = new SpellFx(scene);
     this.muzzleFx = new MuzzleFx(scene, fx);
     this.volleys = wizards.map(() => this.newVolleySlot());
+    this.rewards = new RewardSpells(scene, physics, fx, wizards, arena, (t, s, a, p, k) => this.dealDamage(t, s, a, p, k), (w) => this.noMana(w));
   }
 
   /** Side of the spell being traced (`skipQuery`): allies on that side are passed through. */
@@ -95,6 +99,7 @@ export class SpellSystem {
       this.updateCast(w, dt);
       this.handleIntents(w);
     }
+    this.rewards.update(dt);
     this.updateVolleys(dt);
     this.updateProjectiles(dt);
     this.resolveClashes();
@@ -108,6 +113,7 @@ export class SpellSystem {
     for (const v of this.volleys) v.active = false;
     this.spellFx.clear();
     this.muzzleFx.clear();
+    this.rewards.clear();
   }
 
   /** Remove everything `w` has in flight (a boss partner leaving the fight). */
@@ -128,6 +134,7 @@ export class SpellSystem {
     this.pool.sync(alpha, time);
     this.spellFx.update(dt);
     this.muzzleFx.update(dt, this.wizards);
+    this.rewards.sync(dt, this.pool.active);
   }
 
   private callout(pos: THREE.Vector3, text: string, style: GameEvents['callout']['style']): void {
@@ -140,10 +147,12 @@ export class SpellSystem {
     if (!w.alive || w.stunned || w.evolving) return;
     const intent = w.intent;
 
-    // Shield is the panic button: it may interrupt a windup, but not a roll.
-    if (intent.wants('shield') && !w.dodging && !w.shielded) {
+    // Shield is the panic button: it may interrupt a windup or the fire breath, but not a roll (or a carpet ride).
+    if (intent.wants('shield') && !w.dodging && !w.shielded && !w.riding) {
       if (this.raiseShield(w)) intent.consume('shield');
     }
+    // Boss reward spells (only wizards that learned them: the player).
+    if (w.learned.size > 0 || w.side === 0) this.rewards.handleIntents(w);
     if (!w.canAct) return;
 
     for (const spell of ['ultimate', 'stun', 'blast'] as const) {
@@ -202,7 +211,8 @@ export class SpellSystem {
     return point;
   }
 
-  private noMana(w: Wizard): void {
+  /** "NO MANA" over the caster. */
+  noMana(w: Wizard): void {
     this.callout(w.chest(tmpPoint), 'NO MANA', 'info');
     events.emit('noMana', { wizard: w });
   }
@@ -273,6 +283,8 @@ export class SpellSystem {
     p.damage = damage;
     p.power = p.basePower = B.power * w.clashPowerMultiplier;
     p.life = B.lifetime;
+    // Lock-On: the bolt curves toward the nearest enemy in front of the caster.
+    if (w.lockedOn) p.seek = this.rewards.lockTarget(w);
     p.refreshLook();
     w.stats.casts++;
     this.muzzleFx.cast(w, kind, muzzle, p.pos, dir);
@@ -384,6 +396,7 @@ export class SpellSystem {
       return true;
     }
     w.cast = null;
+    w.breathTime = 0; // the shield goes up instead of the flames
     w.shieldTime = SH.duration;
     w.shieldAge = 0;
     w.cd.shield = SH.cooldown;
@@ -539,6 +552,7 @@ export class SpellSystem {
       }
 
       if (p.homing) this.steerHoming(p, dt);
+      else if (p.seek) this.rewards.steer(p, dt);
 
       tmpMotion.copy(p.vel).multiplyScalar(dt);
       if (this.checkShields(p, tmpMotion)) continue;
@@ -598,6 +612,7 @@ export class SpellSystem {
       const victim = p.owner;
       p.owner = o;
       p.reflected = true;
+      p.seek = null;
       p.homing = victim.alive ? victim : null;
       victim.chest(tmpTarget);
       const speed = (p.kind === 'bolt' ? S.bolt.speed : S.blast.speed) * SH.reflectSpeedMultiplier;
@@ -625,6 +640,7 @@ export class SpellSystem {
     tmpDir.set(Math.random() - 0.5, 0.6 + Math.random() * 0.4, Math.random() - 0.5);
     p.vel.normalize().add(tmpDir).normalize().multiplyScalar(S.bolt.speed * 0.6);
     p.owner = o;
+    p.seek = null;
     p.damage *= SH.deflectDamageMultiplier;
     p.life = Math.min(p.life, 0.35);
     p.pos.copy(center).addScaledVector(normal, SH.radius + p.radius + 0.05);
@@ -890,7 +906,8 @@ export class SpellSystem {
   ): number {
     if (!target.alive) return 0;
     if (source && source !== target && source.side === target.side) return 0;
-    if (source && source !== target) amount *= source.damageMultiplier;
+    // Boss tuning and god mode, and Pump It's surge.
+    if (source && source !== target) amount *= source.damageMultiplier * (source.pumped ? CONFIG.rewardSpells.pump.damageMultiplier : 1);
     if (target.immune || target.evolving) {
       // God mode or a transforming boss: the hit still reads (flash, sound, "IMMUNE" popup) but
       // removes no HP. God mode still takes the knockback; a transforming boss stands its ground.

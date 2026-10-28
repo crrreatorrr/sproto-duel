@@ -12,6 +12,8 @@ import { CANDLE_REF_HEIGHT } from './obstacleKit';
 import { Pillar, type ObstacleKind } from './Pillar';
 import { ThemeKit, boxFitScale, pillarFitScale } from './themeKit';
 import { THEMES, isThemeId, type ArenaTheme, type ArenaThemeId, type SkyDef } from './themes';
+import { events } from '../core/events';
+import type { Wizard } from '../wizard/Wizard';
 
 const A = CONFIG.arena;
 const R = CONFIG.render;
@@ -191,6 +193,26 @@ interface CloudState extends SoftZone {
   cz: number;
 }
 
+/**
+ * A smoke screen a wizard dropped (the Vape Cloud reward spell): soft cover like the layout's clouds
+ * (Arena.obscured hides wizards in or behind it from the AI) for `life` seconds, standing still.
+ */
+export interface Smoke {
+  owner: Wizard;
+  x: number;
+  z: number;
+  radius: number;
+  height: number;
+  /** Seconds since it was dropped, and how long it lasts. */
+  age: number;
+  life: number;
+}
+
+/** Most dropped smoke screens at once (the oldest clears early). */
+const MAX_SMOKES = 4;
+/** Billowing puffs drawn per smoke screen. */
+const SMOKE_PUFFS = 11;
+
 const BILLBOARD_VERT = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vColor;
@@ -222,6 +244,16 @@ const BILLBOARD_FRAG = /* glsl */ `
 /** Puffs drawn per vape cloud. */
 const PUFFS = 9;
 
+/** Does segment a -> b pass through (or start or end inside) the upright cloud cylinder at (cx, cz)? */
+function segmentInCloud(a: THREE.Vector3, b: THREE.Vector3, cx: number, cz: number, radius: number, height: number): boolean {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const len2 = dx * dx + dz * dz;
+  const t = len2 > 1e-6 ? THREE.MathUtils.clamp(((cx - a.x) * dx + (cz - a.z) * dz) / len2, 0, 1) : 0;
+  const px = a.x + dx * t, pz = a.z + dz * t;
+  const y = a.y + (b.y - a.y) * t;
+  return Math.hypot(px - cx, pz - cz) < radius && y < height;
+}
+
 export class Arena {
   readonly debris: Debris;
   /** Cover layout of the current theme ('rings' of pillars, the office 'cubicles', or a boss arena's). */
@@ -232,6 +264,8 @@ export class Arena {
   private readonly movers = new Map<ArenaLayout, MoverState[]>();
   /** Soft cover (vape clouds) and floor hazards (lava) of the current layout. */
   private clouds: CloudState[] = [];
+  /** Dropped smoke screens (Vape Cloud), live ones only. */
+  private readonly smokeList: Smoke[] = [];
   private hazardList: Hazard[] = [];
   private cloudMesh: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | null = null;
   private readonly cloudColor = new THREE.Color();
@@ -358,6 +392,41 @@ export class Arena {
     return this.clouds.map((c) => ({ x: c.cx, z: c.cz, radius: c.radius, height: c.height }));
   }
 
+  /** Smoke screens wizards have dropped (Vape Cloud), still standing. */
+  get smokes(): readonly Smoke[] {
+    return this.smokeList;
+  }
+
+  /**
+   * Drop a smoke screen (the Vape Cloud spell) centred at (x, z): it hides like a layout cloud for
+   * `life` s. Past MAX_SMOKES the oldest clears.
+   */
+  addSmoke(owner: Wizard, x: number, z: number, radius: number, height: number, life: number): Smoke {
+    while (this.smokeList.length >= MAX_SMOKES) this.expireSmoke(0);
+    const smoke: Smoke = { owner, x, z, radius, height, age: 0, life };
+    this.smokeList.push(smoke);
+    this.syncCloudMesh();
+    return smoke;
+  }
+
+  /** The smoke screen dropped by `owner` that (x, z) stands in, if any. */
+  smokeAt(x: number, z: number, owner?: Wizard): Smoke | null {
+    for (const s of this.smokeList) if ((!owner || s.owner === owner) && Math.hypot(x - s.x, z - s.z) < s.radius) return s;
+    return null;
+  }
+
+  private expireSmoke(i: number): void {
+    const [s] = this.smokeList.splice(i, 1);
+    this.syncCloudMesh();
+    events.emit('rewardEnd', { wizard: s.owner, spell: 'vape' });
+  }
+
+  /** The puff mesh shows while the layout has clouds or someone's smoke is up. */
+  private syncCloudMesh(): void {
+    if (this.clouds.length || this.smokeList.length) this.cloudPuffs().visible = true;
+    else if (this.cloudMesh) this.cloudMesh.visible = false;
+  }
+
   /** Lava pools of the current layout. */
   get hazards(): readonly Hazard[] {
     return this.hazardList;
@@ -374,14 +443,9 @@ export class Arena {
    * one. Clouds stop no spell; they only hide wizards from the AI.
    */
   obscured(a: THREE.Vector3, b: THREE.Vector3): boolean {
-    for (const c of this.clouds) {
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const len2 = dx * dx + dz * dz;
-      const t = len2 > 1e-6 ? THREE.MathUtils.clamp(((c.cx - a.x) * dx + (c.cz - a.z) * dz) / len2, 0, 1) : 0;
-      const px = a.x + dx * t, pz = a.z + dz * t;
-      const y = a.y + (b.y - a.y) * t;
-      if (Math.hypot(px - c.cx, pz - c.cz) < c.radius && y < c.height) return true;
-    }
+    for (const c of this.clouds) if (segmentInCloud(a, b, c.cx, c.cz, c.radius, c.height)) return true;
+    // Dropped smoke screens (Vape Cloud) hide the same way.
+    for (const s of this.smokeList) if (segmentInCloud(a, b, s.x, s.z, s.radius, s.height)) return true;
     return false;
   }
 
@@ -680,8 +744,7 @@ export class Arena {
       this.fire?.setHazards(this.hazardList);
       this.reset();
     }
-    if (this.clouds.length) this.cloudPuffs().visible = true;
-    else if (this.cloudMesh) this.cloudMesh.visible = false;
+    this.syncCloudMesh();
     if (this.glassDebris) this.glassDebris.visible = this.pillars.some((p) => p.shape.seeThrough);
 
     // Cover looks: the theme's pillar GLB replaces placeholder columns and cubicles, an obstacle GLB
@@ -961,6 +1024,11 @@ export class Arena {
       m.pillar.moveTo(x, z, true);
     }
     this.driftClouds();
+    // Dropped smoke clears with the round.
+    if (this.smokeList.length) {
+      this.smokeList.length = 0;
+      this.syncCloudMesh();
+    }
   }
 
   /** Simulation tick. */
@@ -977,6 +1045,11 @@ export class Arena {
     this.glassDebris?.update(dt);
     this.slideMovers(dt);
     this.driftClouds();
+    for (let i = this.smokeList.length - 1; i >= 0; i--) {
+      const s = this.smokeList[i];
+      s.age += dt;
+      if (s.age >= s.life) this.expireSmoke(i);
+    }
   }
 
   /** World position of a point along a rail (t in -1..1). */
@@ -1019,7 +1092,7 @@ export class Arena {
   /** The vape clouds' puffs: one instanced billboard mesh for every cloud (made on first use). */
   private cloudPuffs(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
     if (!this.cloudMesh) {
-      const max = 4 * PUFFS;
+      const max = this.cloudCapacity;
       const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
         vertexShader: BILLBOARD_VERT, fragmentShader: BILLBOARD_FRAG, uniforms: { uOpacity: { value: 0.42 } },
         transparent: true, depthWrite: false,
@@ -1034,12 +1107,16 @@ export class Arena {
     return this.cloudMesh;
   }
 
+  /** Instances in the puff mesh: the layout's clouds (up to 4) and the dropped smoke screens. */
+  private readonly cloudCapacity = 4 * PUFFS + MAX_SMOKES * SMOKE_PUFFS;
+
   /** Lay out every cloud's puffs around its current centre, slowly churning. */
   private placePuffs(t: ArenaTheme): void {
     const mesh = this.cloudMesh;
     if (!mesh || !mesh.visible) return;
     const d = this.puffDummy;
     let n = 0;
+    mesh.count = this.cloudCapacity;
     const c1 = this.tmpColor.fromArray(t.ambient.color), c2 = this.tmpColor2.fromArray(t.ambient.color2);
     this.clouds.forEach((c, ci) => {
       for (let k = 0; k < PUFFS && n < mesh.count; k++, n++) {
@@ -1051,6 +1128,23 @@ export class Arena {
         d.updateMatrix();
         mesh.setMatrixAt(n, d.matrix);
         mesh.setColorAt(n, this.cloudColor.copy(k % 2 ? c1 : c2).multiplyScalar(0.62));
+      }
+    });
+    // Smoke screens: pale vapour that billows out, churns, and thins away at the end.
+    const V = CONFIG.rewardSpells.vape;
+    this.smokeList.forEach((s, si) => {
+      const grow = THREE.MathUtils.smoothstep(s.age, 0, V.grow);
+      const fade = THREE.MathUtils.clamp((s.life - s.age) / V.fade, 0, 1);
+      const k0 = 0.35 + 0.65 * grow;
+      for (let k = 0; k < SMOKE_PUFFS && n < mesh.count; k++, n++) {
+        const a = (k / SMOKE_PUFFS) * Math.PI * 2 + this.visualTime * (0.12 + 0.03 * si) * (k % 2 ? 1 : -1);
+        const rr = s.radius * k0 * (k === 0 ? 0 : 0.3 + 0.5 * ((k * 37) % 10) / 10);
+        const y = s.height * (0.18 + 0.55 * ((k * 53) % 10) / 10) * (0.6 + 0.4 * grow) + Math.sin(this.visualTime * 0.7 + k) * 0.12;
+        d.position.set(s.x + Math.cos(a) * rr, y, s.z + Math.sin(a) * rr);
+        d.scale.setScalar(s.radius * k0 * (0.75 + 0.95 * fade) * (1.1 + 0.5 * ((k * 71) % 10) / 10));
+        d.updateMatrix();
+        mesh.setMatrixAt(n, d.matrix);
+        mesh.setColorAt(n, this.cloudColor.setRGB(0.86, 0.84, 0.97).multiplyScalar((k % 2 ? 0.82 : 0.7) * (0.35 + 0.65 * fade)));
       }
     });
     mesh.count = n;
