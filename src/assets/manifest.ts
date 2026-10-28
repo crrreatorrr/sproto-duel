@@ -216,6 +216,8 @@ export const MODELS = {
   ...bossStages('broccoli', [2.0, 2.35, 2.8]),
   ...bossStages('agent', [2.0, 2.2, 2.5]),
   ...bossStages('tinubu', [2.1, 2.45, 2.9]),
+  // Boss Gauntlet health pickup (src/arena/LifePacks.ts): a red potion flask; a code-built one without it.
+  lifePack: { path: 'models/pickups/life_pack.glb', fitHeight: CONFIG.lifePacks.size, rotationY: -90, maxTriangles: 3000 },
 } satisfies Record<string, ModelAsset>;
 
 export const TEXTURES = {
@@ -270,6 +272,12 @@ export const SOUNDS = {
   ticketSpawn: { path: 'audio/ticket_spawn.mp3', volume: 0.4, maxVoices: 3 },
   ticketPickup: { path: 'audio/ticket_pickup.mp3', volume: 0.75, maxVoices: 3 },
   ticketExpire: { path: 'audio/ticket_expire.mp3', volume: 0.45, maxVoices: 3 },
+  // Boss transformation cinematics (BossCinematic) and life packs.
+  bossRise: { path: 'audio/boss_rise.mp3', volume: 0.75 },
+  bossRoar: { path: 'audio/boss_roar.mp3', volume: 0.9 },
+  bossSlam: { path: 'audio/boss_slam.mp3', volume: 0.95 },
+  lifePackSpawn: { path: 'audio/life_pack_spawn.mp3', volume: 0.5 },
+  lifePackPickup: { path: 'audio/life_pack_pickup.mp3', volume: 0.8 },
   musicMenu: { path: 'audio/music_menu.mp3', volume: 0.6, loop: true, music: true },
   musicBattle: { path: 'audio/music_battle.mp3', volume: 0.55, loop: true, music: true },
 } satisfies Record<string, SoundAsset>;

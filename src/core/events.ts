@@ -38,9 +38,12 @@ export interface GameEvents {
   roundIntro: { round: number };
   countdown: { value: number };
   roundStart: { round: number };
+  /** `reason` 'time': the Quick Duel clock ran out (a gauntlet fight has none; it always ends on a KO). */
   roundEnd: { winner: Wizard | null; reason: 'ko' | 'time' };
   matchEnd: { winner: Wizard | null };
   suddenDeath: Record<string, never>;
+  /** The gauntlet's safety cap was reached: the fire ring starts closing in (Quick Duel: suddenDeath). */
+  fightCap: Record<string, never>;
   /**
    * A campaign boss's stage was set: 0 at every round start, 1 or 2 when it evolves. `boss` is null
    * (stage 0) when the wizard stops being a boss. The AI and HUD follow it. See BossStages. Fired
@@ -48,7 +51,7 @@ export interface GameEvents {
    */
   bossStage: { wizard: Wizard; boss: BossFighter | null; stage: number };
   /**
-   * A campaign boss starts transforming from stage `from` into `stage` (a big hit can skip one).
+   * A campaign boss starts transforming from stage `from` into `stage` (its stage's bar ran out).
    * `enraged`: its partner just fell, so it goes straight to its last stage.
    */
   bossEvolve: { wizard: Wizard; boss: BossFighter; stage: number; from: number; pos: Vector3; enraged: boolean };
@@ -64,6 +67,17 @@ export interface GameEvents {
   ticketExpire: { id: number; pos: Vector3; reason: 'timeout' | 'fire' };
   /** A wizard's golden-ticket mana boost ran out (mana is back to the normal max). */
   manaBoostEnd: { wizard: Wizard };
+  /** A life pack appeared (src/arena/LifePacks.ts). `first`: the fight's first; `left`: packs still to come. */
+  lifePackSpawn: { id: number; pos: Vector3; first: boolean; left: number };
+  /** The player collected the life pack and healed `healed` HP. */
+  lifePackPickup: { id: number; pos: Vector3; wizard: Wizard; healed: number };
+  /** An uncollected life pack vanished (its lifetime ran out, or the closing fire ring reached it). */
+  lifePackExpire: { id: number; pos: Vector3 };
+  /**
+   * A beat of a boss transformation cinematic (BossCinematic): it starts (the world freezes), the
+   * boss rises, the old form bursts, he lands, the fight resumes. Audio and the HUD follow it.
+   */
+  bossCinematic: { wizard: Wizard; boss: BossFighter; stage: number; beat: 'start' | 'burst' | 'slam' | 'count' | 'resume' | 'end'; enraged: boolean };
 }
 
 type Handler<T> = (payload: T) => void;

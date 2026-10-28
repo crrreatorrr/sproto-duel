@@ -1,7 +1,9 @@
 # Arcane Duel
 
-Fast arena wizard duels in the browser. Best of three rounds against an AI wizard, 60–90 seconds a
-round. Three.js + TypeScript + Vite, Rapier for physics, Howler for audio. Everything is code.
+Arena wizard duels in the browser. Quick Duel: best of three rounds against an AI wizard, 60–90
+seconds a round. Boss Gauntlet: five long single-life boss fights, each boss with three stages and
+a cinematic transformation between them. Three.js + TypeScript + Vite, Rapier for physics, Howler
+for audio. Everything is code.
 
 ## Run
 
@@ -85,49 +87,82 @@ ticket face is `textures/golden_ticket.png` (a canvas-drawn face is used without
 
 ## Boss Gauntlet
 
-Five fights in a row, each a best-of-three duel in the boss's own arena: Sahil, the RugMaster
-(desert); **Bitcoin Obama & The Midget** (void, a double fight); Broccoli Head (grove); Glowie
-(glacier); and Tinubu (volcano). Fight 1 is very easy and every fight after it is harder; this
-ladder is the game's only difficulty setting (Quick Duel is one fixed rival). A card introduces
-each fight; win to unlock the next, lose and you retry the same one. Progress is saved in the
-browser, so **Continue** on the main menu resumes at the next fight. Beating Tinubu clears the
-gauntlet.
+Five fights in a row, each in the boss's own arena: Sahil, the RugMaster (The Grand Bazaar);
+**Bitcoin Obama & The Midget** (The Blockchain Void, a double fight); Broccoli Head (Los Angeles);
+Glowie (Government Office); and Tinubu (Hellfire Caldera). Fight 1 is very easy and every fight
+after it is a clear step up; Tinubu is close to impossible. This ladder is the game's only
+difficulty setting (Quick Duel is one fixed rival, best of three). A card introduces each fight;
+win to unlock the next, lose and you retry the same one. Progress is saved in the browser, so
+**Continue** on the main menu resumes at the next fight. Beating Tinubu clears the gauntlet.
 
-Every boss evolves twice per round, at 2/3 and 1/3 of its health: a short invulnerable
-transformation into a bigger form with more attacks (Blast, Stun, the Ultimate, a signature
-volley) and a sharper AI. The HUD shows the stage under the boss's health bar.
+**One life.** A boss fight is a single round and you have one life: if you fall, it's a defeat and
+**Retry** starts that boss again from stage 1 at full health. There is no round timer; the HUD's
+clock counts the fight up and there are no round pips. Your health does not refill between the
+boss's stages.
+
+**Three stages, three health bars.** Every boss has three stages and each stage has its own,
+bigger health bar (`stageHealth` in levels.ts). Empty it and the boss doesn't fall: it transforms
+and comes back with the next stage's full bar (the hit that emptied the bar loses its overflow,
+and the boss is immune while it transforms). Only emptying the last stage's bar knocks it out.
+Each stage hits harder (`stageDamage`), thinks faster and sharper (`stageAI`), and unlocks more
+attacks (Blast, Stun, the Ultimate, a signature volley). Stages are sized to last about five
+minutes each against a competent player, so a fight runs 15 minutes or more. The boss plate shows
+the current stage's bar, its stage pips and name; the bar sweeps up as the boss transforms.
+
+**Life packs.** Up to three health pickups per fight (a red potion with a light beam): one comes
+in each stage, a minute or more in, sooner when you're below 40% health. Only you can collect
+them; each heals half your max health. An uncollected pack vanishes after 40 s and still counts.
+The hearts under your bars show how many are left. Quick Duel has none. Tuning: `CONFIG.lifePacks`.
+
+**Transformation cinematics.** Every transformation is a short cinematic. The fight freezes (no
+one moves, casts, burns or takes damage, and your input is ignored), letterbox bars slide in and
+the camera swoops in to orbit the boss. He rises off the ground spinning and shuddering, glows
+brighter and brighter and cracks with light while an energy vortex spirals into him, the floor
+cracks under him and the sky and fog tint toward his colours. Then the old form bursts into light
+(bloom, a roar, the stage's title card with its concept art and the refilling bar), the new form
+grows out of the light with an overshoot squash and stretch, and he slams down: an arena-wide
+shockwave ring, debris and a big shake. The camera returns to your shoulder, a quick "3 2 1"
+plays, and the fight resumes (the boss stays frozen and immune for a moment). Stage 3 is longer
+and bigger (higher rise, more spins, a wider orbit, more debris, a false burst first, a bigger
+card), and so is a double fight's enrage. Press Space, Enter, click or the pad's A to play the
+rest of a cinematic faster. Pausing pauses it. Headless runs (QA, soaks) transform instantly on
+sim time instead. Tuning: `CONFIG.campaign.cinematic`; code: `src/campaign/BossCinematic.ts`.
+
+**Safety caps.** A stage still going after 9 minutes pulls the fire ring in to close quarters
+(it opens again when the stage ends); after 35 minutes of fighting the ring closes completely,
+so a stalemate always ends. Golden tickets come less often in boss fights
+(`CONFIG.tickets.bossSpawnInterval`). Tuning: `CONFIG.campaign.fight`.
+
+**God mode** wins don't save progress or count clears; the results say so.
 
 **The double fight.** In fight 2 you face Bitcoin Obama (tall) and The Midget (short, quick and
-jumpy) at the same time. Each has his own health bar, stages, AI and palette (both throw phones
-and pigs), and the two keep apart and try to flank you. Spells never hurt, push, stun, block or
-clash with their own side, so their shots pass through each other. The round is yours once both
-are down (a fallen boss stays down and doesn't block shots) and theirs if you fall. When one of
-them falls, the other is **enraged**: he transforms straight into his last stage. On time-out
-your health fraction is compared with their combined fraction. Aim assist locks onto whichever
-standing boss is nearest your crosshair. The Midget's hitbox is 1.25 m tall, so a bolt aimed high
-at Obama can fly over his head.
+jumpy) at the same time. Each has his own stage bars, AI and palette (both throw phones and pigs),
+and the two keep apart and try to flank you. Spells never hurt, push, stun, block or clash with
+their own side, so their shots pass through each other. You win once both are knocked out (a
+fallen boss stays down and doesn't block shots). When one of them falls, the other is **enraged**:
+he transforms straight into his last stage with a full last-stage bar. Aim assist locks onto
+whichever standing boss is nearest your crosshair. The Midget's hitbox is 1.25 m tall, so a bolt
+aimed high at Obama can fly over his head. Every boss's hurtbox grows with its stage model.
 
-- Bosses, stages, AI profiles, health/damage multipliers, palettes, themes, intro lines and the
-  double fight's `partner`: [src/campaign/levels.ts](src/campaign/levels.ts). Stages:
-  `src/campaign/BossStages.ts` (one per boss wizard). The partner is a third wizard
-  (`Game.partner`, side 1) that joins `Game.wizards` only during that fight. Flow: `src/App.ts`;
-  rounds: `src/core/Match.ts`; progress: `src/campaign/Campaign.ts`. Tuning: `CONFIG.campaign`
-  (`duo` for the pair's spawn gap, spacing and flanking).
+- Bosses, stages, stage bars, AI profiles, damage multipliers, palettes, themes, intro lines and
+  the double fight's `partner`: [src/campaign/levels.ts](src/campaign/levels.ts). Stages:
+  `src/campaign/BossStages.ts` (one per boss wizard); cinematics: `src/campaign/BossCinematic.ts`;
+  life packs: `src/arena/LifePacks.ts`. The partner is a third wizard (`Game.partner`, side 1)
+  that joins `Game.wizards` only during that fight. Flow: `src/App.ts`; rounds and the safety
+  caps: `src/core/Match.ts`; progress: `src/campaign/Campaign.ts`. Tuning: `CONFIG.campaign`
+  (`fight`, `cinematic`, `stageAI`, `stageDamage`, `hurtbox`, `duo`) and `CONFIG.lifePacks`.
 - Stage models load from `models/bosses/<id>/stage1..3.glb` and portraits from
   `ui/bosses/<id>.png` (`<id>_stage2.png`, `<id>_stage3.png` for later stages) when present;
   otherwise the boss is a primitive wizard in its colours and headgear that grows each stage, and
-  the portrait is a stylized silhouette. See [ASSETS.md](ASSETS.md).
-- **Where spells come from.** Every caster fires out of the thing it holds: you, out of the orb of
-  your magical sproto staff; Sahil from his staff's gem; Bitcoin Obama and The Midget from their
-  phones (one hand, then a phone in each hand that fire in turn; in stage 3 the phones are drawn in
-  their fists); Broccoli Head from his vape (a pen, a box mod, then a cannon, each puff bigger);
-  Glowie from his gun barrel (pistol, SMG, minigun); Tinubu's bolts and stuns from his raised hand,
-  his blasts (the skulls) and volleys from his mouth, and his Ultimate from both. Each muzzle has
-  its own effects, below. Muzzle points per stage: `muzzle` in `levels.ts`; see Spell visuals.
-- `await __duel.qa.campaignSoak(12)` plays a reference AI against each fight (the double fight
-  with both bosses; the reference AI targets the nearest standing one) and reports round lengths,
-  win rates, stages reached and the pair's damage split; `__duel.qa.run('campaign.ladder_escalates')`
-  checks the ladder and `__duel.qa.runAll('duo.')` the double fight.
+  the portrait is a stylized silhouette. The life pack is `models/pickups/life_pack.glb` (a
+  code-built flask without it). See [ASSETS.md](ASSETS.md).
+- `await __duel.qa.campaignSoak(20)` plays a reference AI through each fight as the real
+  single-life fight (life packs, tickets, the boss's arena; the double fight with both bosses) and
+  reports per boss: win rate, fight length, stage reached, minutes per stage, the bosses' damage
+  per second per stage, life pack use and wins the packs saved. `{ immortal: true }` measures
+  stage lengths and damage without the fight ending; `{ only: [4], seed: 1 }` picks fights and
+  repeats runs. `__duel.qa.runAll('campaign.')`, `'stages.'`, `'cinematic.'`, `'lifepacks.'` and
+  `'duo.'` check the rules. `__duel.config` and `__duel.bosses` are the live tuning tables.
 
 ## God mode (testing)
 

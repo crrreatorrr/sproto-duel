@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import type { App } from '../App';
 import type { AssetLoader, ModelInstance } from '../assets/AssetLoader';
 import { MODELS, type ModelKey } from '../assets/manifest';
-import { STAGE_COUNT, stageForHealth, stageProfile } from '../campaign/BossStages';
+import { STAGE_COUNT, stageProfile } from '../campaign/BossStages';
 import { BOSSES, type BossDef, type VolleyDef } from '../campaign/levels';
 import { events, type GameEvents } from '../core/events';
 import type { Game } from '../core/Game';
@@ -51,10 +51,16 @@ function finishEvolve(c: Ctx): void {
   c.step(C.evolveTime + 0.05);
 }
 
-/** Bring the boss down to `fraction` of its health with one hit from the player. */
+/** Bring the boss down to `fraction` of its current stage's bar with one hit from the player (0 empties it). */
 function hitTo(game: Game, fraction: number): void {
   const e = game.enemy;
   game.spells.dealDamage(e, game.player, (e.health - e.maxHealth * fraction) / game.player.damageMultiplier, e.chest(new THREE.Vector3()), 'bolt');
+}
+
+/** Put the boss straight into `stage` with that stage's full bar (no transformation to wait for). */
+function jumpTo(game: Game, stage: number): void {
+  game.stages.evolveTo(stage);
+  game.stages.release(0);
 }
 
 /** A stand-in GLB: one box in a group, enough for WizardVisual to treat it as a real model. */
@@ -67,41 +73,84 @@ function fakeModel(): ModelInstance {
 export function registerStageScenarios(qa: QAHarness, game: Game, app: App): void {
   const st = game.stages;
 
-  qa.add('stages.thresholds_trigger_stage_2_and_3', (c) => {
+  qa.add('stages.bar_per_stage_transform_and_refill', (c) => {
     withBoss(c, game, SAHIL, () => {
-      const e = game.enemy;
+      const e = game.enemy, p = game.player;
       const done = record('bossEvolve');
-      c.expect(st.stage === 0 && !e.evolving, `round starts in stage ${st.stage + 1}`);
-      hitTo(game, C.stageThresholds[0] + 0.02);
-      c.expect(st.stage === 0, 'evolved above the first threshold');
-      hitTo(game, C.stageThresholds[0] - 0.01);
-      c.expect(st.stage === 1 && e.evolving, `crossing ${C.stageThresholds[0].toFixed(2)} gave stage ${st.stage + 1}, evolving=${e.evolving}`);
-      const hp = e.health;
+      const kos = record('ko');
+      const bars = SAHIL.stageHealth;
+      c.expect(st.stage === 0 && !e.evolving && e.maxHealth === bars[0] && e.health === bars[0], `fight starts in stage ${st.stage + 1} at ${e.health}/${e.maxHealth}`);
+      c.expect(bars[1] >= bars[0] && bars[2] >= bars[1], `stage bars do not grow: ${bars}`);
+      // Most of stage 1's bar: still stage 1.
+      hitTo(game, 0.02);
+      c.expect(st.stage === 0 && !e.evolving, 'transformed before the bar was empty');
+      // Empty it: no KO, a transformation into stage 2 that starts from an empty bar.
+      hitTo(game, 0);
+      c.expect(e.alive && st.stage === 1 && e.evolving && e.maxHealth === bars[1] && e.health === 0, `emptied stage 1: alive=${e.alive} stage ${st.stage + 1} ${e.health}/${e.maxHealth}`);
+      // Immune while it lasts.
+      game.spells.dealDamage(e, p, 500, e.chest(new THREE.Vector3()), 'blast');
+      c.expect(e.alive && e.evolving && st.stage === 1, 'a hit during the transformation landed');
+      // The bar refills (sweeps up) during the transformation.
+      const mid: number[] = [];
+      c.step(C.evolveTime + 0.05, () => mid.push(e.health));
+      c.expect(mid.some((h) => h > 0 && h < bars[1]) && mid.every((h, i) => i === 0 || h >= mid[i - 1] - 1e-9), 'the bar did not sweep up');
+      c.expect(!e.evolving && e.health === bars[1] && e.maxHealth === bars[1], `stage 2 bar ${e.health}/${e.maxHealth}`);
+      // Stage 2's bar out: stage 3, full bar. Stage 3's bar out: a KO, no transformation.
+      hitTo(game, 0);
       finishEvolve(c);
-      c.expect(!e.evolving && e.health === hp, 'evolving changed health (one bar across stages)');
-      hitTo(game, C.stageThresholds[1] - 0.01);
-      c.expect(st.stage === 2 && e.evolving, `crossing ${C.stageThresholds[1].toFixed(2)} gave stage ${st.stage + 1}`);
-      finishEvolve(c);
-      const seen = done();
-      c.expect(seen.length === 2 && seen[0].from === 0 && seen[0].stage === 1 && seen[1].from === 1 && seen[1].stage === 2, `bossEvolve events ${JSON.stringify(seen.map((s) => [s.from, s.stage]))}`);
-      c.expect(stageForHealth(1) === 0 && stageForHealth(0.5) === 1 && stageForHealth(0.2) === 2, 'stageForHealth bands');
+      c.expect(st.stage === 2 && e.health === bars[2] && e.maxHealth === bars[2], `stage 3 bar ${e.health}/${e.maxHealth}`);
+      const before = done().length;
+      const again = record('bossEvolve');
+      hitTo(game, 0);
+      c.expect(!e.alive && again().length === 0 && st.stage === 2, 'emptying the last stage did not KO');
+      const k = kos();
+      c.expect(k.length === 1 && k[0].loser === e, `ko events ${k.length}`);
+      c.expect(before === 2, `bossEvolve events ${before}`);
     });
   });
 
-  qa.add('stages.big_hit_skips_to_stage_3', (c) => {
+  qa.add('stages.overflow_discarded_no_skip', (c) => {
     withBoss(c, game, SAHIL, () => {
+      const e = game.enemy;
       const done = record('bossEvolve');
-      hitTo(game, C.stageThresholds[1] - 0.05);
+      // A huge hit empties stage 1 only: the overflow is lost, no skip to stage 3, no KO.
+      game.spells.dealDamage(e, game.player, 1e6, e.chest(new THREE.Vector3()), 'ultimate');
       finishEvolve(c);
       const seen = done();
-      c.expect(st.stage === 2, `big hit left the boss in stage ${st.stage + 1}`);
-      c.expect(seen.length === 1 && seen[0].from === 0 && seen[0].stage === 2, `expected one transformation 1 -> 3, got ${JSON.stringify(seen.map((s) => [s.from, s.stage]))}`);
-      // A killing blow is a KO, not an evolution.
+      c.expect(e.alive && st.stage === 1 && e.health === e.maxHealth && e.maxHealth === SAHIL.stageHealth[1], `after a 1e6 hit: stage ${st.stage + 1}, ${e.health}/${e.maxHealth}`);
+      c.expect(seen.length === 1 && seen[0].from === 0 && seen[0].stage === 1, `transformations ${JSON.stringify(seen.map((x) => [x.from, x.stage]))}`);
+      // The emptying hit reports only the HP it took.
       c.setup();
-      const again = record('bossEvolve');
-      hitTo(game, 0);
-      c.expect(again().length === 0 && !game.enemy.alive && !game.enemy.evolving, 'a KO started a transformation');
+      const dmg = record('damage');
+      const hp = e.health;
+      game.spells.dealDamage(e, game.player, hp + 777, e.chest(new THREE.Vector3()), 'blast');
+      const d = dmg().filter((x) => x.target === e);
+      c.expect(d.length === 1 && Math.abs(d[0].amount - hp) < 1e-6, `damage event ${d[0]?.amount} for a ${hp} HP bar`);
+      // With stages suspended (QA stock stats) an empty bar is a plain KO.
+      c.setup();
+      st.suspended = true;
+      try {
+        hitTo(game, 0);
+        c.expect(!e.alive, 'a suspended boss survived an empty bar');
+      } finally {
+        st.suspended = false;
+      }
     });
+  });
+
+  qa.add('stages.player_health_persists', (c) => {
+    withBoss(c, game, SAHIL, () => {
+      const p = game.player, e = game.enemy;
+      p.health = p.maxHealth * 0.37;
+      p.mana = 40;
+      hitTo(game, 0);
+      finishEvolve(c);
+      c.expect(st.stage === 1 && Math.abs(p.health - p.maxHealth * 0.37) < 1e-6, `player health ${p.health.toFixed(1)} after the boss transformed`);
+      hitTo(game, 0);
+      finishEvolve(c);
+      c.expect(st.stage === 2 && Math.abs(p.health - p.maxHealth * 0.37) < 1e-6, 'player health refilled at stage 3');
+      c.note(`player ${p.health.toFixed(0)}/${p.maxHealth}, boss ${e.health}/${e.maxHealth}`);
+    }, { player: [0, -12], enemy: [0, 8] });
   });
 
   qa.add('stages.reset_every_round_and_boss', (c) => {
@@ -109,16 +158,17 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
       const e = game.enemy;
       st.evolveTo(2);
       finishEvolve(c);
-      c.expect(st.stage === 2, 'could not force stage 3');
+      c.expect(st.stage === 2 && e.maxHealth === SAHIL.stageHealth[2], 'could not force stage 3');
       // Round start (Match.startRound -> resetArena) puts stage 1 back, instantly.
       const stages = record('bossStage');
       c.setup();
       const ev = stages();
       c.expect(st.stage === 0 && !e.evolving && st.lookScale === 1, `after a round reset: stage ${st.stage + 1}, scale ${st.lookScale}`);
+      c.expect(e.maxHealth === SAHIL.stageHealth[0] && e.health === e.maxHealth && e.height === CONFIG.wizard.height, `stage 1 bar/hurtbox after a reset: ${e.health}/${e.maxHealth}, ${e.height}`);
       c.expect(ev.some((x) => x.wizard === e && x.stage === 0 && x.boss === SAHIL), 'no bossStage(0) event at round reset');
       c.expect(e.damageMultiplier === SAHIL.damageMultiplier * C.stageDamage[0], `stage 1 damage multiplier ${e.damageMultiplier}`);
       // Mid-transformation resets too.
-      hitTo(game, 0.5);
+      hitTo(game, 0);
       c.expect(e.evolving, 'no transformation');
       c.setup();
       c.expect(st.stage === 0 && !e.evolving, 'a round reset mid-transformation left it evolving');
@@ -136,6 +186,10 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
       st.evolveTo(2);
       app.match.startRound();
       c.expect(st.stage === 0 && st.boss === SAHIL, `Match.startRound left stage ${st.stage + 1}`);
+      // Retry (a new match) too, with a full stage 1 bar.
+      jumpTo(game, 2);
+      app.restart();
+      c.expect(st.stage === 0 && game.enemy.health === SAHIL.stageHealth[0] && game.enemy.maxHealth === SAHIL.stageHealth[0], `Retry left stage ${st.stage + 1}`);
     } finally {
       app.toMenu();
       game.setupEnemy(prev);
@@ -145,10 +199,10 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
   qa.add('stages.transform_immune_and_frozen', (c) => {
     withBoss(c, game, SAHIL, () => {
       const e = game.enemy, p = game.player;
-      hitTo(game, 0.6);
+      hitTo(game, 0);
       c.expect(e.evolving && Math.abs(e.evolveTime - C.evolveTime) < 1e-6, `evolveTime ${e.evolveTime}`);
       const hp = e.health;
-      // Hits register but deal nothing, with an IMMUNE popup like god mode.
+      // Hits register but deal nothing, with an IMMUNE popup like god mode (the bar only refills).
       const dmg = record('damage');
       game.spells.dealDamage(e, p, 30, e.chest(new THREE.Vector3()), 'blast');
       const seen = dmg();
@@ -170,7 +224,7 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
       c.expect(e.stats.casts === casts, `boss cast ${e.stats.casts - casts} times mid-transform`);
       c.expect(e.pos.distanceTo(pos) < 0.05, `boss moved ${e.pos.distanceTo(pos).toFixed(2)} m mid-transform`);
       c.expect(!e.stunned && stuns().length === 0, 'stun beam stunned a transforming boss');
-      c.expect(e.health === hp, 'stun beam hurt a transforming boss');
+      c.expect(e.health >= hp, 'stun beam hurt a transforming boss');
       // The AI is frozen too (its update writes no intent).
       const ai = new AIController(e, p, game.spells, game.physics, game.arena);
       try {
@@ -192,7 +246,7 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
   qa.add('stages.shockwave_knocks_player_back', (c) => {
     withBoss(c, game, SAHIL, () => {
       const e = game.enemy, p = game.player;
-      hitTo(game, 0.6);
+      hitTo(game, 0);
       c.expect(p.knock.length() > C.evolveKnockback * 0.5, `knockback ${p.knock.length().toFixed(2)} on a player 5 m away`);
       const away = new THREE.Vector3().subVectors(p.pos, e.pos).setY(0).normalize();
       c.expect(p.knock.clone().normalize().dot(away) > 0.99, 'shockwave did not push straight away from the boss');
@@ -202,7 +256,7 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
       c.expect(p.pos.distanceTo(e.pos) > start + 1, 'player was not pushed back');
       // Out of reach: no push.
       c.setup({ player: [0, -C.evolveRadius - 2], enemy: [0, 1] });
-      hitTo(game, 0.6);
+      hitTo(game, 0);
       c.expect(p.knock.lengthSq() === 0, 'player beyond evolveRadius was pushed');
     }, { player: [0, -4], enemy: [0, 1] });
   });
@@ -226,8 +280,14 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
           c.expect(Math.abs(p.burstPause[1] - boss.ai.burstPause[1] * A.burstPause[s]) < 1e-9, `s${s + 1} burstPause ${p.burstPause}`);
           c.expect(Math.abs(p.strafeSpeed - boss.ai.strafeSpeed * A.strafeSpeed[s]) < 1e-9, `s${s + 1} strafe ${p.strafeSpeed}`);
           c.expect(p.dodgeChance <= A.maxChance && p.dodgeChance >= boss.ai.dodgeChance, `s${s + 1} dodge ${p.dodgeChance}`);
+          c.expect(p.leadFactor >= boss.ai.leadFactor && p.punishChance >= boss.ai.punishChance && p.blastChance >= boss.ai.blastChance, `s${s + 1} lead/punish/blast not scaled up`);
+          if (s > 0) {
+            const q = stageProfile(boss, s - 1);
+            c.expect(p.reactionTime < q.reactionTime && p.aimError < q.aimError && p.burstPause[1] < q.burstPause[1] && C.stageDamage[s] > C.stageDamage[s - 1], `s${s + 1} not harder than s${s}`);
+          }
           c.expect(ai.attacks === boss.stages[s].attacks, `s${s + 1} attacks not the stage's`);
           c.expect(Math.abs(game.enemy.damageMultiplier - boss.damageMultiplier * C.stageDamage[s]) < 1e-9, `s${s + 1} damage x${game.enemy.damageMultiplier}`);
+          c.expect(game.enemy.maxHealth === boss.stageHealth[s], `s${s + 1} bar ${game.enemy.maxHealth}`);
           c.expect(JSON.stringify(stageProfile(boss, s)) === JSON.stringify(p), `s${s + 1} profile differs from stageProfile`);
         }
         // Leaving the gauntlet clears the gating.
@@ -271,7 +331,7 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
                 t += DT;
                 ai.update(DT);
                 if (!boss.stages[s].attacks.ultimate) e.ult = CONFIG.spells.ultimate.chargeMax;
-                e.health = e.maxHealth * (s === 0 ? 1 : C.stageThresholds[s - 1] - 0.01); // never crosses the next threshold
+                e.health = e.maxHealth; // never empties its bar
                 p.health = p.maxHealth;
                 p.cd.dodge = 1; // a spent roll: the AI's cue that an Ultimate will land
                 p.intent.move.set(Math.sin(t * 2.2) > 0 ? 1 : -1, 0, 0);
@@ -457,6 +517,45 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
     }
   });
 
+  qa.add('stages.hurtbox_covers_stage_model', (c) => {
+    // Every boss (and the double fight's partner), every stage: a bolt aimed at 85% of the stage
+    // model's height lands, so heads, hats and wings are part of the target.
+    const rows: string[] = [];
+    for (const boss of BOSSES) {
+      for (const who of boss.partner ? (['boss', 'partner'] as const) : (['boss'] as const)) {
+        withBoss(c, game, boss, () => {
+          const p = game.player;
+          const w = who === 'boss' ? game.enemy : game.partner;
+          const ws = game.stagesOf(w)!;
+          const marks: string[] = [];
+          for (let s = 0; s < STAGE_COUNT; s++) {
+            c.setup({ player: [0, -6], enemy: [0, 6], partner: [-6, 6] });
+            if (s > 0) {
+              ws.evolveTo(s);
+              ws.release(0);
+            }
+            c.expect(ws.stage === s, `${w.name}: could not reach stage ${s + 1}`);
+            const top = w.visual.topHeight * ws.lookScale;
+            const y = w.pos.y + 0.85 * top;
+            p.aimPoint.set(w.pos.x, y, w.pos.z);
+            p.facing = p.intent.facing = Math.atan2(w.pos.x - p.pos.x, w.pos.z - p.pos.z);
+            const hp = w.health;
+            p.intent.press('bolt');
+            c.step(0.5);
+            c.expect(w.health < hp, `${w.name} s${s + 1}: a bolt at ${y.toFixed(2)} m (0.85 x ${top.toFixed(2)} m) missed a ${w.height.toFixed(2)} m hurtbox`);
+            c.expect(s === 0 || w.radius > C.hurtbox.radius[0] * (w.radius / C.hurtbox.radius[s]) - 1e-9, `${w.name} s${s + 1}: radius ${w.radius}`);
+            marks.push(`${w.height.toFixed(2)}/${w.radius.toFixed(2)}`);
+          }
+          rows.push(`${boss.id}${who === 'partner' ? '+' : ''}:${marks.join(',')}`);
+          // Back at stage 1 the capsule is the stage 1 one again.
+          c.setup();
+          c.expect(ws.stage === 0 && Math.abs(w.radius - (who === 'partner' ? boss.partner!.hitbox.radius : CONFIG.wizard.radius)) < 1e-9, `${w.name}: stage 1 hurtbox not restored`);
+        });
+      }
+    }
+    c.note(rows.join(' '));
+  });
+
   qa.add('stages.quick_duel_has_none', (c) => {
     withBoss(c, game, null, () => {
       const e = game.enemy;
@@ -465,6 +564,9 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
       c.step(0.5);
       st.evolveTo(2);
       c.expect(evolves().length === 0 && st.stage === 0 && !e.evolving && st.current === null, 'the default rival evolved');
+      // No stage bars: an empty bar is a KO.
+      hitTo(game, 0);
+      c.expect(!e.alive, 'the Quick Duel rival survived an empty bar');
       c.expect(e.visual.root.scale.x === 1 && e.damageMultiplier === 1, 'rival look or damage changed');
     });
     app.startMatch();

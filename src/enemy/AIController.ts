@@ -7,7 +7,8 @@ import type { Physics } from '../physics/Physics';
 import type { Arena } from '../arena/Arena';
 import { stageProfile } from '../campaign/BossStages';
 import type { StageAttacks } from '../campaign/levels';
-import type { GoldenTicket, GoldenTickets } from '../arena/GoldenTickets';
+import type { GoldenTickets } from '../arena/GoldenTickets';
+import type { LifePacks } from '../arena/LifePacks';
 import type { SpellSystem } from '../spells/SpellSystem';
 import type { Wizard } from '../wizard/Wizard';
 
@@ -79,8 +80,15 @@ export class AIController implements TickController {
   allies: readonly Wizard[] = [];
   /** Golden tickets on the field (src/arena/GoldenTickets.ts); null = ignore them. */
   tickets: GoldenTickets | null = null;
-  /** The ticket this AI is detouring to, if any (checked by id: tickets are pooled). */
-  private ticketGoal: GoldenTicket | null = null;
+  /**
+   * Life packs (Boss Gauntlet health pickups); null = ignore them. Only the player can collect
+   * them, so only an AI driving the player (the soak's reference AI) gets them.
+   */
+  lifePacks: LifePacks | null = null;
+  /** The pickup (a ticket or a life pack) this AI is detouring to, if any (checked by id: they are pooled). */
+  private ticketGoal: { readonly active: boolean; readonly id: number; readonly pos: THREE.Vector3 } | null = null;
+  /** The goal is a life pack (worth more: no give-up check against the opponent's distance). */
+  private goalIsPack = false;
   private ticketGoalId = 0;
   private ticketGoalTime = 0;
   private ticketCheck = 0;
@@ -143,12 +151,13 @@ export class AIController implements TickController {
     this.aimNoise.set(0, 0, 0);
     this.resetVolley();
     this.ticketGoal = null;
+    this.goalIsPack = false;
     this.lastHurtAt = -1e9;
   }
 
   /** First volley of a stage comes a little after it begins. */
   private resetVolley(): void {
-    this.volleyCd = (this.attacks?.volley?.cooldown ?? 0) * VOLLEY.firstDelay;
+    this.volleyCd = (this.attacks?.volley?.cooldown ?? 0) * VOLLEY.cooldownScale * VOLLEY.firstDelay;
   }
 
   /** True while detouring to a golden ticket. */
@@ -399,9 +408,23 @@ export class AIController implements TickController {
   private thinkTickets(dt: number): void {
     const w = this.self;
     const goal = this.ticketGoal;
-    if (goal && (!goal.active || goal.id !== this.ticketGoalId || w.stunned || (this.ticketGoalTime += dt) > TK.aiGiveUpTime)) {
+    const giveUp = this.goalIsPack ? CONFIG.lifePacks.aiGiveUpTime : TK.aiGiveUpTime;
+    if (goal && (!goal.active || goal.id !== this.ticketGoalId || w.stunned || (this.ticketGoalTime += dt) > giveUp)) {
       this.ticketGoal = null;
     }
+    // A life pack when hurt beats any ticket.
+    const LP = CONFIG.lifePacks;
+    if (this.lifePacks && !this.goalIsPack && w.health < w.maxHealth * LP.aiSeekHealth && this.state !== 'evade') {
+      const pack = this.lifePacks.bestFor(w, LP.aiSeekRange);
+      if (pack) {
+        this.ticketGoal = pack;
+        this.ticketGoalId = pack.id;
+        this.ticketGoalTime = 0;
+        this.goalIsPack = true;
+        return;
+      }
+    }
+    if (!this.ticketGoal) this.goalIsPack = false;
     if (this.ticketGoal || !this.tickets || this.tickets.activeCount === 0) return;
     this.ticketCheck -= dt;
     if (this.ticketCheck > 0) return;
@@ -622,7 +645,7 @@ export class AIController implements TickController {
     // Signature volley, on its own cooldown, whenever the target is in range.
     const volley = a?.volley;
     if (volley && this.volleyCd <= 0 && dist <= VOLLEY.range && this.spells.castVolley(w, volley)) {
-      this.volleyCd = volley.cooldown * rand(0.85, 1.15);
+      this.volleyCd = volley.cooldown * VOLLEY.cooldownScale * rand(0.85, 1.15);
       this.burstLeft = 0;
       this.pauseTimer = Math.max(this.pauseTimer, rand(p.burstPause[0], p.burstPause[1]) * 0.6);
       return;

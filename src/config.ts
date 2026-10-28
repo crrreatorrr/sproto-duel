@@ -537,6 +537,11 @@ export const CONFIG = {
     firstSpawnDelay: [8, 12] as [number, number],
     /** Seconds until the next ticket appears while fewer than `maxActive` exist [min, max]. */
     spawnInterval: [6, 12] as [number, number],
+    /**
+     * The same in a Boss Gauntlet fight. Those last 15 minutes and more (one life, five-minute
+     * stages), so tickets come less often there and the floor isn't always full of them.
+     */
+    bossSpawnInterval: [16, 30] as [number, number],
     /** Retry delay when no valid spot was found. */
     retryDelay: 0.5,
     /** Seconds an uncollected ticket stays; it blinks for the last `blinkTime` of them. */
@@ -588,6 +593,51 @@ export const CONFIG = {
     /** AI: seconds without reaching it before giving up; seconds after being hit that count as under fire. */
     aiGiveUpTime: 6,
     aiHurtMemory: 1.2,
+  },
+
+  /**
+   * Life packs (src/arena/LifePacks.ts): health pickups in Boss Gauntlet fights, where you have one
+   * life. At most `maxPerFight` appear over the whole fight (expired ones count), one at a time. A
+   * pack is due `firstDelay` s into each boss stage, or sooner once your health is below `lowHealth`;
+   * by stage N at most N packs have appeared, so they spread over the fight. Only the player can
+   * collect one: it heals `heal` of max health (never above it).
+   */
+  lifePacks: {
+    /** Quick Duel has none (best of three, full health every round). */
+    quickDuel: false,
+    maxPerFight: 3,
+    /** Seconds into a stage (fight phase only) before its pack appears [min, max]. */
+    firstDelay: [60, 200] as [number, number],
+    /** Below this health fraction a due pack appears early, once `lowHealthDelay` s of the stage have passed. */
+    lowHealth: 0.4,
+    lowHealthDelay: 15,
+    /** At least this long between one pack ending (collected or expired) and the next appearing. */
+    minGap: 25,
+    /** Seconds an uncollected pack stays; it blinks for the last `blinkTime`. */
+    lifetime: 40,
+    blinkTime: 5,
+    /** Fraction of max health restored. */
+    heal: 0.5,
+    /** Spawn spots: distance from the player [min, max] (reachable but a dash away) and from each boss (min). */
+    playerDistance: [7, 17] as [number, number],
+    bossDistance: 7,
+    spawnAttempts: 40,
+    retryDelay: 0.5,
+    /** Pickup reach (m) and highest feet height that collects. */
+    pickupRadius: 1.25,
+    pickupMaxHeight: 2.4,
+    /** Look: hover height of the centre (m), size of the box, bob, spin (rad/s), beam height, sparkles/s. */
+    hoverHeight: 1.15,
+    size: 0.62,
+    bobAmplitude: 0.14,
+    bobSpeed: 2.6,
+    spinSpeed: 1.3,
+    beamHeight: 13,
+    sparkleRate: 22,
+    /** AI (the soak's reference player): goes for a pack within this range when hurt below `aiSeekHealth`. */
+    aiSeekRange: 30,
+    aiSeekHealth: 0.75,
+    aiGiveUpTime: 9,
   },
 
   camera: {
@@ -724,21 +774,82 @@ export const CONFIG = {
     immunePopupInterval: 0.3,
   },
 
-  /** Boss Gauntlet: every boss evolves through 3 stages within each round as its health drops. */
+  /** Boss Gauntlet: one life per fight; every boss has 3 stages, each with its own health bar. */
   campaign: {
-    /** Health fractions at which a boss evolves into stage 2 and stage 3. */
-    stageThresholds: [2 / 3, 1 / 3] as [number, number],
-    /** Seconds the boss is invulnerable and frozen while it transforms. */
+    /**
+     * A Boss Gauntlet fight is one round and you have one life (Match). Every boss stage has its own
+     * health bar (levels.ts `stageHealth`); there is no round timer (the HUD clock counts up). Two
+     * safety caps keep a stalemate from lasting forever (GauntletClock):
+     * - `stageCap`: a stage still going after this many seconds (no boss transformed or fell)
+     *   pulls the fire ring in to `stageCapRadius` over `capCloseTime` (close quarters); it opens
+     *   again (`reopenSpeed` m/s) once a boss transforms or falls.
+     * - `safetyCap`: past this many seconds of fighting the ring closes all the way
+     *   (`capMinRadius`) over `capCloseTime`, so the fight always ends.
+     */
+    fight: { stageCap: 9 * 60, stageCapRadius: 14, safetyCap: 35 * 60, capMinRadius: 0, capCloseTime: 60, reopenSpeed: 6 },
+    /**
+     * Headless transformations (QA, soaks; the real game plays `cinematic` instead, with the
+     * simulation frozen): seconds the boss is invulnerable and frozen while it transforms.
+     */
     evolveTime: 1.4,
+    /** The health bar refill runs over this share of the transformation (start, end). */
+    refill: [0.3, 0.92] as [number, number],
     /** Outward push on the player when the boss evolves, and its reach in meters. */
-    evolveKnockback: 14,
+    evolveKnockback: 22,
     evolveRadius: 9,
     /** Share of evolveTime after which the next stage's look (model, size, aura) appears. */
     evolveSwapAt: 0.45,
     /** Transformation juice: freeze on the burst, screen flash strength, camera trauma. */
     evolveHitStopMs: 140,
-    evolveFlash: 0.4,
+    evolveFlash: 0.25,
     evolveShake: 0.75,
+    /**
+     * Each stage's hurtbox follows its model: height = `modelHeight` x the stage model's fitHeight
+     * (never below the standard capsule), radius per stage. A short partner scales both to its own
+     * size; a placeholder look uses placeholderScale.
+     */
+    hurtbox: { modelHeight: 0.9, radius: [0.42, 0.48, 0.55] as [number, number, number] },
+    /**
+     * Transformation cinematics (src/campaign/BossCinematic.ts), real seconds (pausable). The world
+     * freezes (no wizard, spell, fire or lava moves or hurts), the camera swoops around the boss
+     * between letterbox bars, he rises, glows, cracks and bursts into his next form, then slams
+     * down; the camera returns to the player, a short count resumes the fight, and the boss stays
+     * frozen and immune for `grace` s more. Stage 3 (and an enraged duo survivor) is bigger and
+     * longer. Indexed by the stage being entered (0 unused). Headless runs (QA, soaks) skip it.
+     */
+    cinematic: {
+      enabled: true,
+      duration: [0, 2.5, 3.5] as [number, number, number],
+      enrageDuration: 3.2,
+      /** Slow-mo into the freeze and out of it (s). */
+      easeIn: 0.22,
+      easeOut: 0.35,
+      /** The "3 2 1" after the camera is back (s, the world still frozen). */
+      resume: 0.9,
+      grace: 0.35,
+      /** Beats as fractions of the duration: the old form bursts, he lands, the camera heads back. */
+      burstAt: 0.46,
+      slamAt: 0.74,
+      returnAt: 0.8,
+      /** Overall intensity (shake, light, particles) and how high he rises (m), per stage. */
+      intensity: [0, 1, 1.6] as [number, number, number],
+      rise: [0, 1.1, 2.0] as [number, number, number],
+      /** Full turns he spins while rising, and how far the camera orbits him (degrees). */
+      spins: [0, 1, 2] as [number, number, number],
+      orbit: [0, 100, 200] as [number, number, number],
+      /** Camera distance from the boss's centre as a multiple of his height, and its FOV. */
+      cameraDistance: 2.1,
+      fov: 52,
+      /** Sky and fog tint toward the boss palette at the peak (0..1), bloom added at the burst. */
+      tint: [0, 0.45, 0.65] as [number, number, number],
+      bloom: [0, 0.35, 0.55] as [number, number, number],
+      /** Debris chunks thrown up by the landing. */
+      debris: [0, 18, 34] as [number, number, number],
+      /** Hold Space / Enter / click (or the pad's A) after `skipAfter` s to play the rest at `skipSpeed`x. */
+      skipAfter: 0.5,
+      skipSpeed: 3.5,
+      skipKeys: ['Space', 'Enter', 'Escape'],
+    },
     /** The pillar of light engulfing the boss: height and beam width (m), and seconds until it has faded (the new form shows through). */
     pillarHeight: 26,
     pillarWidth: 0.3,
@@ -747,21 +858,39 @@ export const CONFIG = {
     placeholderScale: [1, 1.12, 1.25] as [number, number, number],
     /** Stage aura around the boss (glow, ground ring, rising motes): 0 = none, 1 = full. */
     aura: [0, 0.55, 1] as [number, number, number],
-    /** AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile. Chances are capped at maxChance. */
+    /**
+     * AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile: quicker,
+     * sharper, faster tempo, better leads, more dodging, perfect shields, spells and punishing.
+     * Mild on purpose: each stage's attack unlocks and stageDamage already make it much harder, and
+     * a stage lasts five minutes. Chances are capped at maxChance.
+     */
     stageAI: {
-      reactionTime: [1, 0.88, 0.76],
-      aimError: [1, 0.88, 0.75],
-      burstBonus: [0, 1, 2],
-      burstPause: [1, 0.85, 0.7],
-      strafeSpeed: [1, 1.08, 1.16],
-      dodgeChance: [1, 1.15, 1.55],
-      perfectShieldChance: [1, 1.3, 2.0],
+      reactionTime: [1, 0.92, 0.85],
+      aimError: [1, 0.95, 0.92],
+      leadBonus: [0, 0.03, 0.06],
+      burstBonus: [0, 0, 0],
+      burstPause: [1, 0.95, 0.92],
+      strafeSpeed: [1, 1.1, 1.2],
+      dodgeChance: [1, 1.06, 1.15],
+      perfectShieldChance: [1, 1.15, 1.35],
+      blastChance: [1, 1, 1.05],
+      stunChance: [1, 1, 1.05],
+      punishChance: [1, 1.05, 1.1],
       maxChance: 0.95,
     },
-    /** Multiplies the boss's damage per stage, on top of BossDef.damageMultiplier. */
-    stageDamage: [1, 1.1, 1.25] as [number, number, number],
-    /** Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after a stage begins (x cooldown). */
-    volley: { manaCost: 8, range: 22, firstDelay: 0.35 },
+    /** Multiplies the boss's damage per stage, on top of BossDef.damageMultiplier: the last stage hurts most. */
+    stageDamage: [1, 1.25, 1.5] as [number, number, number],
+    /**
+     * Ultimate charge rate for bosses. Their stage bars hold several times a wizard's health, and
+     * charge comes from damage taken and dealt, so at full rate they would cast it every minute.
+     */
+    ultCharge: 0.25,
+    /**
+     * Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after
+     * a stage begins (x cooldown), and a multiplier on every VolleyDef cooldown (fights are long
+     * now: a volley every few seconds for fifteen minutes would bury the player).
+     */
+    volley: { manaCost: 8, range: 22, firstDelay: 0.35, cooldownScale: 2.2 },
     /**
      * Double fights (a boss with a `partner`, levels.ts): the pair spawn `spawnSpacing` m apart on
      * the enemy spawn line. Their AIs keep `spacing` m between them (push strength `spacingWeight`)

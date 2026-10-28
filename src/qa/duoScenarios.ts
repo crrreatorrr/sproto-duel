@@ -72,6 +72,14 @@ function hitTo(game: Game, w: Wizard, fraction: number): void {
 
 const ko = (game: Game, w: Wizard, by: Wizard) => game.spells.dealDamage(w, by, 1e5, w.chest(new THREE.Vector3()), 'bolt');
 
+/** Put boss `w` straight into its last stage (full last bar, no transformation to wait for), so the next big hit is a KO. */
+function jumpLast(game: Game, w: Wizard): void {
+  const st = game.stagesOf(w);
+  if (!st?.active || st.stage >= STAGE_COUNT - 1) return;
+  st.evolveTo(STAGE_COUNT - 1);
+  st.release(0);
+}
+
 /** The match phase, read fresh (TypeScript narrows `m.phase` after a scenario assigns it). */
 const phaseOf = (m: App['match']): string => m.phase;
 
@@ -103,7 +111,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(game.partnerActive && game.wizards.length === 3 && game.wizards[2] === q && game.enemies[1] === q, 'partner not in the Obama fight');
       c.expect(q.index === 2 && q.side === 1 && q.name === 'The Midget' && q.alive, `partner #${q.index} side ${q.side} "${q.name}"`);
       c.expect(q.collider.isEnabled() && q.visual.root.visible && sharedList() === game.wizards, 'partner not solid/visible/shared');
-      c.expect(q.team === MIDGET.palette && q.skins === MIDGET.skins && q.maxHealth === Math.round(W.maxHealth * MIDGET.healthMultiplier), 'partner not dressed as The Midget');
+      c.expect(q.team === MIDGET.palette && q.skins === MIDGET.skins && q.maxHealth === MIDGET.stageHealth[0], 'partner not dressed as The Midget');
       c.expect(game.partnerStages.boss === MIDGET && game.stages.boss === DUO, 'stages not keyed to each boss');
       // Side by side on the enemy spawn line.
       const e = game.enemy;
@@ -211,6 +219,11 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       m.phase = 'fight';
       game.actionsLocked = false; // Match.update would unlock the fight; it doesn't run in qaMode
       const ends = record('roundEnd');
+      // One life, stage bars: a boss falls only when his last stage's bar runs out.
+      withMatchFlow(game, () => ko(game, e, p));
+      c.expect(e.alive && game.stages.stage === 1, 'emptying a first-stage bar knocked Obama out');
+      c.step(C.evolveTime + 0.1);
+      jumpLast(game, e);
       withMatchFlow(game, () => ko(game, e, p));
       c.expect(!e.alive && q.alive && phaseOf(m) === 'fight' && ends().length === 0, `round ended when only Obama fell (phase ${m.phase})`);
       c.expect(popupShown(game, 'Bitcoin Obama is down!'), 'no "Bitcoin Obama is down!" callout');
@@ -252,12 +265,8 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(m.lastWinner === e && m.roundWinners[0] === e, `round winner ${m.lastWinner?.name}`);
       c.expect(m.playerDown() && m.koWinnerSide() === 1, 'playerDown/koWinnerSide after the player fell');
       c.expect(e.alive && q.alive, 'a boss went down with the player');
-      // A second time decides the match for the enemies.
-      m.startRound();
-      c.setup();
-      m.phase = 'fight';
-      withMatchFlow(game, () => ko(game, p, q));
-      c.expect(m.wins[1] === 2, `wins ${m.wins}`);
+      // One life: that KO decides the match for the enemies.
+      c.expect(m.roundsToWin === 1, `gauntlet rounds to win ${m.roundsToWin}`);
       const done = record('matchEnd');
       withMatchFlow(game, () => c.step(CONFIG.match.roundEndTime + 0.1));
       const ev = done();
@@ -290,15 +299,14 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       // Equal fractions: a draw.
       set(0.5, 0.5, 0.5);
       c.expect(m.timeoutWinner() === null, 'equal fractions are not a draw');
-      // Through the real clock: time runs out with the bosses ahead.
+      // The gauntlet has no round clock: the old timer running out ends nothing (the safety caps do, see campaign.*).
       c.setup();
       set(0.4, 0.7, 0.3);
       m.phase = 'fight';
       m.timer = DT / 2;
       const ends = record('roundEnd');
-      withMatchFlow(game, () => c.step(DT));
-      const end = ends();
-      c.expect(end.length === 1 && end[0].reason === 'time' && end[0].winner === e && m.wins[1] === 1 && m.wins[0] === 0, `timeout: ${JSON.stringify(end.map((x) => [x.reason, x.winner?.name]))} wins ${m.wins}`);
+      withMatchFlow(game, () => c.step(DT * 3));
+      c.expect(ends().length === 0 && phaseOf(m) === 'fight', `the gauntlet fight timed out (phase ${m.phase})`);
     } finally {
       app.toMenu();
     }
@@ -314,7 +322,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
         c.setup();
         c.expect(st.boss === DUO && pst.boss === MIDGET && st.stage === 0 && pst.stage === 0, 'not both in stage 1');
         // The Midget evolves on his own health bar; Obama doesn't.
-        hitTo(game, q, 0.6);
+        hitTo(game, q, 0);
         c.expect(pst.stage === 1 && q.evolving && st.stage === 0 && !e.evolving, `Midget stage ${pst.stage + 1}, Obama stage ${st.stage + 1}`);
         c.expect(JSON.stringify(ai.profile) === JSON.stringify(stageProfile(MIDGET, 1)) && ai.attacks === MIDGET.stages[1].attacks, "partner AI not on The Midget's stage 2");
         c.expect(Math.abs(q.damageMultiplier - MIDGET.damageMultiplier * C.stageDamage[1]) < 1e-9, `partner damage x${q.damageMultiplier}`);
@@ -324,10 +332,12 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
           return null;
         };
         c.expect(pst.modelShown === expectModel(1), `Midget stage 2 look ${pst.modelShown}, expected ${expectModel(1)}`);
-        hitTo(game, e, 0.6);
+        hitTo(game, e, 0);
         c.expect(st.stage === 1 && pst.stage === 1, 'Obama did not evolve on his own bar');
         finish();
-        // Obama falls: The Midget is enraged, straight to stage 3, with a banner saying so.
+        // Obama falls (his last bar out): The Midget is enraged, straight to stage 3 on a full last bar.
+        q.health = q.maxHealth * 0.4;
+        jumpLast(game, e);
         const evolves = record('bossEvolve');
         ko(game, e, p);
         const ev = evolves();
@@ -335,12 +345,15 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
         c.expect(ev.length === 1 && ev[0].wizard === q && ev[0].enraged && ev[0].stage === 2 && ev[0].from === 1, `bossEvolve ${JSON.stringify(ev.map((x) => [x.wizard.name, x.from, x.stage, x.enraged]))}`);
         const banner = app.hud.root.querySelector('.banner')?.textContent ?? '';
         c.expect(banner.includes('The Midget is enraged!'), `banner "${banner}"`);
+        c.expect(q.maxHealth === MIDGET.stageHealth[2], `enraged bar ${q.maxHealth}`);
         c.expect(JSON.stringify(ai.profile) === JSON.stringify(stageProfile(MIDGET, 2)) && ai.attacks?.volley?.name === MIDGET.stages[2].attacks.volley?.name, 'enraged AI not on stage 3');
         finish();
         c.expect(pst.modelShown === expectModel(2), `enraged look ${pst.modelShown}`);
+        c.expect(q.health === q.maxHealth && q.maxHealth === MIDGET.stageHealth[2], `enraged Midget ${q.health}/${q.maxHealth}: not a full last bar`);
         // Mid-transformation, the enrage waits for it to finish.
         c.setup();
-        hitTo(game, q, 0.6);
+        jumpLast(game, e);
+        hitTo(game, q, 0);
         ko(game, e, p);
         c.expect(pst.stage === 1 && q.evolving, 'enrage cut a transformation short');
         const late = record('bossEvolve');
@@ -352,11 +365,13 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
         c.setup();
         pst.evolveTo(2);
         finish();
+        jumpLast(game, e);
         const none = record('bossEvolve');
         ko(game, e, p);
         c.expect(none().length === 0 && !q.evolving, 'a stage 3 Midget transformed again');
         // The Midget falls first: Obama is enraged.
         c.setup();
+        jumpLast(game, q);
         const rev = record('bossEvolve');
         ko(game, q, p);
         const r = rev();
@@ -380,8 +395,10 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(q.height === MIDGET.hitbox.height && q.radius === MIDGET.hitbox.radius, `hitbox ${q.radius}/${q.height}`);
       const chest = q.chest(v).y - q.pos.y, wand = q.castPoint('bolt', v).y - q.pos.y;
       c.expect(chest < 0.9 && wand < 1 && q.tagHeight < 1.8 && q.shieldCenterY < 0.75, `aim points not scaled: chest ${chest.toFixed(2)} wand ${wand.toFixed(2)}`);
-      const shot = () => {
+      const shot = (fullHeight = false) => {
         c.setup({ player: [0, -6], enemy: [0, 8], partner: [0, 1] });
+        // (A round reset gives each boss its stage hurtbox, so the control capsule goes on after it.)
+        if (fullHeight) q.setHitbox(W.radius, W.height);
         p.facing = p.intent.facing = 0;
         p.aimPoint.set(0, 1.75, 8); // high on Obama
         p.intent.press('bolt');
@@ -392,9 +409,8 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(q.health === q.maxHealth, 'a high bolt hit The Midget');
       c.expect(e.health < e.maxHealth, 'the high bolt missed Obama');
       // A full-height wizard in his place would have taken it.
-      q.setHitbox(W.radius, W.height);
       try {
-        shot();
+        shot(true);
         c.expect(q.health < q.maxHealth && e.health === e.maxHealth, 'control: a full-height wizard did not block the shot');
       } finally {
         q.setHitbox(MIDGET.hitbox.radius, MIDGET.hitbox.height);
@@ -506,7 +522,8 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
         c.note(`avg gap ${gap.toFixed(1)} m, ${((stacked / n) * 100).toFixed(0)}% of the time within 2.5 m, ${sep.toFixed(0)}° apart around the player, dmg Obama ${dmg.e.toFixed(0)} Midget ${dmg.q.toFixed(0)}`);
         c.expect(gap > C.duo.spacing * 0.8 && stacked / n < 0.15, `bosses stayed bunched (avg gap ${gap.toFixed(1)} m, ${((stacked / n) * 100).toFixed(0)}% stacked)`);
         c.expect(sep > 15, `no flank (avg ${sep.toFixed(0)}° apart around the player)`);
-        c.expect(dmg.e > 0 && dmg.q > 0 && q.stats.casts > 5, 'one of the pair never attacked');
+        // Gauntlet bosses pick their moments (slow bursts, wide aim): both must attack, not necessarily land.
+        c.expect(e.stats.casts > 2 && q.stats.casts > 2, `one of the pair never attacked (casts ${e.stats.casts} / ${q.stats.casts})`);
         // setTarget: an AI can switch to the other enemy (the soak's reference AI does).
         ref.setTarget(q);
         c.expect(ref.opponent === q, 'setTarget did not switch');
@@ -553,6 +570,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       game.partnerStages.evolveTo(1);
       app.hud.update(0);
       c.expect(pips(mid) === 'done,on evolving,' && pips(ob) === 'on,,', `after the Midget evolves: ${pips(ob)} / ${pips(mid)}`);
+      c.expect(mid.classList.contains('refill'), 'the Midget plate does not show its bar refilling');
       const banner = text(root.querySelector('.banner')!);
       c.expect(banner.includes(MIDGET.stages[1].name), `stage banner "${banner}"`);
       // Round banners, pause and results name the pair.

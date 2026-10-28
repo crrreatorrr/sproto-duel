@@ -210,11 +210,27 @@ export class AudioManager {
       this.play('pillarCrumble', { pos: e.pos, rate: 2.2, volume: 0.8 });
       this.play('shieldBlock', { pos: e.pos, rate: 1.7, volume: 0.7 });
     });
-    // Boss evolution (no dedicated sound yet): a deep ultimate charge over the shockwave's boom.
+    // Boss evolution. Headless-style (no cinematic): a deep charge over the shockwave's boom. In a
+    // live fight the cinematic's beats sound instead: a rising drone, the roar as the old form
+    // bursts, the slam as he lands, the resume count.
     on('bossEvolve', (e) => {
-      this.play('ultCharge', { rate: 0.8, exactPitch: true });
+      if (game.transformCinematics) return;
+      this.play('bossRise', { rate: 1.4, exactPitch: true, volume: 0.6 });
       this.play('blastExplode', { pos: e.pos, rate: 0.7 });
     });
+    on('bossCinematic', (e) => {
+      const big = e.stage >= 2 || e.enraged;
+      if (e.beat === 'start') this.play('bossRise', { exactPitch: true, rate: big ? 0.85 : 1 });
+      else if (e.beat === 'burst') {
+        this.play('bossRoar', { exactPitch: true, rate: e.enraged ? 0.82 : big ? 0.9 : 1.05 });
+        this.play('blastExplode', { rate: 0.6, volume: 0.9 });
+      } else if (e.beat === 'slam') this.play('bossSlam', { exactPitch: true, rate: big ? 0.88 : 1 });
+      else if (e.beat === 'count') this.play('countdown', { exactPitch: true });
+      else if (e.beat === 'resume') this.play('roundStart', { exactPitch: true, rate: 1.15, volume: 0.6 });
+    });
+    on('lifePackSpawn', (e) => this.play('lifePackSpawn', { pos: e.pos, exactPitch: true }));
+    on('lifePackPickup', () => this.play('lifePackPickup', { exactPitch: true }));
+    on('lifePackExpire', (e) => this.play('ticketExpire', { pos: e.pos, rate: 0.8, volume: 0.6 }));
     on('ultReady', (e) => {
       if (isPlayer(e.wizard)) this.play('ultReady', { exactPitch: true });
     });
