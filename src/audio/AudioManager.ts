@@ -213,6 +213,12 @@ export class AudioManager {
     on('noMana', (e) => {
       if (isPlayer(e.wizard)) this.play('noMana');
     });
+    on('ticketSpawn', (e) => this.play('ticketSpawn', { pos: e.pos }));
+    on('ticketPickup', (e) => this.play('ticketPickup', isPlayer(e.wizard) ? { exactPitch: true } : { pos: e.pos, volume: 0.8 }));
+    on('ticketExpire', (e) => this.play('ticketExpire', { pos: e.pos, volume: 0.6 }));
+    on('manaBoostEnd', (e) => {
+      if (isPlayer(e.wizard)) this.play('ticketExpire', { exactPitch: true, volume: 0.9 });
+    });
     on('countdown', () => this.play('countdown', { exactPitch: true }));
     on('roundStart', () => this.play('roundStart', { exactPitch: true }));
     on('roundEnd', (e) => {

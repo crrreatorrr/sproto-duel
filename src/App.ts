@@ -65,6 +65,7 @@ export class App {
     this.audio.bind(game);
     this.ai = new AIController(game.enemy, game.player, game.spells, game.physics, game.arena, 'normal');
     game.enemyController = this.ai;
+    this.ai.tickets = game.tickets;
     this.attract = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');
     game.onTick((dt) => this.attractTick(dt));
 
