@@ -10,6 +10,9 @@ import { registerJumpScenarios } from './qa/jumpScenarios';
 import { registerArenaScenarios } from './qa/arenaScenarios';
 import { registerCampaignScenarios } from './qa/campaignScenarios';
 import { registerOfficeScenarios } from './qa/officeScenarios';
+import { registerSkinScenarios } from './qa/skinScenarios';
+import { registerStageScenarios } from './qa/stageScenarios';
+import { registerTicketScenarios } from './qa/ticketScenarios';
 import { campaignSoak, soak } from './qa/soak';
 import type { Difficulty } from './config';
 import type { ArenaThemeId } from './arena/themes';
@@ -36,6 +39,9 @@ async function boot() {
   registerJumpScenarios(qa, game);
   registerArenaScenarios(qa, game);
   registerCampaignScenarios(qa, game, app);
+  registerSkinScenarios(qa, game, app);
+  registerStageScenarios(qa, game, app);
+  registerTicketScenarios(qa, game, app);
   registerOfficeScenarios(qa, game);
   const qaApi = Object.assign(qa, {
     /**

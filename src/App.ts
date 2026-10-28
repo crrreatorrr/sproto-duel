@@ -65,6 +65,7 @@ export class App {
     this.audio.bind(game);
     this.ai = new AIController(game.enemy, game.player, game.spells, game.physics, game.arena, 'normal');
     game.enemyController = this.ai;
+    this.ai.tickets = game.tickets;
     this.attract = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');
     game.onTick((dt) => this.attractTick(dt));
 
@@ -318,7 +319,11 @@ export class App {
     this.game.simulating = false;
     this.game.input.releaseLock();
     const boss = this.match.boss;
-    this.menus.showPause(boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${boss.name}, ${boss.title}` : '');
+    const stage = this.game.stages.current;
+    this.menus.showPause(
+      boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${boss.name}, ${boss.title}` : '',
+      boss && stage ? { index: this.game.stages.stage, name: stage.name } : null,
+    );
     this.audio.setPaused(true);
   }
 

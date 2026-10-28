@@ -295,6 +295,34 @@ S.uiClick = () => {
   return x;
 };
 
+// Golden tickets. Pure oscillators (no noise()), so the shared noise seed and every sound after these stay unchanged.
+S.ticketSpawn = () => {
+  // Soft bell "ding" as a ticket appears.
+  const x = buf(0.9);
+  for (const [f, g] of [[1568, 0.5], [2093, 0.16], [3136, 0.14], [4704, 0.05]]) osc(x, 0, 0.85, f, adsr(0.012, 4), 'sine', g);
+  osc(x, 0.07, 0.7, 2349, adsr(0.012, 5), 'sine', 0.2);
+  return echo(x, 0.11, 0.3, 0.25);
+};
+S.ticketPickup = () => {
+  // Bright rising chime with a shimmering tail.
+  const x = buf(1.4);
+  [79, 84, 88, 91, 96].forEach((n, i) => {
+    osc(x, i * 0.055, 0.9, note(n), adsr(0.01, 3), 'sine', 0.45);
+    osc(x, i * 0.055, 0.6, note(n) * 2.01, adsr(0.01, 5), 'sine', 0.15);
+    osc(x, i * 0.055, 0.4, note(n), adsr(0.01, 6), 'triangle', 0.12);
+  });
+  osc(x, 0.25, 1.1, (u, t) => note(103) * (1 + 0.004 * Math.sin(t * 40)), (u, t) => swell(u) * (0.6 + 0.4 * Math.sin(t * 55)), 'sine', 0.12);
+  osc(x, 0.3, 1.0, note(108), (u, t) => swell(u) * (0.5 + 0.5 * Math.sin(t * 47 + 1)), 'sine', 0.07);
+  return echo(x, 0.13, 0.35, 0.3);
+};
+S.ticketExpire = () => {
+  // Falling tone: a ticket fades away, or your mana boost runs out.
+  const x = buf(0.75);
+  osc(x, 0, 0.7, (u) => lerp(1046, 262, u * (2 - u)), adsr(0.02, 1.8), 'triangle', 0.5);
+  osc(x, 0, 0.7, (u) => lerp(1568, 392, u * (2 - u)), adsr(0.02, 2.5), 'sine', 0.25);
+  return lowpass(echo(x, 0.09, 0.25, 0.2), 4000);
+};
+
 // ---------------------------------------------------------------------- music
 S.musicMenu = () => {
   // A minor pad: Am - F - C - G, 4 s each, slow swells, loops cleanly.
@@ -332,6 +360,69 @@ S.musicBattle = () => {
     for (let k = 0; k < 8; k++) osc(x, t0 + k * beat / 2, beat / 2 * 0.9, note(roots[b] + 12 + arp[k]), decay(5), 'square', 0.06);
   }
   return loopify(lowpass(x, 5000), 0.25);
+};
+
+// ------------------------------------------------- boss objects leaving the hand
+// (Defined after the music so the seeded noise of every earlier sound stays byte-identical.)
+
+/** Mix `b` into `a` at `gain` (a is at least as long). */
+function mixIn(a, b, gain = 1) {
+  for (let i = 0; i < b.length && i < a.length; i++) a[i] += b[i] * gain;
+  return a;
+}
+
+S.gunshot = () => {
+  // Sharp crack, a low thump, a short room tail.
+  const x = buf(0.42);
+  noise(x, 0, 0.03, decay(30), 1.0);
+  osc(x, 0, 0.16, (u) => lerp(150, 45, u), decay(9), 'sine', 1.0);
+  mixIn(x, lowpass((() => { const t = buf(0.42); noise(t, 0.01, 0.4, decay(7), 0.6, 0.6); return t; })(), 2500), 1);
+  return drive(x, 3);
+};
+S.grenadeThump = () => {
+  // A launcher's hollow "thoomp" with a metallic click.
+  const x = buf(0.45);
+  osc(x, 0, 0.35, (u) => lerp(110, 38, u), adsr(0.02, 2.5), 'sine', 1.0);
+  noise(x, 0, 0.25, decay(9), 0.6, 0.9);
+  osc(x, 0, 0.03, 2400, decay(25), 'square', 0.15);
+  return drive(lowpass(x, 1800), 1.8);
+};
+S.rugWhoosh = () => {
+  // Cloth swishing past with a quick flap in the middle.
+  const x = buf(0.42);
+  noise(x, 0, 0.4, (u, t) => swell(u) * (0.75 + 0.25 * Math.sin(t * 2 * Math.PI * 24)), 0.9, (u) => lerp(0.9, 0.55, u));
+  return highpass(x, 180);
+};
+S.phoneBlip = () => {
+  // A two-note notification blip over a short buzz.
+  const x = buf(0.3);
+  osc(x, 0, 0.07, 1320, adsr(0.05, 1.5), 'square', 0.25);
+  osc(x, 0.08, 0.12, 1760, adsr(0.05, 2), 'square', 0.25);
+  osc(x, 0, 0.2, 180, (u, t) => (Math.sin(t * 2 * Math.PI * 30) > 0 ? 0.5 : 0) * (1 - u), 'saw', 0.3);
+  return lowpass(x, 6000);
+};
+S.pigOink = () => {
+  // A nasal grunt ("oi") rising into a short squeal ("nk").
+  const x = buf(0.42);
+  osc(x, 0, 0.16, (u) => lerp(210, 260, u), (u, t) => adsr(0.15, 1)(u) * (0.7 + 0.3 * Math.sin(t * 2 * Math.PI * 55)), 'saw', 0.7);
+  osc(x, 0.12, 0.26, (u) => (u < 0.4 ? lerp(520, 1150, u / 0.4) : lerp(1150, 820, (u - 0.4) / 0.6)), adsr(0.1, 1.8), 'saw', 0.5);
+  noise(x, 0, 0.12, decay(10), 0.15, 0.5);
+  return lowpass(highpass(x, 150), 2600);
+};
+S.veggieCrunch = () => {
+  // A wet squelch under a few crisp crunches.
+  const x = buf(0.36);
+  osc(x, 0, 0.22, (u, t) => lerp(320, 110, u) + Math.sin(t * 2 * Math.PI * 28) * 40, decay(7), 'sine', 0.7);
+  for (let k = 0; k < 5; k++) noise(x, 0.01 + k * 0.035 + Math.abs(rnd()) * 0.02, 0.03, decay(22), 0.7 - k * 0.08, 0.35);
+  return drive(x, 1.6);
+};
+S.fireRoar = () => {
+  // A whoomp of flame: low rumble, a roaring swell, crackles.
+  const x = buf(0.7);
+  noise(x, 0, 0.68, adsr(0.12, 1.6), 1.0, (u) => lerp(0.92, 0.8, u));
+  osc(x, 0, 0.5, (u) => lerp(75, 40, u), adsr(0.08, 2), 'sine', 0.6);
+  for (let k = 0; k < 8; k++) noise(x, 0.05 + Math.abs(rnd()) * 0.55, 0.012, decay(30), 0.5);
+  return drive(lowpass(x, 3500), 2);
 };
 
 let total = 0;

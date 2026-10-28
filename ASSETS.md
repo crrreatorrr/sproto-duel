@@ -119,7 +119,7 @@ any of them by replacing the file.
 | Boss | Models (`models/bosses/<id>/`) | Portraits (`ui/bosses/`) | Arena theme | Projectiles |
 |---|---|---|---|---|
 | 1. Sahil, the RugMaster | `sahil/stage1..3.glb` (2.0 / 2.25 / 2.55 m) | `sahil.png`, `sahil_stage2.png`, `sahil_stage3.png` | `desert` | rolled rugs, flying carpets |
-| 2. Bitcoin Obama and The Midget (two enemies) | `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m), `obama/sidekick.glb` (1.25 m) | `obama.png`, `obama_stage2.png`, `obama_stage3.png` | `void` | phones, carpets |
+| 2. Bitcoin Obama and The Midget (two enemies) | `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m), `midget/stage1..3.glb` (The Midget) | `obama.png`, `obama_stage2.png`, `obama_stage3.png` | `void` | phones, carpets |
 | 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `city` | florets, whole broccoli |
 | 4. The Agent | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `office` | bullets, grenades |
 | 5. Tinubu, the Unshackled Demon | `tinubu/stage1..3.glb` (2.1 / 2.45 / 2.9 m) | `tinubu.png`, `tinubu_stage2.png`, `tinubu_stage3.png` | `volcano` | hellfire, burning skulls |
@@ -161,6 +161,7 @@ assets in the next sections.
 | `floorNormal` | `textures/arena_floor_normal.jpg` | 2048² | Optional normal map matching the floor. |
 | `pillar` | `textures/pillar_stone.jpg` | 1024² | Tileable stone for placeholder pillars (only used if there is no pillar GLB). |
 | `sky` | `textures/sky_night.jpg` | 4096×2048 | Equirectangular (2:1) 360° night sky panorama. Replaces the procedural sky. |
+| `goldenTicket` | `textures/golden_ticket.png` | 1024×512 | Golden ticket pickup face, 2:1, transparent background around the ticket. Replaces the canvas-drawn face. |
 
 **arena_floor**
 > Top-down orthographic view of a circular ancient duelling arena floor, concentric rings of
@@ -174,6 +175,11 @@ NormalMap-Online) rather than a prompt.
 **pillar_stone**
 > Seamless tileable texture of weathered grey-violet stone blocks with thin mortar lines, subtle
 > moss, hand-painted stylized game texture, flat lighting
+
+**golden_ticket** (generated 16:9 on a dark background, then cut out and cropped to 2:1)
+> An ornate shiny golden ticket filling almost the whole frame, wide horizontal ticket with notched
+> corners, art-deco gold filigree border, the words GOLDEN TICKET in bold elegant engraved lettering
+> centered, small stars, polished embossed gold foil, plain dark background, flat front view
 
 **sky_night**
 > 360 degree equirectangular panorama of a fantasy night sky, deep violet and indigo gradient, dense
@@ -230,6 +236,16 @@ distance falloff and stereo panning. Loops must start and end seamlessly.
 | `defeat` | `audio/defeat.mp3` | 2.2 s | Match defeat, somber low strings and fading choir |
 | `uiHover` | `audio/ui_hover.mp3` | 0.05 s | Subtle magical UI hover tick |
 | `uiClick` | `audio/ui_click.mp3` | 0.1 s | Magical UI button click, soft chime |
+| `gunshot` | `audio/gunshot.mp3` | 0.4 s | Single pistol gunshot, sharp crack with a short punchy tail (The Agent's bullets) |
+| `grenadeThump` | `audio/grenade_thump.mp3` | 0.45 s | Grenade launcher firing, hollow low thoomp with a metallic click |
+| `rugWhoosh` | `audio/rug_whoosh.mp3` | 0.4 s | Heavy rug thrown through the air, cloth whoosh with a quick flap (rugs, flying carpets) |
+| `phoneBlip` | `audio/phone_blip.mp3` | 0.3 s | Smartphone notification blip, two quick bright tones over a buzz |
+| `pigOink` | `audio/pig_oink.mp3` | 0.4 s | Cartoon pig oink rising into a short squeal |
+| `veggieCrunch` | `audio/veggie_crunch.mp3` | 0.35 s | Squelchy crunch of fresh broccoli being torn, wet and crisp |
+| `fireRoar` | `audio/fire_roar.mp3` | 0.7 s | Fireball whoomp, roaring flame burst with crackles (hellfire, burning skulls) |
+| `ticketSpawn` | `audio/ticket_spawn.mp3` | 0.8 s | A golden ticket appearing, soft single bell ding with a short sparkle |
+| `ticketPickup` | `audio/ticket_pickup.mp3` | 1.3 s | Golden ticket collected, bright rising magical chime arpeggio with a shimmering tail |
+| `ticketExpire` | `audio/ticket_expire.mp3` | 0.7 s | Magic fading away, soft falling tone (a ticket vanishing, or your mana boost running out) |
 | `musicMenu` | `audio/music_menu.mp3` | 30-90 s, loop | Mysterious fantasy menu music, slow ethereal pads, distant choir, harp, A minor, seamless loop |
 | `musicBattle` | `audio/music_battle.mp3` | 60-120 s, loop | Intense fantasy duel battle music, driving percussion, staccato strings, 120 BPM, D minor, seamless loop |
 
@@ -241,3 +257,6 @@ Settings. To regenerate the placeholders after changing the synth script: `npm r
 Spell visuals (bolts, orbs, shield bubble, stun beam, ultimate wave, fire ring, sparks, smoke,
 debris) are particle systems and shaders written in code, as requested. They are not assets and
 need nothing from Higgsfield. Their colours come from `CONFIG.teams` in `src/config.ts`.
+The bosses' thrown objects (rugs, carpets, phones, pigs, broccoli, bullets, grenades, hellfire,
+burning skulls) are low-poly meshes built in code too (`src/spells/ProjectileSkins.ts`), with
+canvas-painted textures in each boss's palette.

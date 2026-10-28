@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { resolveAudio, resolveAsset } from '../assets/AssetLoader';
 import { SOUNDS, type SoundAsset, type SoundKey } from '../assets/manifest';
+import type { ProjectileSkin } from '../campaign/levels';
 import { events } from '../core/events';
 import type { Game } from '../core/Game';
 
@@ -16,6 +17,26 @@ interface PlayOptions {
 }
 
 const tmp = new THREE.Vector3();
+
+/**
+ * Launch sound per object skin, with playback rate and volume for bolts and for blasts (skins that
+ * share a sound pitch down and swell for the bigger blast object).
+ */
+const SKIN_SOUNDS: Record<Exclude<ProjectileSkin, 'orb'>, { key: SoundKey; rate: number; volume: number }> = {
+  rugRoll: { key: 'rugWhoosh', rate: 1.15, volume: 0.85 },
+  carpet: { key: 'rugWhoosh', rate: 0.8, volume: 1 },
+  phone: { key: 'phoneBlip', rate: 1, volume: 1 },
+  pig: { key: 'pigOink', rate: 1, volume: 1 },
+  floret: { key: 'veggieCrunch', rate: 1.15, volume: 0.85 },
+  broccoli: { key: 'veggieCrunch', rate: 0.8, volume: 1 },
+  bullet: { key: 'gunshot', rate: 1, volume: 1 },
+  grenade: { key: 'grenadeThump', rate: 1, volume: 1 },
+  hellfire: { key: 'fireRoar', rate: 1.2, volume: 0.8 },
+  skull: { key: 'fireRoar', rate: 0.85, volume: 1 },
+};
+
+/** The sound a skin's launch plays (QA and docs). */
+export const skinSound = (skin: Exclude<ProjectileSkin, 'orb'>): SoundKey => SKIN_SOUNDS[skin].key;
 
 /**
  * Howler-based audio. Every manifest key resolves to the generated file if it exists, otherwise to
@@ -34,6 +55,8 @@ export class AudioManager {
   gameplayMuted = false;
   private readonly listener = new THREE.Vector3();
   private readonly listenerRight = new THREE.Vector3(1, 0, 0);
+  /** When each object launch sound last started (ms), for CONFIG.audio.skinLaunchGap. */
+  private readonly lastLaunch = new Map<SoundKey, number>();
 
   constructor() {
     for (const key of Object.keys(SOUNDS) as SoundKey[]) {
@@ -149,8 +172,18 @@ export class AudioManager {
       this.play(key, { pos: e.wizard.pos });
     });
     on('cast', (e) => {
+      // Bolts and blasts thrown as objects sound on 'skinLaunch' instead (one per projectile).
+      if ((e.spell === 'bolt' || e.spell === 'blast') && (e.wizard.skins?.[e.spell] ?? 'orb') !== 'orb') return;
       const key: Record<string, SoundKey> = { bolt: 'boltCast', blast: 'blastCast', shield: 'shieldUp', stun: 'stunBeam', ultimate: 'ultWave' };
       this.play(key[e.spell], { pos: e.spell === 'ultimate' ? undefined : e.pos, volume: isPlayer(e.wizard) ? 1 : 0.85 });
+    });
+    on('skinLaunch', (e) => {
+      if (e.skin === 'orb') return;
+      const s = SKIN_SOUNDS[e.skin];
+      const now = performance.now();
+      if (now - (this.lastLaunch.get(s.key) ?? -1e9) < CONFIG.audio.skinLaunchGap * 1000) return;
+      this.lastLaunch.set(s.key, now);
+      this.play(s.key, { pos: e.pos, rate: s.rate, volume: s.volume * (isPlayer(e.wizard) ? 1 : 0.85) });
     });
     on('impact', (e) => {
       if (e.spell !== 'bolt') return;
@@ -169,11 +202,22 @@ export class AudioManager {
     on('stunned', (e) => this.play('stunHit', { pos: e.wizard.pos }));
     on('burn', (e) => this.play('fireBurn', { pos: e.wizard.pos }));
     on('pillarBreak', (e) => this.play('pillarCrumble', { pos: e.pos }));
+    // Boss evolution (no dedicated sound yet): a deep ultimate charge over the shockwave's boom.
+    on('bossEvolve', (e) => {
+      this.play('ultCharge', { rate: 0.8, exactPitch: true });
+      this.play('blastExplode', { pos: e.pos, rate: 0.7 });
+    });
     on('ultReady', (e) => {
       if (isPlayer(e.wizard)) this.play('ultReady', { exactPitch: true });
     });
     on('noMana', (e) => {
       if (isPlayer(e.wizard)) this.play('noMana');
+    });
+    on('ticketSpawn', (e) => this.play('ticketSpawn', { pos: e.pos }));
+    on('ticketPickup', (e) => this.play('ticketPickup', isPlayer(e.wizard) ? { exactPitch: true } : { pos: e.pos, volume: 0.8 }));
+    on('ticketExpire', (e) => this.play('ticketExpire', { pos: e.pos, volume: 0.6 }));
+    on('manaBoostEnd', (e) => {
+      if (isPlayer(e.wizard)) this.play('ticketExpire', { exactPitch: true, volume: 0.9 });
     });
     on('countdown', () => this.play('countdown', { exactPitch: true }));
     on('roundStart', () => this.play('roundStart', { exactPitch: true }));

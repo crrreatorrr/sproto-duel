@@ -282,6 +282,97 @@ export const CONFIG = {
     winnerSpeedKeep: 0.85,
   },
 
+  /**
+   * Boss projectile looks (src/spells/ProjectileSkins.ts): code-built objects instead of the orb.
+   * Purely visual, hitboxes stay each spell's `radius`. Object sizes are meters at full power;
+   * clash-weakened spells shrink with their radius.
+   */
+  projectileSkins: {
+    /** Instances per skin and team: the bolt plus blast pool, so a skin never runs out. */
+    batchCapacity: 76,
+    /** Size of the palette-coloured glow sprite kept behind objects, relative to the orb's glow. */
+    glowScale: { bolt: 0.5, blast: 0.55 },
+    /** Size of the palette-coloured trail motes behind objects, relative to the orb's trail. */
+    trailScale: 0.6,
+    /** Tumble/spin rates, radians per second. */
+    spin: { rugRoll: 24, phone: 21, floret: 15, broccoli: 7, grenade: 11, pig: 4.5 },
+    /** Pig: leg flail speed (rad/s) and swing (rad); the tail wags with them. */
+    pig: { flailSpeed: 22, flailAngle: 0.75 },
+    /** Bullet tracer streak: meters of streak per m/s of speed, clamped. */
+    tracerPerSpeed: 0.045,
+    tracerMax: 3,
+    /**
+     * Flying carpet: ripple amplitude (m), wavelength (m) and speed (rad/s); bank swing and the
+     * raised front edge (rad), which keep its face readable to the player instead of edge-on.
+     */
+    carpet: { rippleAmp: 0.075, rippleLength: 0.85, rippleSpeed: 13, bank: 0.38, noseUp: 0.36 },
+    /** Gunshot muzzle flash at the caster: sprite size (m), light intensity and duration (s). */
+    muzzleFlash: { size: 1.5, light: 16, duration: 0.06 },
+  },
+
+  /**
+   * Golden tickets (src/arena/GoldenTickets.ts): floating pickups that appear during the fight phase
+   * of every round. Any wizard touching one gets a mana boost: a bigger mana pool, refilled at once,
+   * and faster regen with no regen delay, for `boostDuration` seconds.
+   */
+  tickets: {
+    /** Most tickets on the floor at once. */
+    maxActive: 3,
+    /** Seconds into the fight before the first ticket of a round [min, max]. */
+    firstSpawnDelay: [8, 12] as [number, number],
+    /** Seconds until the next ticket appears while fewer than `maxActive` exist [min, max]. */
+    spawnInterval: [6, 12] as [number, number],
+    /** Retry delay when no valid spot was found. */
+    retryDelay: 0.5,
+    /** Seconds an uncollected ticket stays; it blinks for the last `blinkTime` of them. */
+    lifetime: 20,
+    blinkTime: 3,
+    /** Spawn spots: this far inside the fire ring, with this much free floor around them (physics query). */
+    fireMargin: 3,
+    obstacleClearance: 1.4,
+    /** Spawn spots keep at least this far from every wizard and from other tickets. */
+    minWizardDistance: 4,
+    minTicketDistance: 4,
+    /** Random spots tried per spawn. */
+    spawnAttempts: 24,
+    /** A ticket the fire ring reaches (sudden death) burns up once this close to its inner edge. */
+    fireBurnMargin: 0.6,
+    /** Pickup reach: horizontal distance (m), and the highest feet height that still collects (a jump off a stump). */
+    pickupRadius: 1.2,
+    pickupMaxHeight: 2.4,
+    /** Look: card size (m), hover height of its centre, bob and spin. */
+    width: 0.9,
+    height: 0.45,
+    hoverHeight: 1.3,
+    bobAmplitude: 0.12,
+    bobSpeed: 2.2,
+    /** Radians per second. */
+    spinSpeed: 1.7,
+    /** Light beam above each ticket, so it reads from across the arena. */
+    beamHeight: 11,
+    /** Sparkles per second around a ticket and around a boosted wizard. */
+    sparkleRate: 26,
+    auraSparkleRate: 22,
+    /** The mana boost. */
+    boostDuration: 15,
+    /** Max mana multiplier while boosted (100 -> 150). */
+    maxManaMultiplier: 1.5,
+    /** Regen multiplier while boosted. 1 keeps rounds in the 60-90 s target (2 shortened them to ~59 s). */
+    regenMultiplier: 1,
+    /** Seconds after spending mana before regen resumes while boosted (normally `wizard.manaRegenDelay`). */
+    regenDelay: 0.3,
+    /** AI: goes for a ticket within this range when safe and it is closer than the opponent is (or its mana is low). */
+    aiSeekRange: 13,
+    /** AI: mana fraction (of the normal max) below which any ticket in range is worth it. */
+    aiLowMana: 0.45,
+    /** AI: chance per check (every `aiCheckInterval` s) to commit to an eligible ticket. */
+    aiSeekChance: 0.3,
+    aiCheckInterval: 0.5,
+    /** AI: seconds without reaching it before giving up; seconds after being hit that count as under fire. */
+    aiGiveUpTime: 6,
+    aiHurtMemory: 1.2,
+  },
+
   camera: {
     fov: 64,
     sprintFovBoost: 7,
@@ -394,6 +485,11 @@ export const CONFIG = {
     maxDistance: 65,
     /** Random pitch variation (+/-) applied to repeated sounds. */
     pitchVariance: 0.07,
+    /**
+     * A boss object's launch sound (gunshot, phone blip...) is skipped if the same sound started
+     * less than this many seconds ago, so a fan volley sounds like one big throw, not a pile-up.
+     */
+    skinLaunchGap: 0.035,
   },
 
   ui: {
@@ -409,14 +505,40 @@ export const CONFIG = {
     /** Outward push on the player when the boss evolves, and its reach in meters. */
     evolveKnockback: 14,
     evolveRadius: 9,
-    /** AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile. */
+    /** Share of evolveTime after which the next stage's look (model, size, aura) appears. */
+    evolveSwapAt: 0.45,
+    /** Transformation juice: freeze on the burst, screen flash strength, camera trauma. */
+    evolveHitStopMs: 140,
+    evolveFlash: 0.4,
+    evolveShake: 0.75,
+    /** The pillar of light engulfing the boss: height and beam width (m), and seconds until it has faded (the new form shows through). */
+    pillarHeight: 26,
+    pillarWidth: 0.3,
+    pillarTime: 0.85,
+    /** Without a stage GLB the placeholder grows instead (stage 1, 2, 3); with partial GLBs, relative to the shown one. */
+    placeholderScale: [1, 1.12, 1.25] as [number, number, number],
+    /** Stage aura around the boss (glow, ground ring, rising motes): 0 = none, 1 = full. */
+    aura: [0, 0.55, 1] as [number, number, number],
+    /** AI scaling per stage (stage 1, 2, 3), applied on top of the boss's base profile. Chances are capped at maxChance. */
     stageAI: {
       reactionTime: [1, 0.88, 0.76],
       aimError: [1, 0.88, 0.75],
       burstBonus: [0, 1, 2],
       burstPause: [1, 0.85, 0.7],
       strafeSpeed: [1, 1.08, 1.16],
+      dodgeChance: [1, 1.15, 1.55],
+      perfectShieldChance: [1, 1.3, 2.0],
+      maxChance: 0.95,
     },
+    /** Multiplies the boss's damage per stage, on top of BossDef.damageMultiplier. */
+    stageDamage: [1, 1.1, 1.25] as [number, number, number],
+    /** Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after a stage begins (x cooldown). */
+    volley: { manaCost: 8, range: 22, firstDelay: 0.35 },
+    /**
+     * Sidekick bolts (stages with `sidekickFires`), off for now: Obama's partner is to become a full
+     * wizard of his own. Seconds between throws, damage vs a bolt, aim (lead 0..1, error in radians).
+     */
+    sidekick: { enabled: false, interval: [1.6, 2.4] as [number, number], damageScale: 0.75, lead: 0.3, aimError: 0.06 },
   },
 
   /**

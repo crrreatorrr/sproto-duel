@@ -63,6 +63,26 @@ Spells that collide in mid-air clash; the bigger spell survives, weakened by wha
 ring of fire at the edge burns, and in the last 30 seconds it closes in. Pillars crumble after
 enough hits.
 
+The HUD shows each wizard's health, mana and Ultimate charge at the top (yours on the left), the
+round timer and won rounds in the middle, and your spells with their cooldowns at the bottom. A
+golden mana bar with a countdown chip means that wizard has a golden-ticket boost.
+
+## Golden tickets
+
+During every round's fight (Quick Duel and the Boss Gauntlet), a floating golden ticket appears
+every 6–12 seconds at a random open spot inside the fire ring, at most 3 at a time; look for the
+gold light beams. Touch one (walking or mid-jump) to collect it: for **15 seconds** your max mana
+rises from 100 to **150** and refills at once, so you can chain far more spells. Another ticket during the boost resets it to 15 seconds (it doesn't
+stack). When the boost ends, mana drops back to at most 100. A ticket left alone blinks and fades
+after 20 seconds, and the closing fire burns any it reaches. Rivals go for tickets too, when one
+is near, closer to them than to you (or their mana is low), and nothing is flying at them; a gold
+aura shows who is boosted.
+
+While boosted, your mana bar turns gold and stretches to the bigger pool (a notch marks the old
+100), with a chip counting down the seconds left. Tuning: `CONFIG.tickets` in
+[src/config.ts](src/config.ts); code: [src/arena/GoldenTickets.ts](src/arena/GoldenTickets.ts). The
+ticket face is `textures/golden_ticket.png` (a canvas-drawn face is used without it).
+
 ## Boss Gauntlet
 
 Five bosses in a row, each a best-of-three duel in their own arena: Bramble (grove), Cinder
@@ -147,9 +167,10 @@ src/
   wizard/               shared Wizard entity + its visual (placeholder or GLB, procedural animation)
   player/               keyboard + mouse controller (input buffering, aim assist)
   enemy/                AI state machine (approach / attack / evade / retreat)
-  spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate
+  spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate,
+                        boss projectile skins (instanced rugs, phones, pigs, bullets...: ProjectileSkins.ts)
   fx/                   particle systems, effect recipes, spell shaders, procedural textures
-  arena/                floor, sky, wall, destructible pillars, fire ring, debris, environment themes
+  arena/                floor, sky, wall, destructible pillars, fire ring, debris, environment themes, golden tickets
   camera/               over-the-shoulder rig with collision and trauma shake
   ui/                   HUD, menus, damage numbers, icons
   audio/                Howler audio manager (events -> sounds)
@@ -172,7 +193,7 @@ A QA harness runs inside the game. Open the browser console:
 
 ```js
 await __duel.qa.runAll()            // deterministic scenarios over the real simulation
-await __duel.qa.soak('normal', 6)   // headless AI-vs-AI rounds: pacing and damage share
+await __duel.qa.soak('normal', 6)   // headless AI-vs-AI rounds: pacing, damage share, tickets per side
 await __duel.qa.perf(8)             // real frame-time stats while you play
 ```
 

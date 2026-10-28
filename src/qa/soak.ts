@@ -1,5 +1,6 @@
 import type { ArenaThemeId } from '../arena/themes';
 import { CONFIG, type Difficulty } from '../config';
+import { STAGE_COUNT } from '../campaign/BossStages';
 import { BOSSES } from '../campaign/levels';
 import { events } from '../core/events';
 import type { Game } from '../core/Game';
@@ -29,16 +30,23 @@ export interface SoakReport {
   avgDamageTaken: number;
   /** Average seconds per round each AI spent in each state. */
   stateSeconds: Record<string, number>;
+  /** Golden tickets per round: spawned, collected by each side (wizard 0 / wizard 1), expired. */
+  tickets: { spawned: number; side0: number; side1: number; expired: number };
   errors: string[];
 }
 
 /**
  * One headless round with the real timer and sudden death, until a KO or time runs out.
- * Returns the round length in seconds.
+ * `each` runs after every tick. Returns the round length in seconds.
  */
-function playRound(game: Game, brainA: AIController, brainB: AIController, onNaN: () => void, states?: Record<string, number>): number {
+function playRound(
+  game: Game, brainA: AIController, brainB: AIController, onNaN: () => void, states?: Record<string, number>, each?: () => void,
+): number {
   const [p, e] = game.wizards;
   let t = 0;
+  // Golden tickets spawn during the fight, and both AIs know about them.
+  game.tickets.enabled = true;
+  brainA.tickets = brainB.tickets = game.tickets;
   while (t < M.roundTime && p.alive && e.alive) {
     brainA.update(DT);
     brainB.update(DT);
@@ -47,6 +55,7 @@ function playRound(game: Game, brainA: AIController, brainB: AIController, onNaN
       states[brainB.state] = (states[brainB.state] ?? 0) + DT;
     }
     game.tick(DT);
+    each?.();
     t += DT;
     const left = M.roundTime - t;
     if (left < A.suddenDeathAt) {
@@ -57,6 +66,7 @@ function playRound(game: Game, brainA: AIController, brainB: AIController, onNaN
       break;
     }
   }
+  game.tickets.enabled = false;
   return t;
 }
 
@@ -73,11 +83,23 @@ export interface BossSoakRow {
   /** Average HP the boss took / dealt per round. */
   bossHpLost: number;
   playerHpLost: number;
+  /** Share of rounds in which the boss reached stage 2 / stage 3. */
+  reachedStage2: string;
+  reachedStage3: string;
+  /** Damage per second the boss dealt to the reference player in each stage (time outside transformations). */
+  dps1: number;
+  dps2: number;
+  dps3: number;
+  /** Average seconds per round the boss spent in each stage. */
+  stageSeconds: string;
+  /** Signature volleys per round. */
+  volleys: number;
 }
 
 /**
  * Boss Gauntlet pacing: a reference player AI (default Adept) duels each boss, with the boss's
- * stats and AI, for `rounds` rounds. Reports round lengths and who wins, per boss.
+ * stats, AI and in-round stages, for `rounds` rounds. Reports round lengths, who wins, how far the
+ * boss evolves and how hard each stage hits, per boss.
  * `await __duel.qa.campaignSoak(4)`.
  */
 export async function campaignSoak(qa: QAHarness, game: Game, rounds = 4, reference: Difficulty = 'normal'): Promise<BossSoakRow[]> {
@@ -86,29 +108,50 @@ export async function campaignSoak(qa: QAHarness, game: Game, rounds = 4, refere
     await qa.sandbox(() => {
       const [p, e] = game.wizards;
       const prev = game.boss;
+      const stages = game.stages;
+      stages.suspended = false; // the sandbox restores it
       game.setupEnemy(boss);
       const brainA = new AIController(p, e, game.spells, game.physics, game.arena, reference);
       const brainB = new AIController(e, p, game.spells, game.physics, game.arena);
       brainB.setProfile(boss.ai);
       const durations: number[] = [];
-      let wins = 0, ko = 0, bossLost = 0, playerLost = 0;
+      let wins = 0, ko = 0, bossLost = 0, playerLost = 0, volleys = 0;
+      const reached = [0, 0, 0];
+      const stageDamage = [0, 0, 0];
+      const stageTime = [0, 0, 0];
+      const offs = [
+        events.on('damage', (ev) => {
+          if (ev.source === e && ev.target === p) stageDamage[stages.stage] += ev.amount;
+        }),
+        events.on('volley', (ev) => {
+          if (ev.wizard === e) volleys++;
+        }),
+      ];
+      const countStage = () => {
+        if (!e.evolving && e.alive && p.alive) stageTime[stages.stage] += DT;
+      };
       try {
         for (let r = 0; r < rounds; r++) {
           qa.reset();
           brainA.reset();
           brainB.reset();
-          durations.push(playRound(game, brainA, brainB, () => undefined));
+          durations.push(playRound(game, brainA, brainB, () => undefined, undefined, countStage));
           if (!p.alive || !e.alive) ko++;
           if (!e.alive || (p.alive && p.health / p.maxHealth > e.health / e.maxHealth)) wins++;
           bossLost += e.maxHealth - e.health;
           playerLost += p.maxHealth - p.health;
+          for (let s = 0; s <= stages.stage; s++) reached[s]++;
         }
       } finally {
+        offs.forEach((off) => off());
         brainA.dispose();
         brainB.dispose();
         game.setupEnemy(prev);
       }
-      const avg = durations.reduce((a, b) => a + b, 0) / Math.max(1, durations.length);
+      const n = Math.max(1, durations.length);
+      const avg = durations.reduce((a, b) => a + b, 0) / n;
+      const dps = (s: number) => +(stageDamage[s] / Math.max(1e-6, stageTime[s])).toFixed(2);
+      const pct = (k: number) => `${Math.round((k / n) * 100)}%`;
       rows.push({
         boss: boss.name,
         rounds: durations.length,
@@ -118,8 +161,15 @@ export async function campaignSoak(qa: QAHarness, game: Game, rounds = 4, refere
         playerWins: wins,
         koRounds: ko,
         timeoutRounds: durations.length - ko,
-        bossHpLost: +(bossLost / Math.max(1, durations.length)).toFixed(1),
-        playerHpLost: +(playerLost / Math.max(1, durations.length)).toFixed(1),
+        bossHpLost: +(bossLost / n).toFixed(1),
+        playerHpLost: +(playerLost / n).toFixed(1),
+        reachedStage2: pct(reached[1]),
+        reachedStage3: pct(reached[STAGE_COUNT - 1]),
+        dps1: dps(0),
+        dps2: dps(1),
+        dps3: dps(2),
+        stageSeconds: stageTime.map((t) => (t / n).toFixed(1)).join(' / '),
+        volleys: +(volleys / n).toFixed(1),
       });
     });
   }
@@ -157,11 +207,15 @@ async function soakRounds(qa: QAHarness, game: Game, difficulty: Difficulty, rou
   let ko = 0, timeout = 0, clashes = 0, pillars = 0, perfects = 0, dodges = 0, hpLost = 0;
   const states: Record<string, number> = {};
   const errors: string[] = [];
+  const tickets = { spawned: 0, side0: 0, side1: 0, expired: 0 };
   const offs = [
     events.on('damage', (e) => (dmg[e.kind] = (dmg[e.kind] ?? 0) + e.amount)),
     events.on('cast', (e) => (casts[e.spell] = (casts[e.spell] ?? 0) + 1)),
     events.on('clash', () => clashes++),
     events.on('pillarBreak', () => pillars++),
+    events.on('ticketSpawn', () => tickets.spawned++),
+    events.on('ticketPickup', (e) => (e.wizard.index === 0 ? tickets.side0++ : tickets.side1++)),
+    events.on('ticketExpire', () => tickets.expired++),
   ];
 
   await qa.sandbox(() => {
@@ -210,6 +264,12 @@ async function soakRounds(qa: QAHarness, game: Game, difficulty: Difficulty, rou
     pillarsBroken: pillars,
     avgDamageTaken: +(hpLost / Math.max(1, durations.length) / 2).toFixed(1),
     stateSeconds: Object.fromEntries(Object.entries(states).map(([k, v]) => [k, +(v / Math.max(1, durations.length) / 2).toFixed(1)])),
+    tickets: {
+      spawned: +(tickets.spawned / Math.max(1, durations.length)).toFixed(1),
+      side0: +(tickets.side0 / Math.max(1, durations.length)).toFixed(1),
+      side1: +(tickets.side1 / Math.max(1, durations.length)).toFixed(1),
+      expired: +(tickets.expired / Math.max(1, durations.length)).toFixed(1),
+    },
     errors,
   };
 }

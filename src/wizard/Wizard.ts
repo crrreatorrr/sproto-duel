@@ -5,6 +5,7 @@ import { events } from '../core/events';
 import { dampAngle } from '../core/math';
 import type { Physics } from '../physics/Physics';
 import type { PendingCast } from '../spells/types';
+import type { ProjectileSkin } from '../campaign/levels';
 import type { WizardVisual } from './WizardVisual';
 
 export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump';
@@ -51,6 +52,7 @@ export class WizardIntent {
 
 const W = CONFIG.wizard;
 const J = W.jump;
+const T = CONFIG.tickets;
 const tmpMove = new Vector3();
 const tmpTarget = new Vector3();
 /** Below this the wizard counts as standing on the floor (y = 0). */
@@ -85,12 +87,19 @@ export class Wizard {
   mana = W.maxMana;
   ult = 0;
   private manaDelay = 0;
+  /** Golden-ticket mana boost: seconds left (0 = none). Raises max mana and regen (src/arena/GoldenTickets.ts). */
+  manaBoost = 0;
 
   readonly cd: Record<CooldownKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, dodge: 0 };
   dodgeTime = 0;
   iframes = 0;
   readonly dodgeDir = new Vector3();
   stunTime = 0;
+  /**
+   * Seconds left of a campaign boss's transformation into its next stage (src/campaign/BossStages):
+   * it can't move, act or be stunned, and hits deal no damage.
+   */
+  evolveTime = 0;
   shieldTime = 0;
   /** Seconds since the shield was raised (for the perfect-reflect window). */
   shieldAge = 0;
@@ -124,6 +133,11 @@ export class Wizard {
   infiniteMana = false;
   /** No spell cooldowns (god mode): Blast, Shield and Stun are ready at once, the Ultimate stays charged. */
   noCooldowns = false;
+  /**
+   * What this wizard's bolts and blasts look like in flight (boss objects: rugs, phones, bullets...).
+   * Read from the caster at launch, so any wizard can throw objects. null = the spell orb.
+   */
+  skins: Readonly<{ bolt: ProjectileSkin; blast: ProjectileSkin }> | null = null;
 
   constructor(
     readonly index: number,
@@ -148,8 +162,16 @@ export class Wizard {
   get stunned(): boolean {
     return this.stunTime > 0;
   }
+  /** Mid-transformation (campaign bosses): frozen and immune. */
+  get evolving(): boolean {
+    return this.evolveTime > 0;
+  }
   get shielded(): boolean {
     return this.shieldTime > 0;
+  }
+  /** Mana cap: the normal max, raised while a golden-ticket boost lasts. */
+  get maxMana(): number {
+    return this.manaBoost > 0 ? W.maxMana * T.maxManaMultiplier : W.maxMana;
   }
   /** Feet height above whatever is underneath (0 when grounded). */
   get airHeight(): number {
@@ -157,11 +179,11 @@ export class Wizard {
   }
   /** Can leave the ground: standing, or just walked off a ledge (coyote time). No double jump. */
   get canJump(): boolean {
-    return this.alive && !this.stunned && !this.dodging && (this.grounded || this.coyote > 0);
+    return this.alive && !this.stunned && !this.evolving && !this.dodging && (this.grounded || this.coyote > 0);
   }
   /** Can start a new action (cast/dodge). */
   get canAct(): boolean {
-    return this.alive && !this.stunned && !this.dodging && this.cast === null;
+    return this.alive && !this.stunned && !this.evolving && !this.dodging && this.cast === null;
   }
 
   chest(out: Vector3): Vector3 {
@@ -196,9 +218,9 @@ export class Wizard {
     this.mana = W.maxMana;
     if (!keepUlt) this.ult = 0;
     this.ultAnnounced = this.ult >= CONFIG.spells.ultimate.chargeMax;
-    this.manaDelay = 0;
+    this.manaDelay = this.manaBoost = 0;
     for (const k in this.cd) this.cd[k as CooldownKey] = 0;
-    this.dodgeTime = this.iframes = this.stunTime = this.shieldTime = this.shieldAge = 0;
+    this.dodgeTime = this.iframes = this.stunTime = this.evolveTime = this.shieldTime = this.shieldAge = 0;
     this.cast = null;
     this.hitFlash = this.castPulse = this.burnTimer = 0;
     this.burning = false;
@@ -251,6 +273,7 @@ export class Wizard {
   }
 
   applyStun(seconds: number): void {
+    if (this.evolving) return;
     this.stunTime = Math.max(this.stunTime, seconds);
     this.cast = null;
     this.vel.multiplyScalar(0.2);
@@ -267,6 +290,7 @@ export class Wizard {
     if (this.dodgeTime > 0) this.dodgeTime = Math.max(0, this.dodgeTime - dt);
     if (this.iframes > 0) this.iframes = Math.max(0, this.iframes - dt);
     if (this.stunTime > 0) this.stunTime = Math.max(0, this.stunTime - dt);
+    if (this.evolveTime > 0) this.evolveTime = Math.max(0, this.evolveTime - dt);
     if (this.shieldTime > 0) {
       this.shieldTime = Math.max(0, this.shieldTime - dt);
       this.shieldAge += dt;
@@ -274,9 +298,19 @@ export class Wizard {
     if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
     if (this.castPulse > 0) this.castPulse = Math.max(0, this.castPulse - dt * 5);
 
+    // Golden-ticket boost: faster regen with no delay; when it ends, mana clamps to the normal max.
+    if (this.manaBoost > 0) {
+      this.manaBoost = Math.max(0, this.manaBoost - dt);
+      this.manaDelay = Math.min(this.manaDelay, T.regenDelay);
+      if (this.manaBoost === 0) {
+        this.mana = Math.min(this.mana, W.maxMana);
+        events.emit('manaBoostEnd', { wizard: this });
+      }
+    }
+    const regen = this.manaBoost > 0 ? W.manaRegen * T.regenMultiplier : W.manaRegen;
     if (this.manaDelay > 0) this.manaDelay -= dt;
-    else if (!this.sprinting) this.mana = Math.min(W.maxMana, this.mana + W.manaRegen * dt);
-    if (this.infiniteMana) this.mana = W.maxMana;
+    else if (!this.sprinting) this.mana = Math.min(this.maxMana, this.mana + regen * dt);
+    if (this.infiniteMana) this.mana = this.maxMana;
     if (this.noCooldowns) {
       this.cd.blast = this.cd.shield = this.cd.stun = 0;
       this.addUlt(CONFIG.spells.ultimate.chargeMax);
@@ -288,15 +322,16 @@ export class Wizard {
     this.prevPos.copy(this.pos);
     this.prevFacing = this.facing;
     const intent = this.intent;
+    const frozen = this.stunned || this.evolving;
 
-    if (this.alive && !this.stunned) {
+    if (this.alive && !frozen) {
       this.facing = dampAngle(this.facing, intent.facing, 30, dt);
     }
 
     // Start a dodge roll. Cancels any windup: rolling out of a cast should always be possible.
     // Rolls need footing: in the air the press stays buffered and fires if you land in time.
     const footing = this.grounded || this.coyote > 0;
-    if (intent.wants('dodge') && footing && this.alive && !this.stunned && !this.dodging && this.cd.dodge <= 0) {
+    if (intent.wants('dodge') && footing && this.alive && !frozen && !this.dodging && this.cd.dodge <= 0) {
       intent.consume('dodge');
       const dir = tmpMove.copy(intent.move);
       if (dir.lengthSq() < 0.01) this.forward(dir).negate();
@@ -321,7 +356,7 @@ export class Wizard {
     }
 
     this.sprinting = false;
-    if (!this.alive || this.stunned) {
+    if (!this.alive || frozen) {
       tmpTarget.set(0, 0, 0);
       this.vel.lerp(tmpTarget, 1 - Math.exp(-12 * dt));
     } else if (this.dodging) {

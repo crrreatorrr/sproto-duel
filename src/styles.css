@@ -425,3 +425,105 @@ html, body {
   .menu-screen.main .title { font-size: clamp(40px, 6vw, 64px); }
   .menu-screen.main .tip { display: none; }
 }
+
+/* ---------------------------------------------------------- boss stages */
+/* Rival plate: three stage pips and the current stage's name, in the boss palette. */
+.plate-stage {
+  display: none; align-items: center; justify-content: flex-start; flex-direction: row-reverse; gap: 9px; margin-top: 1px;
+  font: 700 13px/1 var(--hud); letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--rival-hi, #ffd2a8); text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+}
+.plate.staged .plate-stage { display: flex; }
+.stage-pips { display: flex; gap: 6px; padding: 0 2px; }
+.stage-pips i { width: 9px; height: 9px; transform: rotate(45deg); border: 1.5px solid rgba(255, 255, 255, 0.38); background: rgba(0, 0, 0, 0.45); transition: background 0.2s, box-shadow 0.2s; }
+.stage-pips i.done { background: color-mix(in srgb, var(--rival, var(--red)) 40%, #000); border-color: var(--rival, var(--red)); }
+.stage-pips i.on { background: var(--rival, var(--red)); border-color: #fff; box-shadow: 0 0 10px var(--rival, var(--red)), 0 0 3px #fff; }
+.stage-pips i.on.evolving { animation: stage-pip 0.22s ease-in-out infinite alternate; }
+@keyframes stage-pip { to { transform: rotate(45deg) scale(1.45); box-shadow: 0 0 18px var(--rival, var(--red)), 0 0 6px #fff; } }
+
+/* Evolution banner: "STAGE 2" over the stage's concept art (if present). */
+.banner-art { display: none; }
+.banner.has-art .banner-art {
+  display: block; width: 128px; height: 128px; margin: 0 auto 10px; border-radius: 50%; object-fit: cover;
+  box-shadow: 0 0 0 3px var(--rival-hi, #ffd2a8), 0 0 46px var(--rival, var(--red)), 0 8px 28px rgba(0, 0, 0, 0.7);
+}
+.banner.stage { top: 30%; }
+.banner.stage .banner-main {
+  font-size: 92px; color: var(--rival-hi, #ffd2a8);
+  text-shadow: 0 0 46px var(--rival, var(--red)), 0 0 14px var(--rival, var(--red)), 0 4px 22px #000;
+}
+.banner.stage .banner-sub {
+  margin-top: 2px; font-family: var(--display); font-size: 28px; letter-spacing: 0.12em; color: #fff;
+  text-shadow: 0 0 24px var(--rival, var(--red)), 0 3px 12px #000;
+}
+.popup-boss {
+  font-family: var(--display); font-size: 26px; letter-spacing: 0.06em; color: var(--rival-hi, #ffd2a8);
+  text-shadow: 0 0 16px var(--rival, var(--red)), 0 2px 0 rgba(0, 0, 0, 0.7);
+}
+@media (max-width: 760px) {
+  .banner.stage .banner-main { font-size: 56px; }
+  .banner.stage .banner-sub { font-size: 20px; }
+  .banner.has-art .banner-art { width: 88px; height: 88px; }
+}
+
+/* Boss card: the three stages, each with its concept art (or a numbered crest) and what it unlocks. */
+.boss-stages { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.boss-stages li {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(10, 6, 20, 0.6); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--boss-trim) 35%, transparent);
+}
+.stage-art {
+  grid-row: span 2; width: 46px; height: 46px; border-radius: 8px; overflow: hidden; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--boss-spell) 55%, #000), #05030a 80%);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--boss-trim) 70%, transparent);
+  font: 800 20px/1 var(--display); color: var(--boss-trim);
+}
+.stage-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.boss-stages li:nth-child(2) .stage-art { box-shadow: inset 0 0 0 1.5px var(--boss-spell), 0 0 12px color-mix(in srgb, var(--boss-spell) 40%, transparent); }
+.boss-stages li:nth-child(3) .stage-art { box-shadow: inset 0 0 0 2px var(--boss-spell), 0 0 18px color-mix(in srgb, var(--boss-spell) 65%, transparent); }
+.boss-stages b { font-family: var(--display); font-size: 14px; line-height: 1.15; letter-spacing: 0.04em; color: #fff; overflow-wrap: anywhere; }
+.boss-stages b i { font-style: normal; color: var(--boss-spell); margin-right: 5px; }
+.boss-stages small { font-size: 12px; font-weight: 600; letter-spacing: 0.03em; color: var(--ink-dim); line-height: 1.25; }
+@media (max-width: 640px) {
+  .boss-stages { grid-template-columns: 1fr; }
+}
+
+/* Pause: the boss's current stage. */
+.pause-stage { display: flex; align-items: center; gap: 10px; margin: -4px 0 4px; font-weight: 700; font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--rival-hi, var(--ink)); }
+
+/* ------------------------------------------------------- golden tickets */
+/* Mana boost: the bar turns gold and stretches to the bigger max (x1.5); a chip at its end counts down. */
+.mana-row { position: relative; --mana-w: 82%; }
+.mana-row .bar.mana { width: var(--mana-w); transition: width 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), margin-left 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), box-shadow 0.3s; }
+/* The rival's bar grows leftwards, toward the centre. */
+.plate-right .mana-row .bar.mana { margin-left: calc(100% - var(--mana-w)); }
+.plate.boosted .mana-row { --mana-w: calc(82% * 1.5); }
+.plate.boosted .mana-fill { background: linear-gradient(90deg, #b8760e, #ffcf40 55%, #fff4c2); }
+.plate.boosted .bar.mana { box-shadow: inset 0 0 0 1px rgba(255, 226, 150, 0.6), 0 0 14px rgba(255, 190, 60, 0.65); }
+/* Where the normal max was. */
+.mana-mark { position: absolute; top: 0; bottom: 0; left: 66.667%; width: 2px; margin-left: -1px; background: rgba(40, 20, 0, 0.55); opacity: 0; transition: opacity 0.3s; }
+.plate-right .mana-mark { left: auto; right: 66.667%; margin: 0 -1px 0 0; }
+.plate.boosted .mana-mark { opacity: 1; }
+.mana-buff {
+  position: absolute; top: 50%; left: calc(var(--mana-w) + 8px); transform: translateY(-50%) scale(0.6); opacity: 0;
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px 2px 6px; border-radius: 10px;
+  font: 700 13px/1 var(--hud); letter-spacing: 0.04em; color: #2a1804; white-space: nowrap;
+  background: linear-gradient(180deg, #fff0a8, #e6a93a); box-shadow: 0 0 12px rgba(255, 196, 70, 0.75);
+  transition: left 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), right 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), opacity 0.2s, transform 0.25s;
+}
+.mana-buff i { font-style: normal; font-size: 12px; }
+.mana-buff b { min-width: 1.1em; text-align: right; font-variant-numeric: tabular-nums; }
+.plate-right .mana-buff { left: auto; right: calc(var(--mana-w) + 8px); }
+.mana-buff.on { opacity: 1; transform: translateY(-50%) scale(1); }
+.mana-buff.ending { animation: mana-buff-blink 0.5s steps(2, jump-none) infinite; }
+@keyframes mana-buff-blink { 50% { opacity: 0.3; } }
+.banner.ticket .banner-main { font-size: 46px; color: #ffe27a; text-shadow: 0 0 30px rgba(255, 196, 60, 0.95), 0 4px 20px #000; }
+.banner.ticket { top: 26%; }
+.popup-mana { color: #ffd54a; font-family: var(--display); font-size: 28px; letter-spacing: 0.06em; text-shadow: 0 0 14px rgba(255, 190, 60, 0.9), 0 2px 0 rgba(0, 0, 0, 0.6); }
+.popup-manaFoe { color: #ffd54a; font-size: 20px; letter-spacing: 0.06em; text-shadow: 0 0 10px rgba(255, 190, 60, 0.8), 0 2px 0 rgba(0, 0, 0, 0.6); }
+@media (max-width: 1200px) {
+  /* Narrow screens: no room to stretch past the plate; the chip sits under the bar's end. */
+  .plate.boosted .mana-row { --mana-w: 100%; }
+  .mana-buff { top: calc(100% + 11px); left: auto; right: 0; }
+  .plate-right .mana-buff { right: auto; left: 0; }
+}

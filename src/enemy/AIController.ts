@@ -5,6 +5,9 @@ import type { TickController } from '../core/Game';
 import { chance, clamp, rand, randInt } from '../core/math';
 import type { Physics } from '../physics/Physics';
 import type { Arena } from '../arena/Arena';
+import { stageProfile } from '../campaign/BossStages';
+import type { StageAttacks } from '../campaign/levels';
+import type { GoldenTicket, GoldenTickets } from '../arena/GoldenTickets';
 import type { SpellSystem } from '../spells/SpellSystem';
 import type { Wizard } from '../wizard/Wizard';
 
@@ -18,6 +21,8 @@ interface Reaction {
 
 const AI = CONFIG.ai;
 const SP = CONFIG.spells;
+const VOLLEY = CONFIG.campaign.volley;
+const TK = CONFIG.tickets;
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -26,10 +31,16 @@ const tmpC = new THREE.Vector3();
 /**
  * Enemy wizard brain. A small state machine (approach, attack, evade, retreat) that only writes
  * to the wizard's intent, exactly like the player controller. Difficulty is a tuning profile.
+ * Campaign bosses follow their stage (the `bossStage` event): a scaled profile, gated attacks and
+ * the stage's signature volley, cast through SpellSystem.castVolley.
  */
 export class AIController implements TickController {
   state: AIState = 'approach';
   profile: AIProfile;
+  /** What this AI may cast beyond bolts, shield and rolls (a boss stage), or null for everything. */
+  attacks: StageAttacks | null = null;
+  /** Seconds until the stage's volley may fire again. */
+  private volleyCd = 0;
   private time = 0;
   private stateTime = 0;
   private reactions: Reaction[] = [];
@@ -53,6 +64,14 @@ export class AIController implements TickController {
   /** Seconds before the AI may start another retreat (prevents retreat loops). */
   private retreatCooldown = 0;
   private readonly unsubs: (() => void)[] = [];
+  /** Golden tickets on the field (src/arena/GoldenTickets.ts); null = ignore them. */
+  tickets: GoldenTickets | null = null;
+  /** The ticket this AI is detouring to, if any (checked by id: tickets are pooled). */
+  private ticketGoal: GoldenTicket | null = null;
+  private ticketGoalId = 0;
+  private ticketGoalTime = 0;
+  private ticketCheck = 0;
+  private lastHurtAt = -1e9;
 
   constructor(
     private readonly self: Wizard,
@@ -91,6 +110,19 @@ export class AIController implements TickController {
     this.retreatCooldown = 0;
     this.desiredMove.set(0, 0, 0);
     this.aimNoise.set(0, 0, 0);
+    this.resetVolley();
+    this.ticketGoal = null;
+    this.lastHurtAt = -1e9;
+  }
+
+  /** First volley of a stage comes a little after it begins. */
+  private resetVolley(): void {
+    this.volleyCd = (this.attacks?.volley?.cooldown ?? 0) * VOLLEY.firstDelay;
+  }
+
+  /** True while detouring to a golden ticket. */
+  get seekingTicket(): boolean {
+    return this.ticketGoal !== null;
   }
 
   /** Punish windows come from game events: a whiffed Blast, a stunned or empty opponent. */
@@ -107,6 +139,16 @@ export class AIController implements TickController {
       }),
       events.on('dodgeEvade', (e) => {
         if (e.wizard === this.self && this.ultWatch >= 0) this.tryPunish();
+      }),
+      // Campaign boss stages: the boss's base profile scaled per stage, and that stage's attacks.
+      events.on('bossStage', (e) => {
+        if (e.wizard !== this.self) return;
+        this.attacks = e.boss ? e.boss.stages[e.stage].attacks : null;
+        if (e.boss) this.setProfile(stageProfile(e.boss, e.stage));
+        this.resetVolley();
+      }),
+      events.on('damage', (e) => {
+        if (e.target === this.self) this.lastHurtAt = this.time;
       }),
     );
   }
@@ -129,12 +171,19 @@ export class AIController implements TickController {
     if (this.punishTimer > 0) this.punishTimer -= dt;
     if (this.retreatCooldown > 0) this.retreatCooldown -= dt;
 
-    if (!w.alive || !this.target.alive) {
+    if (!w.alive || !this.target.alive || w.evolving) {
       intent.move.set(0, 0, 0);
       intent.holdBolt = false;
       intent.sprint = false;
+      if (w.evolving) {
+        // Transforming: frozen, and whatever it was about to do is forgotten.
+        this.reactions.length = 0;
+        this.burstLeft = 0;
+        this.comboBlastAt = -1;
+      }
       return;
     }
+    if (this.volleyCd > 0) this.volleyCd -= dt;
 
     const toTarget = tmpA.subVectors(this.target.pos, w.pos).setY(0);
     const dist = toTarget.length();
@@ -150,6 +199,7 @@ export class AIController implements TickController {
     this.perceiveThreats();
     this.runReactions();
     this.chooseState(dist);
+    this.thinkTickets(dt);
     this.steer(dt, toTarget, dist);
     this.aimAndAttack(dt, dist);
   }
@@ -298,6 +348,48 @@ export class AIController implements TickController {
     else this.setState('attack');
   }
 
+  /**
+   * Golden tickets: now and then, when nothing is coming at it, detour to a ticket that is near and
+   * closer to it than to the opponent (any near one when mana is low). Gives up if it takes too long.
+   */
+  private thinkTickets(dt: number): void {
+    const w = this.self;
+    const goal = this.ticketGoal;
+    if (goal && (!goal.active || goal.id !== this.ticketGoalId || w.stunned || (this.ticketGoalTime += dt) > TK.aiGiveUpTime)) {
+      this.ticketGoal = null;
+    }
+    if (this.ticketGoal || !this.tickets || this.tickets.activeCount === 0) return;
+    this.ticketCheck -= dt;
+    if (this.ticketCheck > 0) return;
+    this.ticketCheck = TK.aiCheckInterval;
+    if (this.state === 'evade' || this.punishTimer > 0 || w.manaBoost > TK.boostDuration / 3 || this.underFire()) return;
+    if (!chance(TK.aiSeekChance)) return;
+    const lowMana = w.mana < CONFIG.wizard.maxMana * TK.aiLowMana;
+    const t = this.tickets.bestFor(w, this.target, TK.aiSeekRange, lowMana);
+    if (!t) return;
+    this.ticketGoal = t;
+    this.ticketGoalId = t.id;
+    this.ticketGoalTime = 0;
+  }
+
+  /** Hit recently, a spell on course to hit it, a big windup from the opponent, or already reacting. */
+  private underFire(): boolean {
+    const w = this.self;
+    if (this.time - this.lastHurtAt < TK.aiHurtMemory || this.reactions.length > 0 || w.stunned) return true;
+    if (this.target.cast) return true;
+    const chest = w.chest(tmpC);
+    for (const proj of this.spells.pool.active) {
+      if (proj.owner === w) continue;
+      const rx = chest.x - proj.pos.x, ry = chest.y - proj.pos.y, rz = chest.z - proj.pos.z;
+      const v2 = proj.vel.lengthSq();
+      if (v2 < 1e-4) continue;
+      const t = (rx * proj.vel.x + ry * proj.vel.y + rz * proj.vel.z) / v2;
+      if (t < 0 || t > 1.2) continue;
+      if (Math.hypot(rx - proj.vel.x * t, ry - proj.vel.y * t, rz - proj.vel.z * t) < 2) return true;
+    }
+    return false;
+  }
+
   private findCover(): void {
     let best = Infinity;
     this.hasCover = false;
@@ -360,6 +452,14 @@ export class AIController implements TickController {
         move.copy(this.desiredMove);
         break;
     }
+    // Detour to a golden ticket, still strafing a little (and still shooting: aiming is separate).
+    const goal = this.ticketGoal;
+    if (goal && this.state !== 'evade') {
+      move.subVectors(goal.pos, w.pos).setY(0);
+      const d = move.length();
+      move.divideScalar(d || 1).addScaledVector(strafe, d > 3 ? 0.25 : 0);
+      sprint = d > 5 && w.mana > CONFIG.wizard.sprintRecoverMana;
+    }
 
     // Stay out of the fire.
     const r = Math.hypot(w.pos.x, w.pos.z);
@@ -410,12 +510,16 @@ export class AIController implements TickController {
 
     intent.holdBolt = false;
     if (this.state !== 'attack' && !(this.state === 'approach' && this.hasLos && dist < 22)) return;
-    if (!this.hasLos || w.cast || w.stunned) return;
+    // A transforming boss is immune: hold fire (and let mana recover) until it is done.
+    if (!this.hasLos || w.cast || w.stunned || t.evolving || this.spells.volleyFiring(w)) return;
+    // Boss stages gate everything beyond bolts (charge still builds while the Ultimate is locked).
+    const a = this.attacks;
+    const canBlast = !a || a.blast, canStun = !a || a.stun, canUlt = !a || a.ultimate;
 
     // Ultimate when it would land: opponent not shielding, and either their roll is on cooldown or
     // they're already coming down from a jump (both evasions are spent).
     const committed = t.cd.dodge > 0.3 || t.stunned || (!t.grounded && t.vy < 0);
-    if (w.ult >= SP.ultimate.chargeMax && !t.shielded && (committed || chance(0.01))) {
+    if (canUlt && w.ult >= SP.ultimate.chargeMax && !t.shielded && (committed || chance(0.01))) {
       intent.press('ultimate');
       return;
     }
@@ -423,19 +527,28 @@ export class AIController implements TickController {
     // Stun -> Blast combo.
     if (this.comboBlastAt > 0 && this.time >= this.comboBlastAt) {
       this.comboBlastAt = -1;
-      if (t.stunned) intent.press('blast');
+      if (t.stunned && canBlast) intent.press('blast');
+    }
+
+    // Signature volley, on its own cooldown, whenever the target is in range.
+    const volley = a?.volley;
+    if (volley && this.volleyCd <= 0 && dist <= VOLLEY.range && this.spells.castVolley(w, volley)) {
+      this.volleyCd = volley.cooldown * rand(0.85, 1.15);
+      this.burstLeft = 0;
+      this.pauseTimer = Math.max(this.pauseTimer, rand(p.burstPause[0], p.burstPause[1]) * 0.6);
+      return;
     }
 
     this.decisionTimer -= dt;
     if (this.decisionTimer <= 0) {
       this.decisionTimer = rand(0.35, 0.7);
       const aggressive = this.punishTimer > 0;
-      if (w.cd.stun <= 0 && w.mana >= SP.stun.manaCost && dist < 20 && chance(aggressive ? 0.7 : p.stunChance * 0.5)) {
+      if (canStun && w.cd.stun <= 0 && w.mana >= SP.stun.manaCost && dist < 20 && chance(aggressive ? 0.7 : p.stunChance * 0.5)) {
         intent.press('stun');
         this.comboBlastAt = this.time + SP.stun.castTime + 0.15;
         return;
       }
-      if (w.cd.blast <= 0 && w.mana >= SP.blast.manaCost && chance(aggressive || t.stunned ? 0.9 : p.blastChance * 0.5)) {
+      if (canBlast && w.cd.blast <= 0 && w.mana >= SP.blast.manaCost && chance(aggressive || t.stunned ? 0.9 : p.blastChance * 0.5)) {
         intent.press('blast');
         return;
       }

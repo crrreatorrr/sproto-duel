@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
+import { resolveImage } from '../assets/AssetLoader';
+import { bossStagePortrait } from '../assets/manifest';
+import { STAGE_COUNT } from '../campaign/BossStages';
 import { BOSSES } from '../campaign/levels';
 import { events } from '../core/events';
 import { feel } from '../core/feel';
@@ -11,6 +14,7 @@ import { spellIcon } from './icons';
 
 const W = CONFIG.wizard;
 const S = CONFIG.spells;
+const TK = CONFIG.tickets;
 
 interface Plate {
   root: HTMLElement;
@@ -18,6 +22,9 @@ interface Plate {
   chip: HTMLElement;
   hpText: HTMLElement;
   mana: HTMLElement;
+  /** Golden-ticket boost countdown chip next to the mana bar. */
+  buff: HTMLElement;
+  buffTime: HTMLElement;
   ult: HTMLElement;
   chipValue: number;
   chipDelay: number;
@@ -54,6 +61,10 @@ export class HUD {
   private readonly pips: HTMLElement[][] = [[], []];
   private readonly banner: HTMLElement;
   private readonly bannerSub: HTMLElement;
+  private readonly bannerArt: HTMLImageElement;
+  /** Boss stage pips and stage name on the rival plate. */
+  private readonly stagePips: HTMLElement[] = [];
+  private readonly stageName: HTMLElement;
   private readonly flash: HTMLElement;
   private readonly ultDim: HTMLElement;
   private dim = 0;
@@ -87,7 +98,7 @@ export class HUD {
       <div class="enemy-tag"><div class="enemy-tag-fill"></div></div>
       <div class="offscreen-arrow"></div>
       <div class="god-badge" title="God mode: no damage, unlimited mana, no cooldowns, ${CONFIG.debug.godPowerMultiplier}× damage (99 or ${CONFIG.debug.godHotkey} toggles)">God Mode</div>
-      <div class="banner"><div class="banner-main"></div><div class="banner-sub"></div></div>
+      <div class="banner"><img class="banner-art" alt="" draggable="false"><div class="banner-main"></div><div class="banner-sub"></div></div>
       <div class="hud-bottom">
         <div class="slots"></div>
         <div class="dodge-bar"><div class="dodge-fill"></div><span>ROLL</span></div>
@@ -103,6 +114,8 @@ export class HUD {
         chip: q('.hp-chip', root),
         hpText: q('.hp-text', root),
         mana: q('.mana-fill', root),
+        buff: q('.mana-buff', root),
+        buffTime: q('.mana-buff b', root),
         ult: q('.ult-fill', root),
         chipValue: 1,
         chipDelay: 0,
@@ -121,6 +134,10 @@ export class HUD {
     }
     this.banner = q('.banner-main');
     this.bannerSub = q('.banner-sub');
+    this.bannerArt = q('.banner-art');
+    const stageRow = q('.plate-right .stage-pips');
+    for (let i = 0; i < STAGE_COUNT; i++) this.stagePips.push(stageRow.appendChild(document.createElement('i')));
+    this.stageName = q('.plate-right .stage-name');
     this.flash = q('.screen-flash');
     this.ultDim = q('.ult-dim');
     this.vignette = q('.vignette');
@@ -148,8 +165,9 @@ export class HUD {
       <div class="plate plate-${side}">
         <div class="plate-head"><span class="plate-id"><span class="plate-name">Rival</span><small class="plate-title"></small></span><span class="hp-text">150</span></div>
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
-        <div class="bar mana"><div class="mana-fill"></div></div>
+        <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden ticket: bigger mana pool, double regen"><i>✦</i><b></b></span></div>
         <div class="bar ult"><div class="ult-fill"></div><span>ULT</span></div>
+        ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div>' : ''}
       </div>`;
   }
 
@@ -170,12 +188,13 @@ export class HUD {
     this.root.classList.toggle('hidden', !visible);
   }
 
-  /** Big centered text with a pop-in animation. */
-  showBanner(text: string, sub = '', style = '', duration = 1.2): void {
+  /** Big centered text with a pop-in animation, optionally over an image (`art`: a resolved URL). */
+  showBanner(text: string, sub = '', style = '', duration = 1.2, art: string | null = null): void {
     this.banner.textContent = text;
     this.bannerSub.textContent = sub;
+    if (art) this.bannerArt.src = art;
     const box = this.banner.parentElement!;
-    box.className = `banner show ${style}`;
+    box.className = `banner show ${style}${art ? ' has-art' : ''}`;
     // Restart the CSS animation.
     void box.offsetWidth;
     box.style.setProperty('--dur', `${duration}s`);
@@ -216,6 +235,21 @@ export class HUD {
     });
     events.on('ultReady', (e) => {
       if (e.wizard === g.player) this.showBanner('Ultimate Ready', `Press ${this.slotKeys[4].textContent}`, 'ult', 1.1);
+    });
+    // Boss evolution: "STAGE 2" and the stage's name in the boss palette, over its concept art if any.
+    events.on('bossEvolve', (e) => {
+      const art = resolveImage(bossStagePortrait(e.boss.id, e.stage));
+      this.showBanner(`Stage ${e.stage + 1}`, e.boss.stages[e.stage].name, 'stage', CONFIG.campaign.evolveTime + 0.6, art);
+    });
+    // A boss names its signature volley over its head.
+    events.on('volley', (e) => {
+      if (e.wizard === g.enemy) g.popups.spawn(tmp.copy(e.pos).setY(e.pos.y + 0.6), `${e.name}!`, 'boss');
+    });
+    events.on('ticketPickup', (e) => {
+      if (e.wizard !== g.player) return;
+      const regen = TK.regenMultiplier > 1 ? ` · ${TK.regenMultiplier}× regen` : '';
+      const sub = e.refreshed ? 'Mana boost refreshed' : `+${Math.round((TK.maxManaMultiplier - 1) * 100)}% mana for ${TK.boostDuration} s${regen}`;
+      this.showBanner('Golden Ticket!', sub, 'ticket', 1.3);
     });
     events.on('noMana', (e) => {
       if (e.wizard !== g.player) return;
@@ -294,11 +328,27 @@ export class HUD {
     this.set(`hp${i}`, plate.hp, 'transform', `scaleX(${hp.toFixed(4)})`);
     this.set(`chip${i}`, plate.chip, 'transform', `scaleX(${plate.chipValue.toFixed(4)})`);
     this.set(`hpt${i}`, plate.hpText, 'text', String(Math.ceil(w.health)));
-    this.set(`mana${i}`, plate.mana, 'transform', `scaleX(${(w.mana / W.maxMana).toFixed(4)})`);
+    // A golden-ticket boost turns the bar gold and stretches it to the bigger max (styles.css).
+    const boost = w.manaBoost;
+    this.set(`mana${i}`, plate.mana, 'transform', `scaleX(${(w.mana / w.maxMana).toFixed(4)})`);
+    this.set(`buft${i}`, plate.buffTime, 'text', boost > 0 ? String(Math.ceil(boost)) : '');
+    this.set(`buf${i}`, plate.buff, 'class', `mana-buff${boost > 0 ? ' on' : ''}${boost > 0 && boost < 3 ? ' ending' : ''}`);
     const ult = w.ult / S.ultimate.chargeMax;
     this.set(`ult${i}`, plate.ult, 'transform', `scaleX(${ult.toFixed(4)})`);
-    const cls = `plate plate-${i === 0 ? 'left' : 'right'}${hp < 0.3 ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}`;
+    const staged = i === 1 && this.updateStages();
+    const cls = `plate plate-${i === 0 ? 'left' : 'right'}${hp < 0.3 ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${boost > 0 ? ' boosted' : ''}`;
     this.set(`plate${i}`, plate.root, 'class', cls);
+  }
+
+  /** Stage pips (passed, current, still to come) and the stage name under the boss's bars. False without a boss. */
+  private updateStages(): boolean {
+    const st = this.game.stages;
+    const stage = st.current;
+    if (!this.match.boss || !stage) return false;
+    const evolving = st.evolving ? ' evolving' : '';
+    this.stagePips.forEach((pip, i) => this.set(`spip${i}`, pip, 'class', i < st.stage ? 'done' : i === st.stage ? `on${evolving}` : ''));
+    this.set('stagename', this.stageName, 'text', stage.name);
+    return true;
   }
 
   private updateSlots(p: Wizard): void {
@@ -332,7 +382,8 @@ export class HUD {
     const e = g.enemy;
     const cam = g.renderer.camera;
     tmp.copy(e.visual.root.position);
-    tmp.y += Math.max(2.45, e.visual.topHeight + 0.25);
+    // The tag rides above the current look, including a boss stage's growth (visual root scale).
+    tmp.y += Math.max(2.45, e.visual.topHeight * e.visual.root.scale.y + 0.25);
     tmp.project(cam);
     const w = window.innerWidth, h = window.innerHeight;
     const behind = tmp.z > 1;

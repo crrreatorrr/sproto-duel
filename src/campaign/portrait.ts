@@ -27,8 +27,8 @@ function silhouetteSvg(boss: BossDef): string {
   const p = boss.palette;
   const robe = hex(p.robe), trim = hex(p.trim), spell = hex(p.spell), blast = hex(p.blast);
   const id = `bp${++uid}`;
-  const skull = boss.id === 'broccoli';
-  const face = skull ? '#cfc8b4' : '#120c1c';
+  const green = boss.id === 'broccoli';
+  const face = FACES[boss.id];
   return `
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <defs>
@@ -51,9 +51,9 @@ function silhouetteSvg(boss: BossDef): string {
         fill="${trim}" opacity="0.13">${boss.name[0]}</text>
       <path d="M10 100 C14 78 30 67 50 67 C70 67 86 78 90 100 Z" fill="url(#${id}robe)" stroke="${trim}" stroke-opacity="0.5" stroke-width="0.8"/>
       <path d="M38 69 Q50 76 62 69" fill="none" stroke="${trim}" stroke-width="2.2" stroke-linecap="round"/>
-      ${behindHead(boss.id, robe, trim)}
+      ${front(boss.id, robe, trim, spell)}
       <circle cx="50" cy="55" r="11.5" fill="${face}"/>
-      ${skull ? `<circle cx="45.5" cy="54" r="3.2" fill="#120c1c"/><circle cx="54.5" cy="54" r="3.2" fill="#120c1c"/>` : ''}
+      ${green ? `<circle cx="45.5" cy="54" r="3" fill="#120c1c"/><circle cx="54.5" cy="54" r="3" fill="#120c1c"/>` : ''}
       <g filter="url(#${id}glow)">
         <circle cx="45.5" cy="54" r="1.7" fill="${spell}"/>
         <circle cx="54.5" cy="54" r="1.7" fill="${spell}"/>
@@ -62,64 +62,85 @@ function silhouetteSvg(boss: BossDef): string {
     </svg>`;
 }
 
-/** Hoods sit behind the face. */
-function behindHead(id: BossId, robe: string, trim: string): string {
-  if (id === 'agent' || id === 'broccoli') {
-    const w = id === 'broccoli' ? 17 : 15;
-    return `<path d="M${50 - w} 68 Q${50 - w - 3} 36 50 33 Q${50 + w + 3} 36 ${50 + w} 68 Q${50 + w * 0.6} 52 50 50 Q${50 - w * 0.6} 52 ${50 - w} 68 Z"
-      fill="${robe}" stroke="${trim}" stroke-opacity="0.45" stroke-width="0.8"/>`;
+/** Face fill per boss: dark silhouettes, and Broccoli Head's pale green stalk. */
+const FACES: Record<BossId, string> = {
+  sahil: '#2a1810',
+  obama: '#1c120c',
+  broccoli: '#86ad55',
+  agent: '#241a18',
+  tinubu: '#1e100a',
+};
+
+/** Body cues drawn over the shoulders, under the head. */
+function front(id: BossId, robe: string, trim: string, spell: string): string {
+  switch (id) {
+    case 'sahil': // a round belly under a sash
+      return `<ellipse cx="50" cy="91" rx="30" ry="20" fill="${robe}" stroke="${trim}" stroke-opacity="0.6" stroke-width="0.8"/>
+        <path d="M24 85 Q50 74 76 85" fill="none" stroke="${trim}" stroke-width="3"/>`;
+    case 'obama': // long black coat over a shirt, a gold chain and a coin
+      return `<path d="M44 67 L50 82 L56 67 Z" fill="#e8e4dc"/>
+        <path d="M44 67 L50 82 L40 77 Z M56 67 L50 82 L60 77 Z" fill="${robe}" stroke="${trim}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <path d="M40 70 Q50 86 60 70" fill="none" stroke="${trim}" stroke-width="1"/>
+        <circle cx="50" cy="83" r="3.2" fill="${spell}"/>`;
+    case 'agent': // black suit, white shirt, black tie
+      return `<path d="M45 67 L50 80 L55 67 Z" fill="#f1f1f1"/>
+        <path d="M49 69 L51 69 L52 79 L50 82 L48 79 Z" fill="#0b0b0e"/>
+        <path d="M45 67 L50 80 L40 76 Z M55 67 L50 80 L60 76 Z" fill="${robe}" stroke="#8a8f99" stroke-opacity="0.5" stroke-width="0.5"/>`;
+    case 'tinubu': // wide agbada shoulders
+      return `<ellipse cx="27" cy="76" rx="12" ry="5" fill="${robe}" stroke="${trim}" stroke-width="0.8"/>
+        <ellipse cx="73" cy="76" rx="12" ry="5" fill="${robe}" stroke="${trim}" stroke-width="0.8"/>`;
+    default:
+      return '';
   }
-  if (id === 'sahil') {
-    return `<path d="M37 46 L35 66 L41 66 L42 50 Z M63 46 L65 66 L59 66 L58 50 Z" fill="${trim}"/>`;
-  }
-  return '';
 }
 
+/** Headgear and face cues, drawn over the face and eyes (in the glow group). */
 function headgear(id: BossId, robe: string, trim: string, spell: string, blast: string): string {
   switch (id) {
-    case 'obama': {
-      const leaves = [-22, -14, -6, 6, 14, 22]
-        .map((dx, i) => `<ellipse cx="${50 + dx}" cy="${45.5 + (i % 2)}" rx="3.6" ry="1.6" fill="${spell}" transform="rotate(${dx * 1.2} ${50 + dx} 46)"/>`)
-        .join('');
+    case 'sahil': {
+      // Bushy beard, moustache and brows; a small red fez with a tassel.
+      const hair = '#2a1a10';
       return `
-        <ellipse cx="50" cy="45" rx="27" ry="5" fill="${trim}"/>
-        <path d="M36 45 Q38 24 60 16 Q55 28 64 45 Z" fill="${trim}"/>
-        <path d="M36.5 43 Q50 47 63.5 43" fill="none" stroke="${robe}" stroke-width="2.4"/>
-        ${leaves}
-        <circle cx="62" cy="43" r="2.2" fill="${blast}"/>`;
+        <path d="M38.5 55 Q36 71 50 75 Q64 71 61.5 55 Q58 64.5 50 65 Q42 64.5 38.5 55 Z" fill="${hair}"/>
+        <path d="M42.5 61.5 Q50 57 57.5 61.5 Q50 60.2 42.5 61.5 Z" fill="${hair}"/>
+        <path d="M41.8 50.6 L48 51.6 M58.2 50.6 L52 51.6" stroke="${hair}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M42.5 45 L44.5 33 L55.5 33 L57.5 45 Z" fill="#b3122a"/>
+        <ellipse cx="50" cy="33" rx="5.5" ry="1.2" fill="#8a0e20"/>
+        <path d="M50 33 Q56 34 57 40" fill="none" stroke="#1a1010" stroke-width="0.9"/>
+        <circle cx="57" cy="40.5" r="1.3" fill="${spell}"/>`;
     }
-    case 'tinubu':
+    case 'obama':
+      // Mustard wide-brim hat.
       return `
-        <path d="M41 47 Q29 41 29 27 Q35 38 45 44 Z" fill="#2a1712" stroke="${trim}" stroke-width="0.6"/>
-        <path d="M59 47 Q71 41 71 27 Q65 38 55 44 Z" fill="#2a1712" stroke="${trim}" stroke-width="0.6"/>
-        <path d="M50 18 Q59 30 55 38 Q61 35 60 28 Q67 39 59 46 L41 46 Q33 39 41 29 Q40 36 45 39 Q42 29 50 18 Z" fill="${spell}"/>
-        <path d="M50 28 Q55 35 53 41 L47 41 Q45 35 50 28 Z" fill="${blast}"/>
-        <ellipse cx="27" cy="75" rx="9" ry="5" fill="${trim}" opacity="0.85"/>
-        <ellipse cx="73" cy="75" rx="9" ry="5" fill="${trim}" opacity="0.85"/>`;
-    case 'agent': {
-      const spikes = [-12, -8, -4, 0, 4, 8, 12]
-        .map((dx, i) => {
-          const h = i % 2 ? 7 : 12;
-          return `<path d="M${50 + dx - 1.8} 37 L${50 + dx * 1.15} ${37 - h} L${50 + dx + 1.8} 37 Z" fill="#e8f2ff"/>`;
-        })
-        .join('');
-      return `${spikes}<path d="M48 40 L50 37 L52 40 L50 43 Z" fill="${spell}"/>
-        <path d="M33 70 L36 60 L64 60 L67 70" fill="none" stroke="${trim}" stroke-width="2.4"/>`;
-    }
-    case 'sahil':
-      return `
-        <path d="M37 48 L34 27 L66 27 L63 48 Z" fill="${trim}"/>
-        <rect x="34.5" y="31" width="31" height="3" fill="${robe}"/>
-        <rect x="36" y="41" width="28" height="3" fill="${robe}"/>
-        <circle cx="50" cy="37" r="3.6" fill="${spell}"/>
-        <path d="M24 76 Q50 64 76 76" fill="none" stroke="${trim}" stroke-width="4"/>`;
+        <ellipse cx="50" cy="45" rx="25" ry="4.6" fill="#c9a032"/>
+        <path d="M38.5 45 L40 31 Q50 28 60 31 L61.5 45 Z" fill="#c9a032"/>
+        <path d="M39.2 41 L60.8 41 L61.2 44.6 L38.8 44.6 Z" fill="#2a2214"/>`;
     case 'broccoli': {
-      const spikes = [-14, -8, -2, 4, 10]
-        .map((dx, i) => `<path d="M${53 + dx - 1.6} 30 L${53 + dx} ${30 - (i % 2 ? 6 : 10)} L${53 + dx + 1.6} 30 Z" fill="${trim}"/>`)
+      // A head of broccoli florets instead of a hat.
+      const florets = [[50, 36, 9], [40, 40, 7], [60, 40, 7], [33, 46, 5.5], [67, 46, 5.5], [44, 30, 6], [56, 30, 6], [50, 25, 5]]
+        .map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${robe}" stroke="${trim}" stroke-opacity="0.55" stroke-width="0.6"/>
+          <circle cx="${x - r * 0.3}" cy="${y - r * 0.3}" r="${r * 0.35}" fill="${spell}" opacity="0.8"/>`)
         .join('');
-      return `<ellipse cx="50" cy="30" rx="15" ry="2.6" fill="none" stroke="${trim}" stroke-width="1.6"/>${spikes}
-        <path d="M26 74 L22 64 L30 71 Z M74 74 L78 64 L70 71 Z" fill="#d9d3c2"/>`;
+      return florets;
     }
+    case 'agent':
+      // Slicked short hair, dark sunglasses with a glint, an earpiece. No hat.
+      return `
+        <path d="M38.6 53 Q38 41 50 41.5 Q62 41 61.4 53 Q58 46 50 46 Q42 46 38.6 53 Z" fill="#1a1410"/>
+        <rect x="40.5" y="51.2" width="8.5" height="5" rx="1.5" fill="#050608"/>
+        <rect x="51" y="51.2" width="8.5" height="5" rx="1.5" fill="#050608"/>
+        <rect x="48.5" y="52.2" width="3" height="1" fill="#050608"/>
+        <path d="M42 52.6 L44.6 52.6" stroke="${spell}" stroke-width="0.8"/>
+        <path d="M61 56 Q64 62 62 68" fill="none" stroke="#cfd4da" stroke-width="0.6"/>`;
+    case 'tinubu':
+      // Tall fila cap folded to one side with a gold emblem; small red horns.
+      return `
+        <path d="M32.5 38 Q33 44 39.6 47 L41 44.4 Q36 43 32.5 38 Z" fill="#b3141a"/>
+        <path d="M67.5 38 Q67 44 60.4 47 L59 44.4 Q64 43 67.5 38 Z" fill="#b3141a"/>
+        <path d="M39.5 46 L38 28 Q49 22 61.5 26.5 L60.5 46 Z" fill="${robe}" stroke="${trim}" stroke-opacity="0.5" stroke-width="0.6"/>
+        <path d="M38 28 Q49 22 61.5 26.5 Q61 31 67 33.5 Q55 36 38 28 Z" fill="${robe}" stroke="${trim}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <circle cx="50" cy="38" r="3.3" fill="${trim}"/>
+        <circle cx="50" cy="38" r="1.6" fill="${blast}"/>`;
     default:
       return '';
   }

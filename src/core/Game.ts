@@ -3,8 +3,10 @@ import { CONFIG } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
 import { MODELS, type ModelKey } from '../assets/manifest';
 import type { BossDef } from '../campaign/levels';
+import { BossStages } from '../campaign/BossStages';
 import { Arena } from '../arena/Arena';
 import { FireRing } from '../arena/FireRing';
+import { GoldenTickets } from '../arena/GoldenTickets';
 import { CameraRig } from '../camera/CameraRig';
 import { Effects } from '../fx/Effects';
 import { Physics } from '../physics/Physics';
@@ -39,9 +41,13 @@ export class Game {
   readonly enemy: Wizard;
   readonly playerController: PlayerController;
   readonly popups: DamageNumbers;
+  /** Golden-ticket pickups (mana boost). Match enables spawning during the fight phase. */
+  readonly tickets: GoldenTickets;
   enemyController: TickController | null = null;
   /** The campaign boss the rival is dressed as, or null for the default rival. */
   boss: BossDef | null = null;
+  /** The boss's three in-round stages (evolution, stage looks and attacks). Idle without a boss. */
+  readonly stages: BossStages;
   private enemyLook = 'rival';
 
   /** False while paused or in menus: the simulation doesn't advance. */
@@ -100,8 +106,10 @@ export class Game {
     feel.local = this.player;
 
     this.spells = new SpellSystem(scene, physics, this.fx, this.wizards, this.arena);
+    this.tickets = new GoldenTickets(scene, physics, this.fx, this.wizards, this.arena, assets);
     this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemy);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
+    this.stages = new BossStages(this, this.enemy, this.player);
 
     const syncPointScale = () => {
       this.fx.setPointScale(this.renderer.pointScale);
@@ -121,7 +129,7 @@ export class Game {
     events.on('jump', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), 2, 0.5));
     events.on('land', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), Math.round(2 + e.speed * 0.6), 1.1));
     events.on('damage', (e) => {
-      if (e.target.immune && e.amount <= 0) {
+      if ((e.target.immune || e.target.evolving) && e.amount <= 0) {
         this.popups.spawn(e.target.chest(tmp), 'IMMUNE', 'block');
         return;
       }
@@ -129,6 +137,7 @@ export class Game {
       this.popups.spawn(e.target.chest(tmp), String(Math.round(e.amount)), style);
     });
     events.on('callout', (e) => this.popups.spawn(e.pos, e.text, e.style));
+    events.on('ticketPickup', (e) => this.popups.spawn(e.wizard.chest(tmp), '+MANA', e.wizard === this.player ? 'mana' : 'manaFoe'));
   }
 
   private readonly fireDamage = (w: Wizard, amount: number, point: THREE.Vector3) => {
@@ -138,11 +147,13 @@ export class Game {
   /** Clear every spell, effect and popup and restore pillars and the fire ring. */
   resetArena(): void {
     this.spells.clear();
+    this.tickets.clear();
     this.arena.reset();
     this.fx.clear();
     this.popups.clear();
     feel.reset();
     this.accumulator = 0;
+    this.stages.reset();
   }
 
   /**
@@ -160,11 +171,15 @@ export class Game {
     e.health = Math.min(e.health, e.maxHealth);
     e.damageMultiplier = boss?.damageMultiplier ?? 1;
     this.spells.pool.setTeamPalette(e.index, team);
+    // The boss throws its objects (rugs, phones, bullets...); the default rival casts orbs.
+    e.skins = boss ? boss.skins : null;
+    this.spells.pool.prepareSkins(e.index, e.skins);
     const look = boss ? boss.id : 'rival';
     if (look !== this.enemyLook) {
       this.enemyLook = look;
       e.visual.setAppearance(team, this.assets.instantiate(modelKey), MODELS[modelKey], boss ? boss.id : 'wizard');
     }
+    this.stages.setBoss(boss);
   }
 
   /** God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash power. */
@@ -181,8 +196,8 @@ export class Game {
   }
 
   /**
-   * Give both wizards default combat stats until the returned function is called (QA scenarios
-   * assume stock health and damage, whatever boss or god mode is active).
+   * Give both wizards default combat stats, and suspend boss stages, until the returned function is
+   * called (QA scenarios assume stock health and damage, whatever boss or god mode is active).
    */
   useDefaultStats(): () => void {
     const saved = this.wizards.map((w) => ({
@@ -193,6 +208,8 @@ export class Game {
       w.damageMultiplier = w.clashPowerMultiplier = 1;
       w.immune = w.infiniteMana = w.noCooldowns = false;
     }
+    const stagesSuspended = this.stages.suspended;
+    this.stages.suspended = true;
     return () => {
       for (const s of saved) {
         s.w.maxHealth = s.max;
@@ -203,6 +220,7 @@ export class Game {
         s.w.infiniteMana = s.mana;
         s.w.noCooldowns = s.cds;
       }
+      this.stages.suspended = stagesSuspended;
     };
   }
 
@@ -275,11 +293,13 @@ export class Game {
       this.enemyController?.update(dt);
     }
     for (const w of this.wizards) w.updateTimers(dt);
+    this.stages.update(dt);
     this.spells.update(dt);
     for (const w of this.wizards) w.updateMovement(dt, this.physics);
     this.physics.step();
     this.arena.update(dt);
     this.fire.updateDamage(dt, this.arena.fireRadius, this.wizards, this.fireDamage);
+    this.tickets.update(dt);
     if (!this.qaMode) for (const fn of this.tickHooks) fn(dt);
   }
 
@@ -289,6 +309,7 @@ export class Game {
     this.spells.sync(alpha, this.renderTime, simDt);
     this.fire.updateVisual(simDt, this.arena.fireRadius);
     this.arena.updateVisual(simDt, this.renderer.camera.position);
+    this.tickets.updateVisual(simDt, this.renderer.camera.position);
     this.dustTimer -= simDt;
     if (this.dustTimer <= 0) {
       this.dustTimer = 0.06;
