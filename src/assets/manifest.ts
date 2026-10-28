@@ -25,6 +25,8 @@ export interface ModelAsset {
   clips?: Partial<Record<WizardClip, string>>;
   /** Console warning above this count. */
   maxTriangles?: number;
+  /** Render both faces of every material (thin capes and robes from image-to-3D tools). */
+  doubleSided?: boolean;
 }
 
 export interface TextureAsset {
@@ -65,12 +67,13 @@ export const MODELS = {
   pillarDebris: { path: 'models/pillar_debris.glb', fitHeight: 0.5, maxTriangles: 400 },
   arenaRuins: { path: 'models/arena_ruins.glb', fitHeight: 6 },
   brazier: { path: 'models/brazier.glb', fitHeight: 1.6 },
-  // Campaign bosses (static meshes; the game animates them procedurally).
-  bossBramble: { path: 'models/bosses/bramble.glb', fitHeight: 2.0 },
-  bossCinder: { path: 'models/bosses/cinder.glb', fitHeight: 2.0 },
-  bossYsolde: { path: 'models/bosses/ysolde.glb', fitHeight: 2.1 },
-  bossKhepri: { path: 'models/bosses/khepri.glb', fitHeight: 2.2 },
-  bossMorvane: { path: 'models/bosses/morvane.glb', fitHeight: 2.5 },
+  // Campaign bosses (static meshes; the game animates them procedurally). Higgsfield/Tripo
+  // exports face +X, hence rotationY -90; thin robes and capes render double-sided.
+  bossBramble: { path: 'models/bosses/bramble.glb', fitHeight: 2.0, rotationY: -90, doubleSided: true },
+  bossCinder: { path: 'models/bosses/cinder.glb', fitHeight: 2.0, rotationY: -90, doubleSided: true },
+  bossYsolde: { path: 'models/bosses/ysolde.glb', fitHeight: 2.1, rotationY: -90, doubleSided: true },
+  bossKhepri: { path: 'models/bosses/khepri.glb', fitHeight: 2.2, rotationY: -90, doubleSided: true },
+  bossMorvane: { path: 'models/bosses/morvane.glb', fitHeight: 2.5, rotationY: -90, doubleSided: true },
 } satisfies Record<string, ModelAsset>;
 
 export const TEXTURES = {
@@ -134,8 +137,9 @@ const themeAssets = (id: string, propHeight: number): ThemeAssets => ({
   floor: `textures/themes/${id}/floor.jpg`,
   sky: `textures/themes/${id}/sky.jpg`,
   stone: `textures/themes/${id}/stone.jpg`,
-  pillar: { path: `models/themes/${id}/pillar.glb`, fitHeight: 5.5, maxTriangles: 5000 },
-  prop: { path: `models/themes/${id}/prop.glb`, fitHeight: propHeight, maxTriangles: 8000 },
+  // Higgsfield/Tripo exports face +X; rotate so the front faces +Z like every other model.
+  pillar: { path: `models/themes/${id}/pillar.glb`, fitHeight: 5.5, maxTriangles: 5000, rotationY: -90 },
+  prop: { path: `models/themes/${id}/prop.glb`, fitHeight: propHeight, maxTriangles: 8000, rotationY: -90, doubleSided: true },
 });
 
 export const THEME_ASSETS: Record<ArenaThemeId, ThemeAssets> = {

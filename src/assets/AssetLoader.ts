@@ -131,6 +131,9 @@ function normalizeModel(key: string, scene: THREE.Object3D, animations: THREE.An
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    if (spec.doubleSided) {
+      for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) m.side = THREE.DoubleSide;
+    }
     if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) skinned = true;
     const g = mesh.geometry;
     triangles += (g.index ? g.index.count : g.attributes.position.count) / 3;
