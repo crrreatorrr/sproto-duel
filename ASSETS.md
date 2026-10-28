@@ -119,7 +119,7 @@ any of them by replacing the file.
 | Boss | Models (`models/bosses/<id>/`) | Portraits (`ui/bosses/`) | Arena theme | Projectiles |
 |---|---|---|---|---|
 | 1. Sahil, the RugMaster | `sahil/stage1..3.glb` (2.0 / 2.25 / 2.55 m) | `sahil.png`, `sahil_stage2.png`, `sahil_stage3.png` | `desert` | rolled rugs, flying carpets |
-| 2. Bitcoin Obama and The Midget (two enemies) | `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m), `obama/sidekick.glb` (1.25 m) | `obama.png`, `obama_stage2.png`, `obama_stage3.png` | `void` | phones, carpets |
+| 2. Bitcoin Obama and The Midget (two enemies) | `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m), `midget/stage1..3.glb` (The Midget) | `obama.png`, `obama_stage2.png`, `obama_stage3.png` | `void` | phones, carpets |
 | 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `grove` | florets, whole broccoli |
 | 4. The Agent | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `glacier` | bullets, grenades |
 | 5. Tinubu, the Unshackled Demon | `tinubu/stage1..3.glb` (2.1 / 2.45 / 2.9 m) | `tinubu.png`, `tinubu_stage2.png`, `tinubu_stage3.png` | `volcano` | hellfire, burning skulls |

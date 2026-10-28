@@ -88,7 +88,7 @@ export const MODELS = {
   // thin robes and capes render double-sided. Each stage stands a little taller.
   ...bossStages('sahil', [2.0, 2.25, 2.55]),
   ...bossStages('obama', [2.1, 2.3, 2.55]),
-  bossObamaSidekick: { path: 'models/bosses/obama/sidekick.glb', fitHeight: 1.25, rotationY: -90, doubleSided: true, anchor: 'feet' },
+  bossObamaSidekick: { path: 'models/bosses/midget/stage1.glb', fitHeight: 1.25, rotationY: -90, doubleSided: true, anchor: 'feet' },
   ...bossStages('broccoli', [2.0, 2.35, 2.8]),
   ...bossStages('agent', [2.0, 2.2, 2.5]),
   ...bossStages('tinubu', [2.1, 2.45, 2.9]),
