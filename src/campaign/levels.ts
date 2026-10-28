@@ -125,8 +125,8 @@ export const BOSSES: BossDef[] = [
   boss({
     id: 'obama',
     name: 'Bitcoin Obama',
-    title: "and Lil' Satoshi",
-    intro: "A two-man pump crew. They throw phones and rugs. Don't ignore the little one.",
+    title: 'and The Midget',
+    intro: 'A two-man pump crew: Bitcoin Obama and The Midget. Two enemies, phones and rugs. Take them both down.',
     theme: 'void',
     stages: [
       { name: 'Pump', model: 'bossObama1', attacks: NONE },
@@ -138,7 +138,7 @@ export const BOSSES: BossDef[] = [
       },
     ],
     skins: { bolt: 'phone', blast: 'carpet' },
-    sidekick: { name: "Lil' Satoshi", model: 'bossObamaSidekick' },
+    sidekick: { name: 'The Midget', model: 'bossObamaSidekick' },
     palette: { name: 'Bitcoin Obama', robe: 0x18181f, trim: 0xe0b23a, spell: 0xf7931a, blast: 0x3fb8ff, stun: 0xfff0c0, ultimate: 0xf7931a },
     ai: {
       label: 'Bitcoin Obama',
