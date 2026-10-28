@@ -15,9 +15,12 @@ import { registerSkinScenarios } from './qa/skinScenarios';
 import { registerStageScenarios } from './qa/stageScenarios';
 import { registerTicketScenarios } from './qa/ticketScenarios';
 import { registerDuoScenarios } from './qa/duoScenarios';
+import { registerLifePackScenarios } from './qa/lifePackScenarios';
+import { registerCinematicScenarios } from './qa/cinematicScenarios';
 import { registerMuzzleScenarios } from './qa/muzzleScenarios';
-import { campaignSoak, soak } from './qa/soak';
-import type { Difficulty } from './config';
+import { campaignSoak, soak, type CampaignSoakOptions } from './qa/soak';
+import { CONFIG, type Difficulty } from './config';
+import { BOSSES } from './campaign/levels';
 import type { ArenaThemeId } from './arena/themes';
 
 async function boot() {
@@ -46,6 +49,8 @@ async function boot() {
   registerStageScenarios(qa, game, app);
   registerTicketScenarios(qa, game, app);
   registerDuoScenarios(qa, game, app);
+  registerLifePackScenarios(qa, game, app);
+  registerCinematicScenarios(qa, game, app);
   registerMuzzleScenarios(qa, game);
   registerOfficeScenarios(qa, game);
   registerArenaKitScenarios(qa, game);
@@ -55,10 +60,15 @@ async function boot() {
      * Add a theme to fight in that environment: `await __duel.qa.soak('normal', 6, 'office')`.
      */
     soak: (difficulty: Difficulty = 'normal', rounds = 6, theme?: ArenaThemeId) => soak(qa, game, difficulty, rounds, theme),
-    /** `await __duel.qa.campaignSoak(4)`: a reference AI vs each gauntlet boss, round lengths per boss. */
-    campaignSoak: (rounds = 4, reference: Difficulty = 'normal') => campaignSoak(qa, game, rounds, reference),
+    /**
+     * `await __duel.qa.campaignSoak(12)`: a reference AI fights each gauntlet boss `fights` times as
+     * the real single-life fight; per boss: win rate, fight length, stage reached, minutes per stage,
+     * boss damage per second per stage, life pack use. Options: `{ only: [4], immortal: true, seed: 1 }`.
+     */
+    campaignSoak: (fights = 4, opts: CampaignSoakOptions = {}) => campaignSoak(qa, game, fights, opts),
   });
-  (window as unknown as { __duel: unknown }).__duel = { game, app, qa: qaApi };
+  // `config` and `bosses` are the live tuning tables (edit them in the console to try values).
+  (window as unknown as { __duel: unknown }).__duel = { game, app, qa: qaApi, config: CONFIG, bosses: BOSSES };
 }
 
 boot().catch((err) => {

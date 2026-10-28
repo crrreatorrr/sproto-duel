@@ -104,6 +104,7 @@ export class QAHarness {
     g.playerControl = false;
     g.actionsLocked = false;
     g.qaMode = true;
+    g.inSandbox = true;
     g.enemyController = null;
     const duo = g.partnerActive ? g.boss : null;
     if (duo) g.setupPartner(null);
@@ -115,6 +116,7 @@ export class QAHarness {
       if (duo?.partner && g.boss === duo && !g.partnerActive) g.setupPartner(duo.partner);
       this.reset();
       g.qaMode = false;
+      g.inSandbox = false;
       g.enemyController = saved.controller;
       g.enemyController?.reset?.();
       g.simulating = saved.simulating;

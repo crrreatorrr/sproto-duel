@@ -13,8 +13,9 @@ export const CAMPAIGN_STORAGE_KEY = 'arcane-duel-campaign';
 const clampIndex = (i: number) => Math.max(0, Math.min(BOSSES.length - 1, Math.floor(Number.isFinite(i) ? i : 0)));
 
 /**
- * Boss Gauntlet progress: five best-of-3 duels in a row. Beating a boss saves the next one, so
- * "Continue" resumes there; losing keeps you on the same boss. Saved in localStorage (if allowed).
+ * Boss Gauntlet progress: five single-life boss fights in a row. Beating a boss saves the next one,
+ * so "Continue" resumes there; losing keeps you on the same boss. Saved in localStorage (if
+ * allowed). A win with god mode on is never saved (App skips recordWin).
  */
 export class Campaign {
   /** The boss being fought (or about to be). */

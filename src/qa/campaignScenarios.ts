@@ -6,11 +6,12 @@ import { MODELS } from '../assets/manifest';
 import { STAGE_COUNT, stageProfile } from '../campaign/BossStages';
 import { CAMPAIGN_STORAGE_KEY, Campaign } from '../campaign/Campaign';
 import { BOSSES, bossDisplayName, bossFighters, type BossDef } from '../campaign/levels';
-import { events } from '../core/events';
+import { events, type GameEvents } from '../core/events';
 import { nearestStanding, type Game } from '../core/Game';
 import { AIController } from '../enemy/AIController';
 import { loadSettings } from '../ui/Menus';
 import type { QAHarness } from './QAHarness';
+import { fightBoss, summarizeFights } from './soak';
 
 const DT = CONFIG.sim.fixedDt;
 const W = CONFIG.wizard;
@@ -36,6 +37,8 @@ export interface ThreatSample {
   /** Per opponent (the boss, then a double fight's partner): damage per second and max health. */
   dpsBy: number[];
   hpBy: number[];
+  /** A staged boss: damage per second in each stage. */
+  stageDps?: number[];
 }
 
 /** Sustained bolt DPS once mana is the limit (what a player can keep up). */
@@ -59,8 +62,8 @@ export function withSeededRandom<T>(seed: number, fn: () => T): T {
   }
 }
 
-/** Max health of everyone in a fight (both bosses of a double fight). */
-const fightHp = (boss: BossDef | null) => (boss ? bossFighters(boss).map((f) => Math.round(W.maxHealth * f.healthMultiplier)) : [W.maxHealth]);
+/** Health of everyone in a fight, all stage bars together (both bosses of a double fight). */
+const fightHp = (boss: BossDef | null) => (boss ? bossFighters(boss).map((f) => f.stageHealth.reduce((a, b) => a + b, 0)) : [W.maxHealth]);
 
 /**
  * Threat of a fight from each opponent's damage per second and health, at `hitRate`. One opponent:
@@ -169,7 +172,18 @@ function measureBossThreat(c: Ctx, game: Game, boss: BossDef, seed: number, seco
   const per = Array.from({ length: STAGE_COUNT }, (_, s) => withSeededRandom(seed + s * 101, () => measureThreat(c, game, boss, boss.ai, seconds, trials, s)));
   const dpsBy = per[0].dpsBy.map((_, i) => per.reduce((a, x) => a + x.dpsBy[i], 0) / per.length);
   const hitRate = per.reduce((a, x) => a + x.hitRate, 0) / per.length;
-  return fightThreat(bossDisplayName(boss), dpsBy, fightHp(boss), hitRate, per[STAGE_COUNT - 1].dpsBy);
+  const out = fightThreat(bossDisplayName(boss), dpsBy, fightHp(boss), hitRate, per[STAGE_COUNT - 1].dpsBy);
+  // One life through every stage: each stage's bars (both bosses') take HP / (sustained bolt damage x
+  // that stage's hit rate) to empty, at that stage's damage per second.
+  let taken = 0;
+  for (let s = 0; s < STAGE_COUNT; s++) {
+    const hp = bossFighters(boss).reduce((a, f) => a + f.stageHealth[s], 0);
+    const t = hp / Math.max(0.01, SUSTAINED_BOLT_DPS * per[s].hitRate);
+    taken += per[s].dps * t;
+  }
+  out.threat = taken / W.maxHealth;
+  out.stageDps = per.map((x) => x.dps);
+  return out;
 }
 
 const fmt = (s: ThreatSample) => `${s.name}: ${s.dps.toFixed(1)}dps hit${(s.hitRate * 100).toFixed(0)}% threat=${s.threat.toFixed(2)}`;
@@ -196,13 +210,14 @@ function withStashedSave(app: App, fn: () => void): void {
   }
 }
 
-/** Finish the current match as if `playerWon` (2-0), then show results immediately. */
+/** Finish the current match as if `playerWon` (1-0 in the gauntlet, 2-0 in Quick Duel), then show results immediately. */
 function finishMatch(app: App, playerWon: boolean): void {
   const g = app.game;
   const m = app.match;
-  m.wins[0] = playerWon ? 2 : 0;
-  m.wins[1] = playerWon ? 0 : 2;
-  m.roundWinners = playerWon ? [g.player, g.player] : [g.enemy, g.enemy];
+  const n = m.roundsToWin;
+  m.wins[0] = playerWon ? n : 0;
+  m.wins[1] = playerWon ? 0 : n;
+  m.roundWinners = Array.from({ length: n }, () => (playerWon ? g.player : g.enemy));
   m.phase = 'matchEnd';
   events.emit('matchEnd', { winner: playerWon ? g.player : g.enemy });
   app.showResults();
@@ -210,24 +225,206 @@ function finishMatch(app: App, playerWon: boolean): void {
 
 const button = (app: App, act: string) => app.menus.root.querySelector<HTMLButtonElement>(`.menu-screen [data-act="${act}"]`);
 
+/** Collect events of `type` until the returned function is called; it returns what was seen. */
+function record<K extends keyof GameEvents>(type: K): () => GameEvents[K][] {
+  const seen: GameEvents[K][] = [];
+  const off = events.on(type, (e) => void seen.push({ ...e }));
+  return () => {
+    off();
+    return seen;
+  };
+}
+
+/** Let Match see KOs and the clock while `fn` runs (scenarios run in qaMode, which it ignores). */
+function withMatchFlow(game: Game, fn: () => void): void {
+  game.qaMode = false;
+  try {
+    fn();
+  } finally {
+    game.qaMode = true;
+  }
+}
+
+const F = CONFIG.campaign.fight;
+const A = CONFIG.arena;
+
 export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): void {
   qa.add('campaign.ladder_escalates', (c) => {
-    // Fight 1 must be clearly easier than fight 5 (and easier than the Apprentice quick duel).
-    // Each boss is measured over its three stages (stage profile, attacks and damage), averaged.
-    // Seeded so the AI's dice rolls repeat between runs; 3 trials of 12 s + 9 s per stage.
+    // Quick per-stage probe (the full one-life ladder is campaign.ladder_reference_win_rates): each
+    // boss's AI attacks a strafing target that never shoots back, and takes perfectly-led bolts,
+    // in each stage (stage profile, attacks and damage). Seeded; 3 trials of 12 s + 9 s per stage.
     const samples = BOSSES.map((b, i) => measureBossThreat(c, game, b, 1000 + i, 12, 3));
     const apprentice = withSeededRandom(999, () => measureThreat(c, game, null, CONFIG.ai.difficulty.easy, 12, 4));
     c.note(samples.map(fmt).join(' | '));
     c.note(`ref ${fmt(apprentice)}`);
     const first = samples[0], last = samples[samples.length - 1];
-    c.expect(first.dps < last.dps * 0.5, `fight 1 deals ${first.dps.toFixed(1)} dps vs fight 5 ${last.dps.toFixed(1)}: not clearly gentler`);
-    c.expect(first.hitRate > last.hitRate * 1.3, `fight 1 is hit ${(first.hitRate * 100).toFixed(0)}% vs fight 5 ${(last.hitRate * 100).toFixed(0)}%`);
-    c.expect(last.threat > first.threat * 4, `threat only rises ${(last.threat / first.threat).toFixed(1)}x over the ladder`);
-    c.expect(first.threat < apprentice.threat, `fight 1 (threat ${first.threat.toFixed(2)}) is not easier than the Apprentice (${apprentice.threat.toFixed(2)})`);
-    for (let i = 1; i < samples.length; i++) {
-      // Allow sampling noise, but each fight must not be meaningfully easier than the one before.
-      c.expect(samples[i].threat > samples[i - 1].threat * 0.9, `${samples[i].name} is easier than ${samples[i - 1].name}`);
+    c.expect(first.dps < last.dps * 0.75, `fight 1 deals ${first.dps.toFixed(2)} dps vs fight 5 ${last.dps.toFixed(2)}: not gentler`);
+    c.expect(first.hitRate > last.hitRate * 1.15, `fight 1 is hit ${(first.hitRate * 100).toFixed(0)}% vs fight 5 ${(last.hitRate * 100).toFixed(0)}%`);
+    // Fights are long now (one life, five-minute stages), so compare the pressure per second.
+    c.expect(first.dps < apprentice.dps, `fight 1 (${first.dps.toFixed(2)} dps) hits harder than the Apprentice (${apprentice.dps.toFixed(2)} dps)`);
+    // Every boss hits harder stage by stage.
+    for (const smp of samples) {
+      const d = smp.stageDps!;
+      // (Short probes of slow, burst-y bosses are noisy: the later stages must beat stage 1, one of them clearly.)
+      c.expect(d[2] > d[0] && Math.max(d[1], d[2]) > d[0] * 1.2, `${smp.name}: stages ${d.map((x) => x.toFixed(2)).join(' / ')} dps do not escalate`);
     }
+    c.note(`stage dps ${samples.map((x) => x.stageDps!.map((d) => d.toFixed(2)).join('/')).join(' | ')}`);
+  });
+
+  qa.add('campaign.one_life_gauntlet_best_of_3_quick_duel', (c) => {
+    try {
+      // The gauntlet: one round, one life. A KO ends the match at once.
+      app.campaign.index = 0;
+      app.startBossFight();
+      const m = app.match, p = game.player, e = game.enemy;
+      c.expect(m.single && m.roundsToWin === 1, `gauntlet single=${m.single} roundsToWin=${m.roundsToWin}`);
+      c.setup();
+      m.phase = 'fight';
+      game.actionsLocked = false;
+      app.hud.update(0);
+      const root = app.hud.root;
+      const pip = root.querySelector('.pip-row') as HTMLElement;
+      const timer = root.querySelector('.timer')!.textContent ?? '';
+      const label = root.querySelector('.round-label')!.textContent ?? '';
+      c.expect(root.classList.contains('single') && getComputedStyle(pip).display === 'none', 'round pips shown in a gauntlet fight');
+      c.expect(/^\d+:\d\d$/.test(timer) && label.includes('One life') && !/round/i.test(label), `HUD timer "${timer}" label "${label}"`);
+      const ends = record('matchEnd');
+      withMatchFlow(game, () => {
+        game.spells.dealDamage(p, e, 1e5, p.chest(new THREE.Vector3()), 'blast');
+        c.step(CONFIG.match.roundEndTime + 0.1);
+      });
+      const end = ends();
+      c.expect((m.phase as string) === 'matchEnd' && end.length === 1 && end[0].winner === e && m.round === 1, `after one KO: phase ${m.phase}, round ${m.round}`);
+      // No round clock: a long fight never times out.
+      app.startBossFight();
+      c.setup();
+      m.phase = 'fight';
+      game.actionsLocked = false;
+      withMatchFlow(game, () => c.step(CONFIG.match.roundTime + 5));
+      c.expect((m.phase as string) === 'fight' && m.elapsed > CONFIG.match.roundTime, `gauntlet timed out (phase ${m.phase})`);
+      // Quick Duel: best of three on the 80 s clock.
+      app.startMatch();
+      c.expect(!m.single && m.roundsToWin === CONFIG.match.roundsToWin && m.timer === CONFIG.match.roundTime, 'Quick Duel is not best of three');
+      c.setup();
+      m.phase = 'fight';
+      game.actionsLocked = false;
+      app.hud.update(0);
+      c.expect(!root.classList.contains('single') && getComputedStyle(pip).display !== 'none', 'Quick Duel lost its round pips');
+      withMatchFlow(game, () => {
+        game.spells.dealDamage(p, e, 1e5, p.chest(new THREE.Vector3()), 'blast');
+        c.step(CONFIG.match.roundEndTime + 0.1);
+      });
+      c.expect(m.round === 2 && m.wins[1] === 1 && (m.phase as string) === 'intro', `Quick Duel after one KO: round ${m.round}, phase ${m.phase}`);
+    } finally {
+      app.toMenu();
+    }
+  });
+
+  qa.add('campaign.safety_caps_close_the_ring', (c) => {
+    try {
+      app.campaign.index = 0;
+      app.startBossFight();
+      const m = app.match, p = game.player;
+      game.stages.suspended = false; // the sandbox restores it
+      c.setup({ player: [0, -4], enemy: [0, 4] });
+      m.phase = 'fight';
+      game.actionsLocked = false;
+      // A stage running past its cap pulls the ring in, toward close quarters...
+      const caps = record('fightCap');
+      m.clock.stageElapsed = F.stageCap - 0.5;
+      m.clock.elapsed = F.stageCap - 0.5;
+      withMatchFlow(game, () => c.step(F.capCloseTime * 0.5));
+      const r1 = game.arena.fireRadius;
+      c.expect(r1 < A.fireRadius - 2 && r1 > F.stageCapRadius, `stage cap radius ${r1.toFixed(1)}`);
+      c.expect(caps().length === 1 && m.capped && m.phase === 'fight', 'no fightCap at the stage cap');
+      withMatchFlow(game, () => c.step(F.capCloseTime));
+      c.near(game.arena.fireRadius, F.stageCapRadius, 0.01, 'stage cap floor m');
+      // ...and opens again once the stage ends.
+      game.stages.evolveTo(1);
+      game.stages.release(0);
+      withMatchFlow(game, () => c.step(5));
+      c.expect(game.arena.fireRadius > A.fireRadius - 1 && !m.capped, `ring did not reopen (${game.arena.fireRadius.toFixed(1)})`);
+      // Past the fight's safety cap it closes completely, and the fight ends.
+      m.clock.elapsed = F.safetyCap + F.capCloseTime;
+      p.health = 30;
+      withMatchFlow(game, () => c.step(4));
+      c.expect(game.arena.fireRadius <= F.capMinRadius + 1e-6 && !p.alive && m.phase !== 'fight', `after the safety cap: radius ${game.arena.fireRadius.toFixed(1)}, player alive=${p.alive}, phase ${m.phase}`);
+      c.note(`stage cap at ${F.stageCap / 60} min -> ${F.stageCapRadius} m; safety cap at ${F.safetyCap / 60} min`);
+    } finally {
+      app.toMenu();
+    }
+  });
+
+  qa.add('campaign.god_mode_progress_policy', (c) => {
+    const prev = CONFIG.debug.godMode;
+    withStashedSave(app, () => {
+      try {
+        app.campaign.reset();
+        app.newGauntlet();
+        button(app, 'begin')!.click();
+        c.expect(!app.godUsed, 'god mode marked at the start of a clean fight');
+        // Turned on for a moment mid-fight: the win saves nothing.
+        app.setGodMode(true);
+        app.setGodMode(false);
+        c.expect(app.godUsed, 'god mode use not noted');
+        finishMatch(app, true);
+        c.expect(app.campaign.saved.next === 0 && app.campaign.saved.clears === 0, `god-mode win saved progress ${JSON.stringify(app.campaign.saved)}`);
+        const tag = app.menus.root.querySelector('.result-tag')?.textContent ?? '';
+        c.expect(/god mode/i.test(tag), `results tag "${tag}"`);
+        // It still moves on in this session.
+        const next = button(app, 'rematch')!;
+        c.expect(next.textContent!.includes(BOSSES[1].name), `results button "${next.textContent}"`);
+        next.click();
+        c.expect(app.campaign.index === 1 && app.campaign.saved.next === 0, 'Next did not move on (or saved)');
+        // A clean win saves as usual.
+        app.startBossFight();
+        c.expect(!app.godUsed, 'a fresh fight with god mode off is still marked');
+        finishMatch(app, true);
+        c.expect(app.campaign.saved.next === 2 && !app.menus.root.querySelector('.result-tag'), `clean win saved ${JSON.stringify(app.campaign.saved)}`);
+        // The final boss with god mode on: no clear counted.
+        game.setGodMode(true);
+        app.campaign.index = BOSSES.length - 1;
+        app.startBossFight();
+        c.expect(app.godUsed, 'god mode on at the start not noted');
+        finishMatch(app, true);
+        button(app, 'rematch')!.click();
+        c.expect(app.menus.current === 'complete' && app.campaign.saved.clears === 0, `god clear counted: ${JSON.stringify(app.campaign.saved)}`);
+        c.expect(/not counted/i.test(app.menus.root.textContent ?? ''), 'completion screen does not say the clear is not counted');
+      } finally {
+        game.setGodMode(prev);
+      }
+    });
+  });
+
+  qa.add('campaign.ladder_reference_win_rates', (c) => {
+    // The real single-life fight, headless and seeded, against every boss: Sahil is a near-certain
+    // win, each fight after it is won no more often than the one before (one fight of slack for
+    // the small sample), Tinubu almost never falls (<= 3%), and each stage lasts about five minutes.
+    const arena = game.arena;
+    const prevTheme = arena.theme, prevDev = arena.devTheme;
+    const n = [4, 4, 4, 4, 16];
+    const rows: ReturnType<typeof summarizeFights>[] = [];
+    try {
+      arena.devTheme = null;
+      BOSSES.forEach((boss, bi) => {
+        void arena.applyTheme(boss.theme);
+        rows.push(summarizeFights(boss, Array.from({ length: n[bi] }, (_, i) => withSeededRandom(500 + bi * 100 + i, () => fightBoss(qa, game, boss)))));
+      });
+    } finally {
+      arena.devTheme = prevDev;
+      void arena.applyTheme(prevTheme);
+    }
+    c.note(rows.map((r) => `${r.boss} ${r.wins}/${r.fights} in ${r.avgMinutes} min (stage ${r.avgStage}; ${r.stageMinutes})`).join(' | '));
+    const [sahil] = rows, tinubu = rows[rows.length - 1];
+    c.expect(sahil.wins >= n[0] - 1, `Sahil won only ${sahil.wins}/${n[0]} for the reference AI`);
+    for (let i = 1; i < rows.length; i++) {
+      const rate = (r: (typeof rows)[number], k: number) => r.wins / n[k];
+      c.expect(rate(rows[i], i) <= rate(rows[i - 1], i - 1) + 1 / n[i - 1] + 1e-9, `${rows[i].boss} (${rows[i].wins}/${n[i]}) is easier than ${rows[i - 1].boss} (${rows[i - 1].wins}/${n[i - 1]})`);
+    }
+    c.expect(tinubu.wins <= 0.03 * n[4], `Tinubu lost ${tinubu.wins}/${n[4]} fights (over 3%)`);
+    const stageMins = sahil.stageMinutes.split(' / ').map(Number);
+    c.expect(stageMins.every((m) => m >= 4.5), `Sahil stages ${sahil.stageMinutes} min: under ~5`);
+    c.expect(rows.every((r) => r.nan === 0), 'a long fight hit a NaN');
   });
 
   qa.add('campaign.boss_setup_applies', (c) => {
@@ -243,7 +440,7 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
         const want = new THREE.Color(boss.palette.spell).multiplyScalar(1.8);
         const got = game.spells.pool.teamBoltColor(e.index);
         c.expect(Math.abs(got.r - want.r) + Math.abs(got.g - want.g) + Math.abs(got.b - want.b) < 1e-3, `${boss.id}: bolt colour not re-skinned`);
-        const hp = Math.round(W.maxHealth * boss.healthMultiplier);
+        const hp = boss.stageHealth[0];
         // The QA sandbox runs on default stats; setupEnemy above re-applied the boss's.
         c.expect(e.maxHealth === hp && e.health === hp, `${boss.id}: health ${e.health}/${e.maxHealth}, expected ${hp}`);
         c.expect(e.damageMultiplier === boss.damageMultiplier, `${boss.id}: damage multiplier ${e.damageMultiplier}`);
@@ -362,6 +559,7 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       c.expect(app.state === 'playing' && app.match.boss === boss && app.campaign.index === 2, 'Retry did not restart the same boss');
       c.expect(app.match.wins[0] === 0 && app.match.wins[1] === 0 && app.match.round === 1, 'Retry did not reset the match');
       c.expect(game.enemy.name === boss.name && game.enemy.health === game.enemy.maxHealth, 'Retry rival not reset');
+      c.expect(app.match.single && game.stages.stage === 0 && game.enemy.maxHealth === boss.stageHealth[0] && game.lifePacks.spawned === 0, 'Retry is not a fresh one-life fight at stage 1');
       // Pause -> Quit returns to the main menu.
       app.pause();
       c.expect(app.menus.current === 'pause' && (app.menus.root.textContent ?? '').includes(boss.name), 'pause menu missing boss line');

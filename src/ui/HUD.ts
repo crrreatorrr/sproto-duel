@@ -15,6 +15,10 @@ import { spellIcon } from './icons';
 const W = CONFIG.wizard;
 const S = CONFIG.spells;
 const TK = CONFIG.tickets;
+const LP = CONFIG.lifePacks;
+
+/** "m:ss" for the gauntlet's fight clock. */
+const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 interface Plate {
   root: HTMLElement;
@@ -99,9 +103,13 @@ export class HUD {
   /** [rival, partner]. */
   private readonly tags: EnemyTag[] = [];
   private readonly godBadge: HTMLElement;
+  /** Life packs left this fight (Boss Gauntlet), one icon each, under the player's bars. */
+  private readonly packIcons: HTMLElement[] = [];
+  private readonly packRow: HTMLElement;
   private readonly dodge: HTMLElement;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
+  private healFlash = 0;
   private hurt = 0;
 
   constructor(parent: HTMLElement, private readonly game: Game, private readonly match: Match) {
@@ -180,6 +188,15 @@ export class HUD {
       this.tags.push({ tag, fill: q('.enemy-tag-fill', tag), arrow: q(`.offscreen-arrow[data-i="${i}"]`) });
     }
     this.godBadge = q('.god-badge');
+    this.packRow = q('.life-packs', this.plates[0].root);
+    const icon = resolveImage('ui/life_pack.png');
+    for (let i = 0; i < LP.maxPerFight; i++) {
+      const el = document.createElement('i');
+      if (icon) el.style.backgroundImage = `url("${icon}")`;
+      else el.textContent = '♥';
+      this.packRow.appendChild(el);
+      this.packIcons.push(el);
+    }
     this.dodge = q('.dodge-fill');
 
     const slotRoot = q('.slots');
@@ -201,7 +218,7 @@ export class HUD {
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
         <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden ticket: +50% mana pool, refilled, for 15 s"><i>✦</i><b></b></span></div>
         <div class="bar ult"><div class="ult-fill"></div><span>ULT</span></div>
-        ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div>' : ''}
+        ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div>' : '<div class="life-packs" title="Life packs this fight"></div>'}
       </div>`;
   }
 
@@ -260,14 +277,26 @@ export class HUD {
     // Campaign fights name the boss (both, in a double fight) on the round banners.
     const bossLine = () => (this.match.boss ? `${bossDisplayName(this.match.boss)}, ${this.match.boss.title}` : '');
     events.on('roundIntro', (e) => {
+      // The gauntlet is one round, one life: name the fight instead.
+      if (this.match.single) {
+        this.showBanner(`Fight ${this.match.bossIndex + 1}`, bossLine(), 'round', CONFIG.match.introTime);
+        return;
+      }
       const last = this.match.wins.some((w) => w === CONFIG.match.roundsToWin - 1) && this.match.wins[0] === this.match.wins[1];
       this.showBanner(last ? 'Final Round' : `Round ${e.round}`, bossLine(), 'round', CONFIG.match.introTime);
     });
     events.on('countdown', (e) => this.showBanner(String(e.value), bossLine(), 'count', 0.7));
     events.on('roundStart', () => this.showBanner('Duel!', this.match.boss ? `vs ${bossDisplayName(this.match.boss)}` : '', 'fight', 0.9));
     events.on('suddenDeath', () => this.showBanner('Sudden Death', 'The fire closes in', 'danger', 1.6));
+    events.on('fightCap', () => this.showBanner('The Fire Closes In', 'Finish it', 'danger', 1.8));
     events.on('roundEnd', (e) => {
       const won = e.winner === g.player;
+      const boss = this.match.boss;
+      if (this.match.single && boss) {
+        const name = bossDisplayName(boss);
+        this.showBanner('K.O.', won ? `${name} ${boss.partner ? 'fall' : 'falls'}` : 'You fall', won ? 'win' : 'lose', CONFIG.match.roundEndTime);
+        return;
+      }
       const main = e.reason === 'time' ? 'Time!' : 'K.O.';
       const pair = this.match.boss?.partner ? bossDisplayName(this.match.boss) : '';
       const sub = !e.winner ? 'Draw' : won ? 'You take the round' : pair ? `${pair} take the round` : `${e.winner.name} takes the round`;
@@ -279,11 +308,14 @@ export class HUD {
       if (e.wizard === g.player) g.rig.kickBack(1.8);
     });
     events.on('ultReady', (e) => {
-      if (e.wizard === g.player) this.showBanner('Ultimate Ready', `Press ${this.slotKeys[4].textContent}`, 'ult', 1.1);
+      // God mode keeps the Ultimate charged: no banner after every cast.
+      if (e.wizard === g.player && !e.wizard.noCooldowns) this.showBanner('Ultimate Ready', `Press ${this.slotKeys[4].textContent}`, 'ult', 1.1);
     });
     // Boss evolution: "STAGE 2" and the stage's name in the boss palette, over its concept art if any.
     // An enraged survivor of a double fight says so instead ("The Midget is enraged!").
     events.on('bossEvolve', (e) => {
+      // In a live fight the transformation cinematic has its own title card (BossCinematic).
+      if (g.transformCinematics) return;
       const art = resolveImage(bossStagePortrait(e.boss.id, e.stage));
       const box = this.banner.parentElement!;
       setAccent(box, e.wizard === g.partner ? e.boss.palette : null);
@@ -292,7 +324,7 @@ export class HUD {
       else this.showBanner(`Stage ${e.stage + 1}`, stage, 'stage', CONFIG.campaign.evolveTime + 0.6, art);
     });
     // Every other banner is in the rival's colours.
-    for (const ev of ['roundIntro', 'roundStart', 'roundEnd', 'suddenDeath', 'ultReady'] as const) {
+    for (const ev of ['roundIntro', 'roundStart', 'roundEnd', 'suddenDeath', 'fightCap', 'ultReady', 'lifePackSpawn'] as const) {
       events.on(ev, () => setAccent(this.banner.parentElement!, null));
     }
     // A boss names its signature volley over its head.
@@ -304,6 +336,16 @@ export class HUD {
       const regen = TK.regenMultiplier > 1 ? ` · ${TK.regenMultiplier}× regen` : '';
       const sub = e.refreshed ? 'Mana boost refreshed' : `+${Math.round((TK.maxManaMultiplier - 1) * 100)}% mana for ${TK.boostDuration} s${regen}`;
       this.showBanner('Golden Ticket!', sub, 'ticket', 1.3);
+    });
+    // Life packs: a banner the first time, a green "+HP" on pickup.
+    events.on('lifePackSpawn', (e) => {
+      if (!e.first) return;
+      const more = e.left > 0 ? ` · ${e.left} more this fight` : '';
+      this.showBanner('Life Pack!', `Grab it: +${Math.round(LP.heal * 100)}% health${more}`, 'lifepack', 1.6);
+    });
+    events.on('lifePackPickup', (e) => {
+      g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 2), `+${Math.round(e.healed)} HP`, 'heal');
+      this.healFlash = 0.6;
     });
     events.on('noMana', (e) => {
       if (e.wizard !== g.player) return;
@@ -336,13 +378,33 @@ export class HUD {
     if (duo) this.updatePlate(2, g.partner, dt);
     else this.set('plate2', this.plates[2].root, 'class', 'plate plate-right plate-partner');
 
-    // Timer + rounds.
-    const t = Math.ceil(this.match.timer);
-    this.set('timer', this.timer, 'text', String(t));
-    const danger = this.match.phase === 'fight' && this.match.timer < CONFIG.arena.suddenDeathAt;
-    this.set('timerc', this.timer, 'class', danger ? 'timer danger' : 'timer');
-    const fight = this.match.bossIndex >= 0 ? `Fight ${this.match.bossIndex + 1}/${BOSSES.length} · ` : '';
-    this.set('round', this.roundLabel, 'text', `${fight}Round ${this.match.round}`);
+    // Timer + rounds. The gauntlet has no round clock: its fight clock counts up, there are no
+    // round pips, and the label says what's at stake.
+    const m = this.match;
+    const single = m.single && m.boss !== null;
+    if (this.cache.get('single') !== String(single)) {
+      this.cache.set('single', String(single));
+      this.root.classList.toggle('single', single);
+    }
+    if (single) {
+      this.set('timer', this.timer, 'text', clock(m.elapsed));
+      this.set('timerc', this.timer, 'class', m.capped ? 'timer clock danger' : 'timer clock');
+      this.set('round', this.roundLabel, 'text', `Fight ${m.bossIndex + 1}/${BOSSES.length} · ${m.capped ? 'The fire closes in' : 'One life'}`);
+    } else {
+      this.set('timer', this.timer, 'text', String(Math.ceil(m.timer)));
+      const danger = m.phase === 'fight' && m.timer < CONFIG.arena.suddenDeathAt;
+      this.set('timerc', this.timer, 'class', danger ? 'timer danger' : 'timer');
+      const fight = m.bossIndex >= 0 ? `Fight ${m.bossIndex + 1}/${BOSSES.length} · ` : '';
+      this.set('round', this.roundLabel, 'text', `${fight}Round ${m.round}`);
+    }
+    // Life packs left this fight: still to come, on the floor now, gone.
+    const lp = g.lifePacks;
+    this.set('packrow', this.packRow, 'class', `life-packs${single ? ' on' : ''}`);
+    if (single) {
+      const gone = lp.spawned - (lp.pack.active ? 1 : 0);
+      this.packIcons.forEach((el, i) => this.set(`pack${i}`, el, 'class', i < gone ? 'used' : i < lp.spawned ? 'live' : ''));
+    }
+    this.healFlash = Math.max(0, this.healFlash - dt);
     this.set('god', this.godBadge, 'class', CONFIG.debug.godMode ? 'god-badge on' : 'god-badge');
     for (const side of [0, 1]) {
       this.pips[side].forEach((pip, i) => this.set(`pip${side}${i}`, pip, 'class', i < this.match.wins[side] ? 'won' : ''));
@@ -399,7 +461,10 @@ export class HUD {
     this.set(`ult${i}`, plate.ult, 'transform', `scaleX(${ult.toFixed(4)})`);
     const staged = i > 0 && this.updateStages(i, w);
     const side = i === 0 ? 'left' : i === 1 ? 'right' : 'right plate-partner';
-    const cls = `plate plate-${side}${hp < 0.3 ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${boost > 0 ? ' boosted' : ''}${w.alive ? '' : ' down'}`;
+    // A transforming boss's new bar sweeps up (BossStages refills it): the plate glows meanwhile.
+    const refill = i > 0 && !!this.game.stagesOf(w)?.transforming;
+    const healed = i === 0 && this.healFlash > 0;
+    const cls = `plate plate-${side}${hp < 0.3 && !refill ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${boost > 0 ? ' boosted' : ''}${refill ? ' refill' : ''}${healed ? ' healed' : ''}${w.alive ? '' : ' down'}`;
     this.set(`plate${i}`, plate.root, 'class', cls);
   }
 

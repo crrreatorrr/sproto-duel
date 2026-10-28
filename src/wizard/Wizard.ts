@@ -137,8 +137,15 @@ export class Wizard {
   damageMultiplier = 1;
   /** Multiplies the clash power of this wizard's projectiles (god mode). */
   clashPowerMultiplier = 1;
+  /** Multiplies Ultimate charge gained (campaign bosses: their big stage bars would charge it far too often). */
+  ultChargeMultiplier = 1;
   /** Takes no damage and can't be stunned (god mode). Hits still flash and knock back. */
   immune = false;
+  /**
+   * Asked when a hit empties the health bar: true keeps the wizard standing at 0 HP instead of a KO.
+   * A campaign boss with a later stage left (BossStages) transforms then, with a fresh bar.
+   */
+  koGuard: (() => boolean) | null = null;
   /** Mana never runs out (god mode): spells cost nothing and sprint never exhausts. */
   infiniteMana = false;
   /** No spell cooldowns (god mode): Blast, Shield and Stun are ready at once, the Ultimate stays charged. */
@@ -345,7 +352,7 @@ export class Wizard {
 
   addUlt(amount: number): void {
     const max = CONFIG.spells.ultimate.chargeMax;
-    this.ult = Math.min(max, this.ult + amount);
+    this.ult = Math.min(max, this.ult + amount * this.ultChargeMultiplier);
     if (this.ult >= max && !this.ultAnnounced) {
       this.ultAnnounced = true;
       events.emit('ultReady', { wizard: this });
@@ -361,6 +368,8 @@ export class Wizard {
     this.addUlt(dealt * CONFIG.spells.ultimate.chargePerDamageTaken);
     if (this.health <= 0) {
       this.health = 0;
+      // A boss stage's bar ran out but another stage follows: no KO (the overflow is lost).
+      if (this.koGuard?.()) return dealt;
       this.alive = false;
       this.cast = null;
       this.shieldTime = 0;
