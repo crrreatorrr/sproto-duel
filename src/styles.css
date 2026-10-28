@@ -197,6 +197,18 @@ html, body {
 .menu-screen.click { background: rgba(7, 5, 16, 0.4); cursor: pointer; }
 @keyframes fade-in { from { opacity: 0; } }
 .menu-panel { display: grid; gap: 12px; width: min(440px, calc(100vw - 32px)); }
+/* Short windows: let screens scroll and tighten the main menu so every button stays reachable. */
+.menu-screen { overflow-y: auto; padding-block: 16px; }
+@media (max-height: 640px) {
+  /* #ui raises specificity above the base button rules further down. */
+  #ui .menu-panel { gap: 8px; }
+  #ui .title { font-size: clamp(36px, 9vh, 60px); }
+  #ui .tagline { margin-bottom: 4px; font-size: 15px; }
+  #ui .menus button { padding: 9px 14px; font-size: 15px; }
+  #ui .menus button.primary { padding: 11px; font-size: 17px; }
+  #ui .menus button.diff { padding: 8px 12px; }
+  #ui .menus button.diff small, #ui .tip { display: none; }
+}
 .menu-panel.howto { width: min(620px, calc(100vw - 32px)); }
 .menu-panel h2 { margin: 0 0 6px; font-family: var(--display); font-size: 34px; letter-spacing: 0.08em; text-transform: uppercase; }
 .title { margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(48px, 7vw, 84px); line-height: 0.92; letter-spacing: 0.04em; text-transform: uppercase; text-shadow: 0 0 40px rgba(110, 140, 255, 0.45); }
