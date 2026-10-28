@@ -7,6 +7,7 @@ import { registerSpellScenarios } from './qa/spellScenarios';
 import { registerRegressionScenarios } from './qa/regressionScenarios';
 import { registerGamepadScenarios } from './qa/gamepadScenarios';
 import { registerJumpScenarios } from './qa/jumpScenarios';
+import { registerArenaScenarios } from './qa/arenaScenarios';
 import { soak } from './qa/soak';
 import type { Difficulty } from './config';
 
@@ -30,6 +31,7 @@ async function boot() {
   registerRegressionScenarios(qa, game);
   registerGamepadScenarios(qa, game, app);
   registerJumpScenarios(qa, game);
+  registerArenaScenarios(qa, game);
   const qaApi = Object.assign(qa, {
     /** `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance. */
     soak: (difficulty: Difficulty = 'normal', rounds = 6) => soak(qa, game, difficulty, rounds),

@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { events } from '../core/events';
 import type { Effects } from '../fx/Effects';
 import type { Wizard } from '../wizard/Wizard';
+import type { ArenaTheme } from './themes';
 
 const A = CONFIG.arena;
 
@@ -17,6 +18,10 @@ const FLAME_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uSeed;
   uniform float uIntensity;
+  uniform vec3 uRoot;
+  uniform vec3 uMid;
+  uniform vec3 uTip;
+  uniform float uTongues;
   varying vec2 vUv;
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   float noise(vec2 p) {
@@ -30,13 +35,13 @@ const FLAME_FRAG = /* glsl */ `
     return v;
   }
   void main() {
-    vec2 p = vec2(vUv.x * 180.0 + uSeed, vUv.y * 2.2 - uTime * 1.6);
+    vec2 p = vec2(vUv.x * uTongues + uSeed, vUv.y * 2.2 - uTime * 1.6);
     float n = fbm(p);
     float h = vUv.y;
     // Sharp tongues: noise must beat a threshold that rises with height.
     float flame = smoothstep(h * 0.9 + 0.12, h * 0.9 + 0.2, n);
-    vec3 col = mix(vec3(1.0, 0.62, 0.18), vec3(0.95, 0.22, 0.05), smoothstep(0.0, 0.35, h));
-    col = mix(col, vec3(0.55, 0.05, 0.12), smoothstep(0.35, 0.8, h));
+    vec3 col = mix(uRoot, uMid, smoothstep(0.0, 0.35, h));
+    col = mix(col, uTip, smoothstep(0.35, 0.8, h));
     float a = flame * (1.0 - smoothstep(0.5, 0.95, h)) * 0.75;
     // Only the hot base goes above 1.0, so bloom catches the flame roots, not the whole horizon.
     gl_FragColor = vec4(col * (0.5 + 0.7 * (1.0 - h) * (1.0 - h)) * uIntensity, a);
@@ -53,17 +58,21 @@ const GLOW_VERT = /* glsl */ `
 const GLOW_FRAG = /* glsl */ `
   uniform float uInner;
   uniform float uTime;
+  uniform vec3 uColor;
   varying vec2 vXZ;
   void main() {
     float r = length(vXZ);
     float edge = smoothstep(uInner - 0.6, uInner + 0.4, r);
     float flicker = 0.85 + 0.15 * sin(uTime * 13.0 + atan(vXZ.y, vXZ.x) * 9.0);
-    vec3 c = vec3(1.0, 0.38, 0.08) * (0.35 + 0.8 * (1.0 - smoothstep(uInner, uInner + 1.4, r))) * flicker;
+    vec3 c = uColor * (0.35 + 0.8 * (1.0 - smoothstep(uInner, uInner + 1.4, r))) * flicker;
     gl_FragColor = vec4(c, edge * 0.45);
   }
 `;
 
-const EMBER = new THREE.Color(1, 0.55, 0.15);
+/** Flame tongues around the ring (about 8 per meter of radius, so they keep their width). */
+const TONGUES = Math.round(A.wallRadius * 8.33);
+/** Rising embers per second (scales with the ring's circumference). */
+const EMBER_RATE = A.wallRadius * 2.08;
 
 /**
  * Ring of magic fire at the arena edge. Touching it burns (damage ticks) and shoves you inward.
@@ -74,6 +83,8 @@ export class FireRing {
   private readonly glow: THREE.Mesh<THREE.RingGeometry, THREE.ShaderMaterial>;
   private time = 0;
   private emberAcc = 0;
+  private readonly ember = new THREE.Color(1, 0.55, 0.15);
+  private burnColor = 0xff7a2a;
 
   constructor(scene: THREE.Scene, private readonly fx: Effects) {
     // Two flame layers at slightly different radii give the ring thickness.
@@ -82,7 +93,12 @@ export class FireRing {
       geo.translate(0, height / 2, 0);
       const mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
         vertexShader: FLAME_VERT, fragmentShader: FLAME_FRAG,
-        uniforms: { uTime: { value: 0 }, uSeed: { value: seed }, uIntensity: { value: 1 } },
+        uniforms: {
+          uTime: { value: 0 }, uSeed: { value: seed }, uIntensity: { value: 1 }, uTongues: { value: TONGUES },
+          uRoot: { value: new THREE.Vector3(1.0, 0.62, 0.18) },
+          uMid: { value: new THREE.Vector3(0.95, 0.22, 0.05) },
+          uTip: { value: new THREE.Vector3(0.55, 0.05, 0.12) },
+        },
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false,
       }));
       mesh.userData.offset = offset;
@@ -95,7 +111,7 @@ export class FireRing {
       new THREE.RingGeometry(A.suddenDeathMinRadius - 1, A.wallRadius + 0.5, 128, 1),
       new THREE.ShaderMaterial({
         vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG,
-        uniforms: { uInner: { value: A.fireRadius }, uTime: { value: 0 } },
+        uniforms: { uInner: { value: A.fireRadius }, uTime: { value: 0 }, uColor: { value: new THREE.Vector3(1.0, 0.38, 0.08) } },
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
       }),
     );
@@ -104,6 +120,32 @@ export class FireRing {
     this.glow.renderOrder = 6;
     scene.add(this.glow);
     this.setRadius(A.fireRadius);
+  }
+
+  /** Recolour the flames, floor glow, embers and burn sparks (called by Arena.applyTheme). */
+  setTheme(fire: ArenaTheme['fire']): void {
+    for (const m of this.walls) {
+      const u = m.material.uniforms;
+      (u.uRoot.value as THREE.Vector3).fromArray(fire.root);
+      (u.uMid.value as THREE.Vector3).fromArray(fire.mid);
+      (u.uTip.value as THREE.Vector3).fromArray(fire.tip);
+      u.uIntensity.value = fire.intensity;
+    }
+    (this.glow.material.uniforms.uColor.value as THREE.Vector3).fromArray(fire.glow);
+    this.ember.fromArray(fire.ember);
+    this.burnColor = fire.burn;
+  }
+
+  /** Current look (QA and tools). */
+  describe(): { root: number[]; glow: number[]; ember: string; burn: number; radius: number } {
+    const u = this.walls[0].material.uniforms;
+    return {
+      root: (u.uRoot.value as THREE.Vector3).toArray(),
+      glow: (this.glow.material.uniforms.uColor.value as THREE.Vector3).toArray(),
+      ember: this.ember.getHexString(),
+      burn: this.burnColor,
+      radius: this.walls[0].scale.x - (this.walls[0].userData.offset as number),
+    };
   }
 
   setRadius(r: number): void {
@@ -121,14 +163,14 @@ export class FireRing {
     this.glow.material.uniforms.uTime.value = this.time;
     this.setRadius(radius);
     // Rising embers along the ring.
-    this.emberAcc += dt * 45;
+    this.emberAcc += dt * EMBER_RATE;
     while (this.emberAcc >= 1) {
       this.emberAcc -= 1;
       const a = Math.random() * Math.PI * 2;
       const r = radius + 0.3 + Math.random() * 1.2;
       this.fx.sparks.emit(Math.sin(a) * r, 0.2 + Math.random() * 1.5, Math.cos(a) * r,
         (Math.random() - 0.5) * 0.6, 1.5 + Math.random() * 2.5, (Math.random() - 0.5) * 0.6,
-        EMBER, 1.6, 0.1 + Math.random() * 0.08, 0.8 + Math.random() * 0.8, { drag: 0.6 });
+        this.ember, 1.6, 0.1 + Math.random() * 0.08, 0.8 + Math.random() * 0.8, { drag: 0.6 });
     }
   }
 
@@ -162,7 +204,7 @@ export class FireRing {
         const p = new THREE.Vector3(w.pos.x, 1.0, w.pos.z);
         damage(w, A.fireDps * A.fireTickInterval, p);
         events.emit('burn', { wizard: w });
-        this.fx.impact(p, null, 0xff7a2a, 0.5);
+        this.fx.impact(p, null, this.burnColor, 0.5);
       }
     }
   }

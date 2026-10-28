@@ -69,6 +69,31 @@ Every tuning number lives in [src/config.ts](src/config.ts): movement, dodge tim
 damage/speed/cost/cooldown, hit-stop and shake, camera, AI difficulty profiles, round length, team
 colours. The dev server hot-reloads on save.
 
+## Environments
+
+The arena is 30 m to the wall, with 14 pillars in two rings. Each campaign boss fights in its own
+environment; Quick Duel and the menu use `moonlit`:
+
+| Theme | Mood | Boss |
+|---|---|---|
+| `moonlit` | Moonlit ruins, violet night (the default) | |
+| `grove` | Twilight forest glade, green spirit fire, fireflies | Bramble |
+| `volcano` | Basalt over lava under a red ash sky, embers and ash | Cinder |
+| `glacier` | Ice crystals under an aurora, blue-white fire, snow | Ysolde |
+| `desert` | Sandstone ruins at golden dusk, drifting sand | Khepri |
+| `void` | Floating arena in a nebula, purple fire, motes | Morvane |
+
+`game.arena.applyTheme(id)` switches everything: sky, fog, lights, floor, wall, pillars, props,
+debris, braziers, fire-ring colours and ambient particles. It is synchronous (the theme is fully
+visible when it returns, with procedural stand-ins for any missing file) and returns a promise
+that resolves once the theme's optional files have loaded and been swapped in. Await it only if you
+want to avoid pop-in. Theme looks live in [src/arena/themes.ts](src/arena/themes.ts), and asset
+paths in `THEME_ASSETS` in [src/assets/manifest.ts](src/assets/manifest.ts). Files load on first
+use and are cached; GPU memory for inactive themes is released.
+
+For testing, add `?theme=volcano` to the URL (it replaces `moonlit` in the menu and Quick Duel), or
+run `__duel.game.arena.applyTheme('glacier')` in the console.
+
 ## Project layout
 
 ```
@@ -84,7 +109,7 @@ src/
   enemy/                AI state machine (approach / attack / evade / retreat)
   spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate
   fx/                   particle systems, effect recipes, spell shaders, procedural textures
-  arena/                floor, sky, wall, destructible pillars, fire ring, debris
+  arena/                floor, sky, wall, destructible pillars, fire ring, debris, environment themes
   camera/               over-the-shoulder rig with collision and trauma shake
   ui/                   HUD, menus, damage numbers, icons
   audio/                Howler audio manager (events -> sounds)

@@ -81,6 +81,7 @@ export class Game {
     this.arena = new Arena(scene, physics, assets);
     this.fx = new Effects(scene);
     this.fire = new FireRing(scene, this.fx);
+    this.arena.attach(this.fire);
 
     const makeWizard = (index: 0 | 1) => {
       const team = CONFIG.teams[index];
@@ -98,7 +99,10 @@ export class Game {
     this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemy);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
 
-    const syncPointScale = () => this.fx.setPointScale(this.renderer.pointScale);
+    const syncPointScale = () => {
+      this.fx.setPointScale(this.renderer.pointScale);
+      this.arena.setPointScale(this.renderer.pointScale);
+    };
     this.renderer.onResize(syncPointScale);
     syncPointScale();
 
@@ -215,6 +219,7 @@ export class Game {
     for (const w of this.wizards) w.visual.update(w, simDt, alpha);
     this.spells.sync(alpha, this.renderTime, simDt);
     this.fire.updateVisual(simDt, this.arena.fireRadius);
+    this.arena.updateVisual(simDt, this.renderer.camera.position);
     this.dustTimer -= simDt;
     if (this.dustTimer <= 0) {
       this.dustTimer = 0.06;

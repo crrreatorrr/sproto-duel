@@ -3,100 +3,108 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { CONFIG } from '../config';
 import { events } from '../core/events';
 import type { Physics } from '../physics/Physics';
-import type { AssetLoader } from '../assets/AssetLoader';
 import type { Debris } from './Debris';
 
 const P = CONFIG.arena.pillars;
 /** Stump collider: blocks walking, but chest-height spells fly over it. */
 const STUMP_HEIGHT = 0.9;
 
+/** One look for a pillar (per theme): the standing column and the stump it leaves behind. */
+interface PillarVisual {
+  whole: THREE.Object3D;
+  stump: THREE.Object3D;
+  /** Tintable materials (own copies, so damage shows per pillar). */
+  materials: THREE.MeshStandardMaterial[];
+  baseColors: THREE.Color[];
+  baseEmissive: THREE.Color[];
+}
+
 export class Pillar {
   hp: number = P.hp;
   alive = true;
   readonly position: THREE.Vector3;
+  private readonly root = new THREE.Group();
   private readonly whole = new THREE.Group();
-  private readonly stump: THREE.Object3D;
-  private readonly materials: THREE.MeshStandardMaterial[] = [];
+  private readonly visuals = new Map<string, PillarVisual>();
+  private visual: PillarVisual | null = null;
   private readonly collider: RAPIER.Collider;
   private readonly stumpCollider: RAPIER.Collider;
   private wobble = 0;
   private hitGlow = 0;
-  private readonly baseColors: THREE.Color[] = [];
 
   constructor(
     scene: THREE.Scene,
     physics: Physics,
     x: number,
     z: number,
-    stone: THREE.Texture,
-    assets: AssetLoader,
     private readonly debris: Debris,
   ) {
     this.position = new THREE.Vector3(x, 0, z);
-    const root = new THREE.Group();
-    root.position.copy(this.position);
-    root.rotation.y = Math.random() * Math.PI * 2;
-    scene.add(root);
-    root.add(this.whole);
-
-    const model = assets.instantiate('pillar');
-    if (model) {
-      // Clones share materials; give each pillar its own so damage tint stays per pillar.
-      model.root.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) mesh.material = Array.isArray(mesh.material) ? mesh.material.map((m) => m.clone()) : mesh.material.clone();
-      });
-      this.whole.add(model.root);
-    } else {
-      const mat = new THREE.MeshStandardMaterial({ map: stone, roughness: 0.9, color: 0xb9b2c4 });
-      const r = P.radius;
-      const h = P.height;
-      const part = (geo: THREE.BufferGeometry, y: number) => {
-        const m = new THREE.Mesh(geo, mat);
-        m.position.y = y;
-        m.castShadow = m.receiveShadow = true;
-        this.whole.add(m);
-      };
-      part(new THREE.CylinderGeometry(r * 1.3, r * 1.4, 0.45, 14), 0.225);
-      part(new THREE.CylinderGeometry(r * 0.92, r, h - 0.9, 14, 4), h / 2);
-      part(new THREE.CylinderGeometry(r * 1.3, r * 1.05, 0.45, 14), h - 0.225);
-      // Floating rune band for a bit of magic.
-      const band = new THREE.Mesh(
-        new THREE.TorusGeometry(r * 1.05, 0.03, 6, 32),
-        new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7fb2ff).multiplyScalar(2), toneMapped: false }),
-      );
-      band.rotation.x = Math.PI / 2;
-      band.position.y = h * 0.62;
-      this.whole.add(band);
-    }
-    this.whole.traverse((o) => {
-      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-      if (m && 'emissive' in m && !this.materials.includes(m)) {
-        this.materials.push(m);
-        this.baseColors.push(m.color.clone());
-      }
-    });
-
-    const stumpModel = assets.instantiate('pillarBroken');
-    if (stumpModel) {
-      this.stump = stumpModel.root;
-    } else {
-      const geo = new THREE.CylinderGeometry(P.radius * 0.95, P.radius * 1.3, 0.9, 10, 1);
-      // Jagged top.
-      const pos = geo.attributes.position;
-      for (let i = 0; i < pos.count; i++) if (pos.getY(i) > 0.3) pos.setY(i, pos.getY(i) + (Math.random() - 0.3) * 0.35);
-      geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: stone, roughness: 0.95, color: 0x8f889a }));
-      m.position.y = 0.45;
-      m.castShadow = m.receiveShadow = true;
-      this.stump = m;
-    }
-    this.stump.visible = false;
-    root.add(this.stump);
+    this.root.position.copy(this.position);
+    this.root.rotation.y = Math.random() * Math.PI * 2;
+    scene.add(this.root);
+    this.root.add(this.whole);
 
     const colliders = physics.addPillar(x, z, P.radius, P.height, STUMP_HEIGHT, this);
     this.collider = colliders.full;
     this.stumpCollider = colliders.stump;
+  }
+
+  /**
+   * Show the visual cached under `key`, building it on first use. Switching is just a re-parent:
+   * meshes and materials are kept for the next time the theme comes back.
+   */
+  setVisual(key: string, build: () => { whole: THREE.Object3D; stump: THREE.Object3D }): void {
+    let v = this.visuals.get(key);
+    if (!v) {
+      const parts = build();
+      v = { whole: parts.whole, stump: parts.stump, materials: [], baseColors: [], baseEmissive: [] };
+      const list = v;
+      parts.whole.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (m && 'emissive' in m && !list.materials.includes(m)) {
+          list.materials.push(m);
+          list.baseColors.push(m.color.clone());
+          list.baseEmissive.push(m.emissive.clone());
+        }
+      });
+      this.visuals.set(key, v);
+    }
+    if (v === this.visual) return;
+    if (this.visual) {
+      this.whole.remove(this.visual.whole);
+      this.root.remove(this.visual.stump);
+    }
+    this.visual = v;
+    this.whole.add(v.whole);
+    this.root.add(v.stump);
+    v.stump.visible = !this.alive;
+    this.applyTint();
+    this.applyGlow();
+  }
+
+  hasVisual(key: string): boolean {
+    return this.visuals.has(key);
+  }
+
+  /** The standing column's visual root (QA and tools). */
+  get column(): THREE.Object3D | null {
+    return this.visual?.whole ?? null;
+  }
+
+  /** Which visual is shown and which part of it is visible (QA and tools). */
+  describe(): { key: string | null; wholeVisible: boolean; stumpVisible: boolean } {
+    let key: string | null = null;
+    for (const [k, v] of this.visuals) if (v === this.visual) key = k;
+    return { key, wholeVisible: this.whole.visible && !!this.visual, stumpVisible: !!this.visual?.stump.visible };
+  }
+
+  /** Forget a cached visual (e.g. a theme's placeholder once its GLB arrived). Frees its own materials. */
+  dropVisual(key: string): void {
+    const v = this.visuals.get(key);
+    if (!v || v === this.visual) return;
+    for (const m of v.materials) m.dispose();
+    this.visuals.delete(key);
   }
 
   /** Returns true if this hit destroyed the pillar. */
@@ -114,18 +122,34 @@ export class Pillar {
       return true;
     }
     this.debris.spawn(point, 2 + Math.round(amount / 8), 0.6);
-    const frac = this.hp / P.hp;
-    for (let i = 0; i < this.materials.length; i++) {
-      this.materials[i].color.copy(this.baseColors[i]).multiplyScalar(0.55 + 0.45 * frac);
-    }
+    this.applyTint();
     return false;
+  }
+
+  private applyTint(): void {
+    const v = this.visual;
+    if (!v) return;
+    const frac = Math.max(0, this.hp) / P.hp;
+    for (let i = 0; i < v.materials.length; i++) {
+      v.materials[i].color.copy(v.baseColors[i]).multiplyScalar(0.55 + 0.45 * frac);
+    }
+  }
+
+  private applyGlow(): void {
+    const v = this.visual;
+    if (!v) return;
+    const g = this.hitGlow;
+    for (let i = 0; i < v.materials.length; i++) {
+      const b = v.baseEmissive[i];
+      v.materials[i].emissive.setRGB(b.r + g * 0.5, b.g + g * 0.35, b.b + g * 0.25);
+    }
   }
 
   private crumble(): void {
     this.alive = false;
     this.hp = 0;
     this.whole.visible = false;
-    this.stump.visible = true;
+    if (this.visual) this.visual.stump.visible = true;
     this.collider.setEnabled(false);
     this.stumpCollider.setEnabled(true);
     const center = this.position.clone();
@@ -138,15 +162,13 @@ export class Pillar {
     this.hp = P.hp;
     this.alive = true;
     this.whole.visible = true;
-    this.stump.visible = false;
+    if (this.visual) this.visual.stump.visible = false;
     this.collider.setEnabled(true);
     this.stumpCollider.setEnabled(false);
     this.wobble = 0;
     this.hitGlow = 0;
-    for (let i = 0; i < this.materials.length; i++) {
-      this.materials[i].color.copy(this.baseColors[i]);
-      this.materials[i].emissive.setRGB(0, 0, 0);
-    }
+    this.applyTint();
+    this.applyGlow();
     this.whole.rotation.set(0, 0, 0);
   }
 
@@ -160,7 +182,7 @@ export class Pillar {
     }
     if (this.hitGlow > 0) {
       this.hitGlow = Math.max(0, this.hitGlow - dt * 6);
-      for (const m of this.materials) m.emissive.setRGB(this.hitGlow * 0.5, this.hitGlow * 0.35, this.hitGlow * 0.25);
+      this.applyGlow();
     }
   }
 }
