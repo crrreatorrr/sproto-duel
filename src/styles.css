@@ -425,3 +425,40 @@ html, body {
   .menu-screen.main .title { font-size: clamp(40px, 6vw, 64px); }
   .menu-screen.main .tip { display: none; }
 }
+
+/* ------------------------------------------------------- golden tickets */
+/* Mana boost: the bar turns gold and stretches to the bigger max (x1.5); a chip at its end counts down. */
+.mana-row { position: relative; --mana-w: 82%; }
+.mana-row .bar.mana { width: var(--mana-w); transition: width 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), margin-left 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), box-shadow 0.3s; }
+/* The rival's bar grows leftwards, toward the centre. */
+.plate-right .mana-row .bar.mana { margin-left: calc(100% - var(--mana-w)); }
+.plate.boosted .mana-row { --mana-w: calc(82% * 1.5); }
+.plate.boosted .mana-fill { background: linear-gradient(90deg, #b8760e, #ffcf40 55%, #fff4c2); }
+.plate.boosted .bar.mana { box-shadow: inset 0 0 0 1px rgba(255, 226, 150, 0.6), 0 0 14px rgba(255, 190, 60, 0.65); }
+/* Where the normal max was. */
+.mana-mark { position: absolute; top: 0; bottom: 0; left: 66.667%; width: 2px; margin-left: -1px; background: rgba(40, 20, 0, 0.55); opacity: 0; transition: opacity 0.3s; }
+.plate-right .mana-mark { left: auto; right: 66.667%; margin: 0 -1px 0 0; }
+.plate.boosted .mana-mark { opacity: 1; }
+.mana-buff {
+  position: absolute; top: 50%; left: calc(var(--mana-w) + 8px); transform: translateY(-50%) scale(0.6); opacity: 0;
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px 2px 6px; border-radius: 10px;
+  font: 700 13px/1 var(--hud); letter-spacing: 0.04em; color: #2a1804; white-space: nowrap;
+  background: linear-gradient(180deg, #fff0a8, #e6a93a); box-shadow: 0 0 12px rgba(255, 196, 70, 0.75);
+  transition: left 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), right 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.15), opacity 0.2s, transform 0.25s;
+}
+.mana-buff i { font-style: normal; font-size: 12px; }
+.mana-buff b { min-width: 1.1em; text-align: right; font-variant-numeric: tabular-nums; }
+.plate-right .mana-buff { left: auto; right: calc(var(--mana-w) + 8px); }
+.mana-buff.on { opacity: 1; transform: translateY(-50%) scale(1); }
+.mana-buff.ending { animation: mana-buff-blink 0.5s steps(2, jump-none) infinite; }
+@keyframes mana-buff-blink { 50% { opacity: 0.3; } }
+.banner.ticket .banner-main { font-size: 46px; color: #ffe27a; text-shadow: 0 0 30px rgba(255, 196, 60, 0.95), 0 4px 20px #000; }
+.banner.ticket { top: 26%; }
+.popup-mana { color: #ffd54a; font-family: var(--display); font-size: 28px; letter-spacing: 0.06em; text-shadow: 0 0 14px rgba(255, 190, 60, 0.9), 0 2px 0 rgba(0, 0, 0, 0.6); }
+.popup-manaFoe { color: #ffd54a; font-size: 20px; letter-spacing: 0.06em; text-shadow: 0 0 10px rgba(255, 190, 60, 0.8), 0 2px 0 rgba(0, 0, 0, 0.6); }
+@media (max-width: 1200px) {
+  /* Narrow screens: no room to stretch past the plate; the chip sits under the bar's end. */
+  .plate.boosted .mana-row { --mana-w: 100%; }
+  .mana-buff { top: calc(100% + 11px); left: auto; right: 0; }
+  .plate-right .mana-buff { right: auto; left: 0; }
+}

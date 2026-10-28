@@ -99,6 +99,8 @@ export const TEXTURES = {
   floorNormal: { path: 'textures/arena_floor_normal.jpg', color: false },
   pillar: { path: 'textures/pillar_stone.jpg', color: true, repeat: [2, 2] },
   sky: { path: 'textures/sky_night.jpg', color: true },
+  /** Golden ticket face, 2:1 with a transparent background (a canvas-drawn face is used without it). */
+  goldenTicket: { path: 'textures/golden_ticket.png', color: true },
 } satisfies Record<string, TextureAsset>;
 
 export const SOUNDS = {
@@ -133,6 +135,9 @@ export const SOUNDS = {
   defeat: { path: 'audio/defeat.mp3', volume: 0.8 },
   uiHover: { path: 'audio/ui_hover.mp3', volume: 0.25 },
   uiClick: { path: 'audio/ui_click.mp3', volume: 0.45 },
+  ticketSpawn: { path: 'audio/ticket_spawn.mp3', volume: 0.4, maxVoices: 3 },
+  ticketPickup: { path: 'audio/ticket_pickup.mp3', volume: 0.75, maxVoices: 3 },
+  ticketExpire: { path: 'audio/ticket_expire.mp3', volume: 0.45, maxVoices: 3 },
   musicMenu: { path: 'audio/music_menu.mp3', volume: 0.6, loop: true, music: true },
   musicBattle: { path: 'audio/music_battle.mp3', volume: 0.55, loop: true, music: true },
 } satisfies Record<string, SoundAsset>;

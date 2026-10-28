@@ -295,6 +295,34 @@ S.uiClick = () => {
   return x;
 };
 
+// Golden tickets. Pure oscillators (no noise()), so the shared noise seed and every sound after these stay unchanged.
+S.ticketSpawn = () => {
+  // Soft bell "ding" as a ticket appears.
+  const x = buf(0.9);
+  for (const [f, g] of [[1568, 0.5], [2093, 0.16], [3136, 0.14], [4704, 0.05]]) osc(x, 0, 0.85, f, adsr(0.012, 4), 'sine', g);
+  osc(x, 0.07, 0.7, 2349, adsr(0.012, 5), 'sine', 0.2);
+  return echo(x, 0.11, 0.3, 0.25);
+};
+S.ticketPickup = () => {
+  // Bright rising chime with a shimmering tail.
+  const x = buf(1.4);
+  [79, 84, 88, 91, 96].forEach((n, i) => {
+    osc(x, i * 0.055, 0.9, note(n), adsr(0.01, 3), 'sine', 0.45);
+    osc(x, i * 0.055, 0.6, note(n) * 2.01, adsr(0.01, 5), 'sine', 0.15);
+    osc(x, i * 0.055, 0.4, note(n), adsr(0.01, 6), 'triangle', 0.12);
+  });
+  osc(x, 0.25, 1.1, (u, t) => note(103) * (1 + 0.004 * Math.sin(t * 40)), (u, t) => swell(u) * (0.6 + 0.4 * Math.sin(t * 55)), 'sine', 0.12);
+  osc(x, 0.3, 1.0, note(108), (u, t) => swell(u) * (0.5 + 0.5 * Math.sin(t * 47 + 1)), 'sine', 0.07);
+  return echo(x, 0.13, 0.35, 0.3);
+};
+S.ticketExpire = () => {
+  // Falling tone: a ticket fades away, or your mana boost runs out.
+  const x = buf(0.75);
+  osc(x, 0, 0.7, (u) => lerp(1046, 262, u * (2 - u)), adsr(0.02, 1.8), 'triangle', 0.5);
+  osc(x, 0, 0.7, (u) => lerp(1568, 392, u * (2 - u)), adsr(0.02, 2.5), 'sine', 0.25);
+  return lowpass(echo(x, 0.09, 0.25, 0.2), 4000);
+};
+
 // ---------------------------------------------------------------------- music
 S.musicMenu = () => {
   // A minor pad: Am - F - C - G, 4 s each, slow swells, loops cleanly.
