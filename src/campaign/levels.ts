@@ -334,7 +334,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [8, 13],
     },
     stageHealth: [1015, 1035, 1180],
-    damageMultiplier: 0.98,
+    damageMultiplier: 1.04,
   }),
   boss({
     id: 'tinubu',
