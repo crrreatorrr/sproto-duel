@@ -23,8 +23,11 @@ const W = CONFIG.wizard;
 const FADE = CONFIG.camera.bossFade;
 /** Spawn vs muzzle tolerance (m): the simulation point itself, so only float error. */
 const TIGHT = 0.02;
-/** Rendered muzzle anchor vs spawn (m): the render pose breathes and bobs a little. */
-const POSE = 0.06;
+/**
+ * Rendered muzzle point vs spawn (m): the render pose breathes, sways and bobs (a late boss stage
+ * looms with a slow sway and hunch, WizardVisual's MotionStyle).
+ */
+const POSE = 0.1;
 
 const byId = (id: string): BossDef => BOSSES.find((b) => b.id === id)!;
 
@@ -57,7 +60,13 @@ function toLocal(w: Wizard, p: THREE.Vector3, out: THREE.Vector3): THREE.Vector3
 }
 
 /** Where stage `stage` of `fighter`'s data says point `name` is, in world space on `w` (root scale included). */
-function dataPoint(w: Wizard, fighter: BossFighter, stage: number, name: string, out: THREE.Vector3, pos?: THREE.Vector3): THREE.Vector3 {
+function dataPoint(w: Wizard, fighter: BossFighter, stage: number, name: string, out: THREE.Vector3, pos?: THREE.Vector3, spell: Spell = 'bolt'): THREE.Vector3 {
+  // A rigged look fires from its animated prop at the cast's release (WizardVisual.measureRelease).
+  const idx = w.visual.muzzles?.points.findIndex((p) => p.name === name) ?? -1;
+  if (idx >= 0 && w.visual.muzzleReleased(idx)) {
+    w.visual.muzzlePoint(idx, out, spell).multiplyScalar(w.visual.root.scale.x);
+    return toWorld(w, out, out, pos);
+  }
   const st = fighter.stages[stage];
   muzzleLocal(st.muzzle.points[name].at, MODELS[st.model].fitHeight!, w.visual.root.scale.x, out);
   return toWorld(w, out, out, pos);
@@ -200,14 +209,17 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
               const idx = w.muzzleIndex(spell);
               const name = w.visual.muzzles!.points[idx].name;
               c.expect(pointsFor(st.muzzle, spell).includes(name), `${f.id} stage ${stage + 1}: ${spell} from '${name}'`);
-              // The render pose's anchor agrees with the simulation point.
+              // The render pose's measured point agrees with the simulation point (a rigged look's glow
+              // rides its bone socket instead: animScenarios checks that).
               settle(w);
-              w.visual.muzzleWorld(idx, anchor);
-              w.castPoint(spell, got, idx);
-              c.expect(anchor.distanceTo(got) < POSE, `${f.id} stage ${stage + 1}: muzzle anchor ${anchor.distanceTo(got).toFixed(3)} m from castPoint`);
+              if (!w.visual.muzzleReleased(idx)) {
+                w.visual.muzzleHomeWorld(idx, anchor);
+                w.castPoint(spell, got, idx);
+                c.expect(anchor.distanceTo(got) < POSE, `${f.id} stage ${stage + 1}: muzzle anchor ${anchor.distanceTo(got).toFixed(3)} m from castPoint`);
+              }
               const from = castFrom(c, w, spell);
               c.expect(!!from, `${f.id} stage ${stage + 1}: no ${spell}`);
-              dataPoint(w, f, stage, name, exp);
+              dataPoint(w, f, stage, name, exp, undefined, spell);
               const d = from!.distanceTo(exp);
               worst = Math.max(worst, d);
               c.expect(d < TIGHT, `${f.id} stage ${stage + 1}: ${spell} left ${d.toFixed(3)} m from its ${name}`);
@@ -241,8 +253,8 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
         place(game, w, 0, 6, Math.PI + 0.3, p);
         const pts = w.visual.muzzles!.points;
         const hand = pts.findIndex((q) => q.name === 'hand'), mouth = pts.findIndex((q) => q.name === 'mouth');
-        const check = (label: string, from: THREE.Vector3 | null, name: string) => {
-          dataPoint(w, boss, stage, name, exp);
+        const check = (label: Spell, from: THREE.Vector3 | null, name: string) => {
+          dataPoint(w, boss, stage, name, exp, undefined, label);
           c.expect(!!from && from.distanceTo(exp) < TIGHT, `stage ${stage + 1}: ${label} ${from ? from.distanceTo(exp).toFixed(3) : 'none'} m from the ${name}`);
         };
         check('bolt', castFrom(c, w, 'bolt'), 'hand');
@@ -258,7 +270,7 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
         } finally {
           off();
         }
-        dataPoint(w, boss, stage, 'mouth', exp);
+        dataPoint(w, boss, stage, 'mouth', exp, undefined, 'bolt'); // volleys release like bolts (the cast clip)
         c.expect(shots.length === 3 && shots.every((s) => s.distanceTo(exp) < TIGHT), `stage ${stage + 1}: volley shots not from the mouth (${shots.length})`);
         // The Ultimate flares the palm and the mouth together.
         w.ult = S.ultimate.chargeMax;
@@ -285,7 +297,8 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
       dataPoint(q, partner, 0, 'phone', exp);
       c.expect(!!from && from.distanceTo(exp) < TIGHT, `Midget stage 1: bolt ${from ? from.distanceTo(exp).toFixed(3) : 'none'} m from his phone`);
       toLocal(q, from!, local);
-      c.expect(local.x > 0.2 && local.y > 0.6 && local.y < 1.0, `Midget stage 1: bolt at local (${local.x.toFixed(2)}, ${local.y.toFixed(2)}): not his left hand's phone`);
+      // His left hand (+x), at hand height of a 1.25 m man (lower at the cast's release than at rest).
+      c.expect(local.x > 0.2 && local.y > 0.4 && local.y < 1.0, `Midget stage 1: bolt at local (${local.x.toFixed(2)}, ${local.y.toFixed(2)}): not his left hand's phone`);
       c.expect(q.visual.muzzleType(q.muzzleIndex('bolt')) === 'phone', 'Midget muzzle is not a phone');
     });
     // Stages 2 and 3: a phone in each hand, shots alternate; stage 3's are drawn in his fists.
@@ -667,28 +680,46 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
       withStage(c, game, byId(id), stage, () => {
         const e = game.enemy, vis = e.visual;
         e.spawn(0, 6, 0);
+        // A static mesh: its lowest point after a second. A rigged look's clips swing hems, staffs and
+        // feet on their own, so there: the lowest point over a run cycle, measured against the same
+        // clips with the procedural motion off (what the lean adds is what this checks).
         const pose = () => {
-          for (let i = 0; i < 60; i++) vis.update(e, 1 / 60, 1);
-          return vis.lookBottom();
+          let low = Infinity;
+          for (let i = 0; i < 90; i++) {
+            vis.update(e, 1 / 60, 1);
+            if (i === 89 || (vis.rigged && i >= 50 && i % 2 === 0)) low = Math.min(low, vis.lookBottom());
+          }
+          return low;
+        };
+        const floor = (vx: number, vz: number) => {
+          if (!vis.rigged) return 0;
+          vis.proceduralOff = true;
+          e.vel.set(vx, 0, vz);
+          const low = pose();
+          vis.proceduralOff = false;
+          return low;
         };
         e.vel.set(0, 0, 0);
-        const still = pose();
-        c.expect(Math.abs(still) < 0.03, `${id}: standing, its lowest point is at ${still.toFixed(3)} m`);
+        const still = pose() - floor(0, 0);
+        // A rigged idle plants its feet by itself, within a few cm (Broccoli Head stage 3 sits ~3 cm deep).
+        c.expect(Math.abs(still) < (vis.rigged ? 0.04 : 0.03), `${id}: standing, its lowest point is at ${still.toFixed(3)} m`);
         let worst = Infinity, lift = 0;
         // Sprinting every way, and a knockback slide faster than a sprint.
         for (const [vx, vz] of [[0, 9.6], [0, -9.6], [9.6, 0], [-9.6, 0], [6.8, 6.8], [-6.8, -6.8], [0, 15], [15, 0]]) {
+          const base = floor(vx, vz);
           e.vel.set(vx, 0, vz);
-          const low = pose();
+          const low = pose() - base;
           worst = Math.min(worst, low);
           lift = Math.max(lift, vis.leanLift);
-          c.expect(low > -0.03, `${id}: leaning at (${vx}, ${vz}) m/s its lowest point is ${(-low * 100).toFixed(1)} cm under the floor`);
+          // (A rigged look's two windows catch its clips at different phases: a little more slack.)
+          c.expect(low > (vis.rigged ? -0.05 : -0.03), `${id}: leaning at (${vx}, ${vz}) m/s its lowest point is ${(-low * 100).toFixed(1)} cm under the floor${vis.rigged ? ' (below its clip pose)' : ''}`);
           // Wide bosses lean less instead of hopping up: the lift stays small (10 cm a side, both on a diagonal).
           const diagonal = vx !== 0 && vz !== 0;
           c.expect(vis.leanLift < (diagonal ? 0.22 : 0.12), `${id}: leaning at (${vx}, ${vz}) m/s lifts it ${(vis.leanLift * 100).toFixed(1)} cm`);
         }
         e.vel.set(0, 0, 0);
         pose();
-        notes.push(`${id}${stage + 1} lowest ${(worst * 100).toFixed(1)} cm (lift up to ${(lift * 100).toFixed(1)} cm)`);
+        notes.push(`${id}${stage + 1}${vis.rigged ? ' (rigged, vs its clips)' : ''} lowest ${(worst * 100).toFixed(1)} cm (lift up to ${(lift * 100).toFixed(1)} cm)`);
       });
     }
     c.note(notes.join(', '));

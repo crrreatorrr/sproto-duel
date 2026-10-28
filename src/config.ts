@@ -747,7 +747,7 @@ export const CONFIG = {
      * from `minVisible` back to solid at `near` m, and at most `occluded` while between the camera
      * and the player. `radius` scales the look's bounds for that test (wings and capes stick out).
      */
-    bossFade: { clear: 0.4, near: 2, minVisible: 0.25, occluded: 0.3, radius: 0.8 },
+    bossFade: { clear: 0.4, near: 2, minVisible: 0.25, occluded: 0.3, radius: 1.05 },
   },
 
   feel: {

@@ -337,7 +337,7 @@ export class Wizard {
    */
   castPoint(kind: CastKind, out: Vector3, index = this.muzzleIndex(kind)): Vector3 {
     const v = this.visual;
-    if (index >= 0 && v.muzzles && index < v.muzzles.points.length) v.muzzlePoint(index, out);
+    if (index >= 0 && v.muzzles && index < v.muzzles.points.length) v.muzzlePoint(index, out, kind);
     else {
       const k = this.sizeScale;
       out.set(-0.34 * k, 1.36 * k, 0.72 * k);

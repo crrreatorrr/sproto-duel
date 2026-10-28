@@ -200,6 +200,9 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.setup({ player: [0, -6], enemy: [9, 12], partner: [0, 6] });
       c.aimAt(p, q);
       c.aimAt(q, p);
+      // Truly head-on: each aims at where the other's bolt will leave (staff orb, phone), not the chest.
+      q.castPoint('bolt', p.aimPoint);
+      p.castPoint('bolt', q.aimPoint);
       const cross = record('clash');
       p.intent.press('bolt');
       q.intent.press('bolt');

@@ -184,18 +184,30 @@ export class SpellSystem {
 
   /**
    * Keep a spawn point from starting inside or beyond a wall, pillar, car or pane of glass: trace from
-   * the caster's own axis (inside its collider, which its spells ignore) out to the muzzle at the
-   * muzzle's height, and pull the point back short of anything in the way by the spell's `radius`.
+   * the caster's own axis (inside its collider, which its spells ignore; at the muzzle's height, or
+   * the chest's if the muzzle is higher) out to the muzzle, and pull the point back short of anything
+   * in the way by the spell's `radius`.
    * A caster hugging cover then fires into the cover, never through it.
    */
   private clearOrigin(w: Wizard, point: THREE.Vector3, radius: number): THREE.Vector3 {
-    tmpAxisPoint.set(w.pos.x, point.y, w.pos.z);
+    // From no higher than the chest: a staff raised over a low wall must not reach past it.
+    tmpAxisPoint.set(w.pos.x, Math.min(point.y, w.pos.y + 1.2 * w.sizeScale), w.pos.z);
     tmpSpan.subVectors(point, tmpAxisPoint);
     const len = tmpSpan.length();
     if (len < 1e-4) return point;
     tmpSpan.divideScalar(len);
     const hit = this.physics.raycast(tmpAxisPoint, tmpSpan, len + radius, GROUP.WORLD);
-    if (hit) point.copy(tmpAxisPoint).addScaledVector(tmpSpan, Math.max(0, Math.min(len, hit.distance - radius)));
+    let reach = hit ? Math.max(0, Math.min(len, hit.distance - radius)) : len;
+    // The arena's outer wall is low: a raised staff can reach over it. Stay inside its radius.
+    const edge = CONFIG.arena.wallRadius - radius;
+    const ax = tmpAxisPoint.x, az = tmpAxisPoint.z, dx = tmpSpan.x, dz = tmpSpan.z;
+    const ex = ax + dx * reach, ez = az + dz * reach;
+    if (ex * ex + ez * ez > edge * edge) {
+      const a = dx * dx + dz * dz, b = 2 * (ax * dx + az * dz), cc = ax * ax + az * az - edge * edge;
+      const disc = b * b - 4 * a * cc;
+      if (a > 1e-8 && disc >= 0) reach = Math.max(0, Math.min(reach, (-b + Math.sqrt(disc)) / (2 * a)));
+    }
+    if (reach < len) point.copy(tmpAxisPoint).addScaledVector(tmpSpan, reach);
     return point;
   }
 
