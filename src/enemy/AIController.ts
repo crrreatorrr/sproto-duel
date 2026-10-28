@@ -391,6 +391,12 @@ export class AIController implements TickController {
     const lead = (dist / speed) * p.leadFactor;
     const aim = w.aimPoint;
     t.chest(aim).addScaledVector(t.vel, lead);
+    if (!t.grounded) {
+      // Ballistic lead for a jumping target, never below the ground it will land on.
+      const g = CONFIG.wizard.jump.gravity;
+      const feetY = Math.max(t.groundY, t.pos.y + t.vy * lead - 0.5 * g * lead * lead);
+      aim.y += feetY - t.pos.y;
+    }
     if (usingBlast) aim.y = 0.5; // splash at the feet
     if (w.cast?.spell !== 'stun') aim.add(this.aimNoise);
     intent.facing = Math.atan2(aim.x - w.pos.x, aim.z - w.pos.z);
@@ -399,8 +405,10 @@ export class AIController implements TickController {
     if (this.state !== 'attack' && !(this.state === 'approach' && this.hasLos && dist < 22)) return;
     if (!this.hasLos || w.cast || w.stunned) return;
 
-    // Ultimate when it would land: opponent not shielding and their roll is on cooldown.
-    if (w.ult >= SP.ultimate.chargeMax && !t.shielded && (t.cd.dodge > 0.3 || t.stunned || chance(0.01))) {
+    // Ultimate when it would land: opponent not shielding, and either their roll is on cooldown or
+    // they're already coming down from a jump (both evasions are spent).
+    const committed = t.cd.dodge > 0.3 || t.stunned || (!t.grounded && t.vy < 0);
+    if (w.ult >= SP.ultimate.chargeMax && !t.shielded && (committed || chance(0.01))) {
       intent.press('ultimate');
       return;
     }

@@ -181,12 +181,12 @@ export class Effects {
 
   /** Dust burst and a team-colored streak where a roll starts. */
   roll(pos: THREE.Vector3, dir: THREE.Vector3, color: number): void {
-    this.dust(tmpPoint.set(pos.x, 0.15, pos.z), 6, 0.6);
+    this.dust(tmpPoint.set(pos.x, pos.y + 0.15, pos.z), 6, 0.6);
     tmpColor.setHex(color);
     for (let i = 0; i < 12; i++) {
       const s = 2 + Math.random() * 4;
       this.sparks.emit(
-        pos.x + (Math.random() - 0.5) * 0.5, 0.4 + Math.random() * 1.2, pos.z + (Math.random() - 0.5) * 0.5,
+        pos.x + (Math.random() - 0.5) * 0.5, pos.y + 0.4 + Math.random() * 1.2, pos.z + (Math.random() - 0.5) * 0.5,
         -dir.x * s, Math.random() * 0.5, -dir.z * s,
         tmpColor, 1.8, 0.12, 0.25, { drag: 5 },
       );

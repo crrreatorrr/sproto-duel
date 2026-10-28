@@ -59,6 +59,8 @@ export class CameraRig {
     this.pitch = -0.07;
     this.pivot.set(target.x, target.y + C.height, target.z);
     this.distance = C.distance;
+    // Don't carry a cinematic pull-back (e.g. from a final Ultimate) into the next round.
+    this.pullBack = this.pullBackTarget = 0;
   }
 
   updateOrbit(dt: number): void {
