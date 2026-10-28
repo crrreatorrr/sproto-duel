@@ -1,12 +1,19 @@
 import type { Vector3 } from 'three';
 import type { Wizard } from '../wizard/Wizard';
 import type { SpellId } from '../spells/types';
+import type { ProjectileSkin } from '../campaign/levels';
 
 export type DamageKind = SpellId | 'fire' | 'splash';
 
 /** Everything gameplay announces. UI, audio and FX subscribe; gameplay never calls them directly. */
 export interface GameEvents {
   cast: { wizard: Wizard; spell: SpellId; pos: Vector3 };
+  /**
+   * A bolt or blast with an object look (a boss's rug, phone, bullet...; see ProjectileSkins) left
+   * the caster's hand: one per projectile, volley shots and sidekick throws included. Audio plays
+   * the object's launch sound instead of the spell's cast sound.
+   */
+  skinLaunch: { wizard: Wizard; kind: 'bolt' | 'blast'; skin: ProjectileSkin; pos: Vector3 };
   castStart: { wizard: Wizard; spell: SpellId; pos: Vector3 };
   damage: { target: Wizard; source: Wizard | null; amount: number; point: Vector3; kind: DamageKind };
   impact: { pos: Vector3; spell: SpellId; surface: 'wizard' | 'pillar' | 'floor' | 'wall' };

@@ -52,7 +52,7 @@ export class SpellSystem {
     private readonly wizards: Wizard[],
     private readonly arena: Arena,
   ) {
-    this.pool = new ProjectilePool(scene);
+    this.pool = new ProjectilePool(scene, fx);
     this.spellFx = new SpellFx(scene);
   }
 
@@ -370,7 +370,7 @@ export class SpellSystem {
         continue;
       }
       p.pos.add(tmpMotion);
-      this.fx.trail(p.pos, p.color, p.kind === 'bolt' ? 0.22 : 0.5 * (p.radius / S.blast.radius), p.kind === 'bolt' ? 1 : 3);
+      p.trail(this.fx);
     }
   }
 

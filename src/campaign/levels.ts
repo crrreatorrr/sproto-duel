@@ -11,6 +11,7 @@ export type ProjectileSkin =
   | 'rugRoll' // a rolled-up carpet, tumbling
   | 'carpet' // an unrolled flying carpet, rippling
   | 'phone' // a spinning smartphone with a lit screen
+  | 'pig' // a chubby pink pig, legs flailing
   | 'floret' // a broccoli floret
   | 'broccoli' // a whole head of broccoli
   | 'bullet' // a tracer round
@@ -137,7 +138,7 @@ export const BOSSES: BossDef[] = [
         attacks: { ...ALL, sidekickFires: true, volley: { name: 'Pump & Dump', count: 4, spreadDeg: 30, interval: 0, cooldown: 4.5, damageScale: 0.7 } },
       },
     ],
-    skins: { bolt: 'phone', blast: 'carpet' },
+    skins: { bolt: 'phone', blast: 'pig' },
     sidekick: { name: "Lil' Satoshi", model: 'bossObamaSidekick' },
     palette: { name: 'Bitcoin Obama', robe: 0x18181f, trim: 0xe0b23a, spell: 0xf7931a, blast: 0x3fb8ff, stun: 0xfff0c0, ultimate: 0xf7931a },
     ai: {

@@ -160,6 +160,9 @@ export class Game {
     e.health = Math.min(e.health, e.maxHealth);
     e.damageMultiplier = boss?.damageMultiplier ?? 1;
     this.spells.pool.setTeamPalette(e.index, team);
+    // The boss throws its objects (rugs, phones, bullets...); the default rival casts orbs.
+    e.skins = boss ? boss.skins : null;
+    this.spells.pool.prepareSkins(e.index, e.skins);
     const look = boss ? boss.id : 'rival';
     if (look !== this.enemyLook) {
       this.enemyLook = look;

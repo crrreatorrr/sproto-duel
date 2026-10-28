@@ -121,6 +121,26 @@ export class Effects {
     this.flash(pos, color, 0.9 * scale, 0.08);
   }
 
+  /** Gunshot at the muzzle: a white-hot flash, a tight cone of fast sparks, a smoke wisp, a light pulse. */
+  muzzleFlash(pos: THREE.Vector3, dir: THREE.Vector3, color: number, size: number, light: number, duration: number): void {
+    tmpColor.setHex(color).lerp(WHITE, 0.5);
+    for (let i = 0; i < 10; i++) {
+      const s = 14 + Math.random() * 18;
+      this.sparks.emit(pos.x, pos.y, pos.z,
+        (dir.x + (Math.random() - 0.5) * 0.25) * s, (dir.y + (Math.random() - 0.5) * 0.25) * s, (dir.z + (Math.random() - 0.5) * 0.25) * s,
+        tmpColor, 3.2, 0.05 + Math.random() * 0.04, 0.05 + Math.random() * 0.06, { drag: 9 });
+    }
+    tmpPoint.copy(pos).addScaledVector(dir, 0.25);
+    for (let i = 0; i < 2; i++) {
+      this.smoke.emit(tmpPoint.x, tmpPoint.y, tmpPoint.z,
+        dir.x * 1.6 + (Math.random() - 0.5) * 0.4, dir.y * 1.6 + 0.3, dir.z * 1.6 + (Math.random() - 0.5) * 0.4,
+        tmpColor2.setHex(0x8a8580), 0.55, 0.16, 0.45, { drag: 3, gravity: -0.8, sizeEnd: 0.7 });
+    }
+    this.flash(tmpPoint.copy(pos).addScaledVector(dir, 0.12), 0xfff2c8, size, duration);
+    this.flash(tmpPoint.copy(pos).addScaledVector(dir, 0.4), color, size * 0.55, duration * 0.8);
+    this.light(pos, color, light, duration);
+  }
+
   /** Spell hitting something. */
   impact(pos: THREE.Vector3, normal: THREE.Vector3 | null, color: number, scale = 1): void {
     tmpColor.setHex(color);
