@@ -174,7 +174,7 @@ export class SpellSystem {
     p.owner = p.caster = w;
     p.radius = B.radius;
     p.damage = B.damage;
-    p.power = p.basePower = B.power;
+    p.power = p.basePower = B.power * w.clashPowerMultiplier;
     p.life = B.lifetime;
     p.refreshLook();
     w.castPulse = 1;
@@ -200,7 +200,7 @@ export class SpellSystem {
     p.owner = p.caster = w;
     p.radius = B.radius;
     p.damage = B.damage;
-    p.power = p.basePower = B.power;
+    p.power = p.basePower = B.power * w.clashPowerMultiplier;
     p.life = B.lifetime;
     p.refreshLook();
     w.castPulse = 1;
@@ -690,7 +690,10 @@ export class SpellSystem {
 
   // ===================================================================== damage
 
-  /** The single place damage is applied: stats, ult charge, knockback, events, KO. */
+  /**
+   * The single place damage is applied: source multiplier (boss tuning, god mode), immunity,
+   * stats, ult charge, knockback, events, KO.
+   */
   dealDamage(
     target: Wizard,
     source: Wizard | null,
@@ -701,6 +704,15 @@ export class SpellSystem {
     knockback = 0,
   ): number {
     if (!target.alive) return 0;
+    if (source && source !== target) amount *= source.damageMultiplier;
+    if (target.immune) {
+      // God mode: the hit still reads (flash, knockback, sound, "IMMUNE" popup) but removes no HP.
+      target.hitFlash = CONFIG.wizard.hitFlashTime;
+      if (source && source !== target) source.stats.hits++;
+      if (knockDir && knockback > 0) target.addKnockback(knockDir.x, knockDir.z, knockback);
+      events.emit('damage', { target, source, amount: 0, point: point.clone(), kind });
+      return 0;
+    }
     const dealt = target.takeDamage(amount);
     if (dealt <= 0) return 0;
     if (source && source !== target) {

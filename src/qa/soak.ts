@@ -1,4 +1,5 @@
 import { CONFIG, type Difficulty } from '../config';
+import { BOSSES } from '../campaign/levels';
 import { events } from '../core/events';
 import type { Game } from '../core/Game';
 import { AIController } from '../enemy/AIController';
@@ -31,6 +32,101 @@ export interface SoakReport {
 }
 
 /**
+ * One headless round with the real timer and sudden death, until a KO or time runs out.
+ * Returns the round length in seconds.
+ */
+function playRound(game: Game, brainA: AIController, brainB: AIController, onNaN: () => void, states?: Record<string, number>): number {
+  const [p, e] = game.wizards;
+  let t = 0;
+  while (t < M.roundTime && p.alive && e.alive) {
+    brainA.update(DT);
+    brainB.update(DT);
+    if (states) {
+      states[brainA.state] = (states[brainA.state] ?? 0) + DT;
+      states[brainB.state] = (states[brainB.state] ?? 0) + DT;
+    }
+    game.tick(DT);
+    t += DT;
+    const left = M.roundTime - t;
+    if (left < A.suddenDeathAt) {
+      game.arena.fireRadius = A.suddenDeathMinRadius + (A.fireRadius - A.suddenDeathMinRadius) * (left / A.suddenDeathAt);
+    }
+    if (!Number.isFinite(p.pos.x + e.pos.x)) {
+      onNaN();
+      break;
+    }
+  }
+  return t;
+}
+
+export interface BossSoakRow {
+  boss: string;
+  rounds: number;
+  avgSeconds: number;
+  minSeconds: number;
+  maxSeconds: number;
+  /** Rounds the reference player AI won (KO or more health at time). */
+  playerWins: number;
+  koRounds: number;
+  timeoutRounds: number;
+  /** Average HP the boss took / dealt per round. */
+  bossHpLost: number;
+  playerHpLost: number;
+}
+
+/**
+ * Boss Gauntlet pacing: a reference player AI (default Adept) duels each boss, with the boss's
+ * stats and AI, for `rounds` rounds. Reports round lengths and who wins, per boss.
+ * `await __duel.qa.campaignSoak(4)`.
+ */
+export async function campaignSoak(qa: QAHarness, game: Game, rounds = 4, reference: Difficulty = 'normal'): Promise<BossSoakRow[]> {
+  const rows: BossSoakRow[] = [];
+  for (const boss of BOSSES) {
+    await qa.sandbox(() => {
+      const [p, e] = game.wizards;
+      const prev = game.boss;
+      game.setupEnemy(boss);
+      const brainA = new AIController(p, e, game.spells, game.physics, game.arena, reference);
+      const brainB = new AIController(e, p, game.spells, game.physics, game.arena);
+      brainB.setProfile(boss.ai);
+      const durations: number[] = [];
+      let wins = 0, ko = 0, bossLost = 0, playerLost = 0;
+      try {
+        for (let r = 0; r < rounds; r++) {
+          qa.reset();
+          brainA.reset();
+          brainB.reset();
+          durations.push(playRound(game, brainA, brainB, () => undefined));
+          if (!p.alive || !e.alive) ko++;
+          if (!e.alive || (p.alive && p.health / p.maxHealth > e.health / e.maxHealth)) wins++;
+          bossLost += e.maxHealth - e.health;
+          playerLost += p.maxHealth - p.health;
+        }
+      } finally {
+        brainA.dispose();
+        brainB.dispose();
+        game.setupEnemy(prev);
+      }
+      const avg = durations.reduce((a, b) => a + b, 0) / Math.max(1, durations.length);
+      rows.push({
+        boss: boss.name,
+        rounds: durations.length,
+        avgSeconds: +avg.toFixed(1),
+        minSeconds: +Math.min(...durations).toFixed(1),
+        maxSeconds: +Math.max(...durations).toFixed(1),
+        playerWins: wins,
+        koRounds: ko,
+        timeoutRounds: durations.length - ko,
+        bossHpLost: +(bossLost / Math.max(1, durations.length)).toFixed(1),
+        playerHpLost: +(playerLost / Math.max(1, durations.length)).toFixed(1),
+      });
+    });
+  }
+  console.table(rows);
+  return rows;
+}
+
+/**
  * Headless AI-vs-AI rounds using the real simulation, timer and sudden death. Measures pacing
  * (round length vs the 60-90 s target) and how damage is distributed across spells.
  */
@@ -57,28 +153,12 @@ export async function soak(qa: QAHarness, game: Game, difficulty: Difficulty, ro
         qa.reset();
         brainA.reset();
         brainB.reset();
-        let t = 0;
-        while (t < M.roundTime && p.alive && e.alive) {
-          brainA.update(DT);
-          brainB.update(DT);
-          states[brainA.state] = (states[brainA.state] ?? 0) + DT;
-          states[brainB.state] = (states[brainB.state] ?? 0) + DT;
-          game.tick(DT);
-          t += DT;
-          const left = M.roundTime - t;
-          if (left < A.suddenDeathAt) {
-            game.arena.fireRadius = A.suddenDeathMinRadius + (A.fireRadius - A.suddenDeathMinRadius) * (left / A.suddenDeathAt);
-          }
-          if (!Number.isFinite(p.pos.x + e.pos.x)) {
-            errors.push(`NaN position in round ${r}`);
-            break;
-          }
-        }
+        const t = playRound(game, brainA, brainB, () => errors.push(`NaN position in round ${r}`), states);
         durations.push(t);
         if (!p.alive || !e.alive) ko++;
         else timeout++;
         perfects += p.stats.perfects + e.stats.perfects;
-        hpLost += 2 * CONFIG.wizard.maxHealth - p.health - e.health;
+        hpLost += p.maxHealth + e.maxHealth - p.health - e.health;
         dodges += p.stats.dodges + e.stats.dodges;
       }
     } catch (err) {

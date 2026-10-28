@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173, pick a difficulty, click **Begin Duel** (the game captures the mouse).
+Open http://localhost:5173 and pick **Boss Gauntlet** or **Quick Duel** (the game captures the mouse).
 
 ```bash
 npm run build      # typecheck + production build into dist/
@@ -35,10 +35,34 @@ Spells that collide in mid-air clash; the bigger spell survives, weakened by wha
 ring of fire at the edge burns, and in the last 30 seconds it closes in. Pillars crumble after
 enough hits.
 
+## Boss Gauntlet
+
+Five bosses in a row, each a best-of-three duel in their own arena: Bramble (grove), Cinder
+(volcano), Ysolde (glacier), Khepri (desert) and Morvane (void). Fight 1 is very easy and every
+fight after it is harder; this ladder is the game's only difficulty setting (Quick Duel is one
+fixed rival). A card introduces each boss; beat them to unlock the next, lose and you retry the
+same boss. Progress is saved in the browser, so **Continue** on the main menu resumes at the next
+boss. Beating Morvane clears the gauntlet.
+
+- Bosses, their AI profiles, health/damage multipliers, palettes, themes and intro lines:
+  [src/campaign/levels.ts](src/campaign/levels.ts). Flow: `src/App.ts`; progress: `src/campaign/Campaign.ts`.
+- Boss models load from `models/bosses/<id>.glb` and portraits from `ui/bosses/<id>.png` when
+  present; otherwise the rival is a primitive wizard in the boss's colours and headgear, and the
+  portrait is a stylized silhouette.
+- `await __duel.qa.campaignSoak(6)` plays a reference AI against each boss and reports round
+  lengths and win rates; `__duel.qa.run('campaign.ladder_escalates')` checks the ladder.
+
+## God mode (testing)
+
+No damage taken (hits still flash and show **IMMUNE**), unlimited mana (spells never fail, sprint
+never runs dry), 2× damage and 2× clash power. Toggle it any time by typing **9 9** quickly, with
+**F9**, or in Settings; start with it on via `?god` in the URL. A **GOD MODE** badge shows on the
+HUD. It is never saved: a reload turns it off. Tuning: `CONFIG.debug`.
+
 ## Balancing
 
 Every tuning number lives in [src/config.ts](src/config.ts): movement, dodge timing, each spell's
-damage/speed/cost/cooldown, hit-stop and shake, camera, AI difficulty profiles, round length, team
+damage/speed/cost/cooldown, hit-stop and shake, camera, AI profiles (Quick Duel uses `normal`), round length, team
 colours. The dev server hot-reloads on save.
 
 ## Project layout

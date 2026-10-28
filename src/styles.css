@@ -255,3 +255,128 @@ html, body {
 .menus button small { display: block; margin-top: 4px; font-size: 12px; letter-spacing: 0.08em; color: var(--ink-dim); }
 .menu-panel h3 { margin: 10px 0 0; font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; }
 .menu-panel .note { margin: 0; color: var(--ink-dim); font-size: 15px; }
+
+/* ------------------------------------------------- boss gauntlet + god mode */
+/* Rival accents follow the boss palette (App sets --rival* on #ui; unset = the default red). */
+.plate-right .hp-fill { background: linear-gradient(180deg, var(--rival-hi, #ffb08a), var(--rival-lo, #e2381f)); }
+.enemy-tag-fill { background: linear-gradient(90deg, var(--rival-lo, #e2381f), var(--rival-hi, #ff9a6a)); }
+.pip-row[data-side='1'] i.won { background: var(--rival, var(--red)); border-color: var(--rival-hi, #ffd9cc); box-shadow: 0 0 10px var(--rival, var(--red)); }
+.offscreen-arrow { border-left-color: var(--rival, var(--red)); }
+.stats .them { color: var(--rival, var(--red)); }
+.round-strip i.lose { background: color-mix(in srgb, var(--rival, var(--red)) 30%, transparent); border-color: var(--rival, var(--red)); }
+
+.plate-id { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.plate-right .plate-id { flex-direction: row-reverse; }
+.plate-title { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: none; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plate-title:empty { display: none; }
+
+.god-badge {
+  position: absolute; left: 24px; bottom: 24px; padding: 6px 12px; border-radius: 6px; opacity: 0; visibility: hidden;
+  font: 700 13px/1 var(--hud); letter-spacing: 0.22em; text-transform: uppercase; color: #1d1206;
+  background: linear-gradient(180deg, #ffe08a, #e0a43a); box-shadow: 0 0 18px rgba(255, 200, 90, 0.55);
+}
+.god-badge.on { opacity: 0.92; visibility: visible; }
+
+/* Main menu modes. */
+.menu-screen.main .menu-panel.main { gap: 10px; max-height: 100vh; overflow-y: auto; padding: 16px 4px; }
+.mode-block { display: grid; gap: 8px; }
+.mode-block h3 { margin: 4px 0 0; font-size: 15px; letter-spacing: 0.18em; color: var(--ink-dim); }
+.menus button.primary.quick-duel small { color: rgba(29, 18, 6, 0.75); font-size: 13px; letter-spacing: 0.04em; text-transform: none; font-weight: 600; }
+
+/* Toast (god mode on/off), shown over menus and the HUD. */
+.toast {
+  position: absolute; left: 50%; top: 92px; transform: translate(-50%, -8px); z-index: 5; opacity: 0; pointer-events: none;
+  display: grid; justify-items: center; gap: 3px; padding: 10px 22px; border-radius: 10px;
+  background: rgba(14, 10, 28, 0.88); border: 1px solid var(--edge); box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+}
+.toast b { font: 700 18px/1 var(--hud); letter-spacing: 0.24em; text-transform: uppercase; }
+.toast small { font-size: 13px; color: var(--ink-dim); letter-spacing: 0.04em; }
+.toast.god-on { border-color: #ffe08a; box-shadow: 0 0 26px rgba(255, 200, 90, 0.45); }
+.toast.god-on b { color: var(--gold); }
+.toast.show { animation: toast 1.8s ease-out forwards; }
+@keyframes toast {
+  0% { opacity: 0; transform: translate(-50%, -8px); }
+  10%, 75% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -4px); }
+}
+.menus button.gauntlet-btn {
+  display: grid; gap: 4px; text-align: left; padding: 13px 16px; text-transform: none; letter-spacing: 0.02em;
+  border-color: rgba(255, 210, 122, 0.55);
+  background: linear-gradient(120deg, rgba(64, 30, 96, 0.92), rgba(28, 16, 52, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(255, 210, 122, 0.15), 0 0 22px rgba(160, 90, 255, 0.18);
+}
+.menus button.gauntlet-btn b { font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.menus button.gauntlet-btn small { margin: 0; font-size: 13px; font-weight: 500; letter-spacing: 0.02em; }
+.menus button.gauntlet-btn:hover { background: linear-gradient(120deg, rgba(90, 44, 130, 0.95), rgba(40, 24, 70, 0.95)); box-shadow: 0 0 22px rgba(255, 200, 100, 0.35); }
+.menus button.gauntlet-btn.continue { border-color: var(--boss-spell); box-shadow: inset 0 0 0 1px var(--boss-spell), 0 0 22px color-mix(in srgb, var(--boss-spell) 35%, transparent); }
+.menus button.gauntlet-btn.continue b { color: #fff; }
+
+/* Boss portraits (generated image or silhouette fallback). */
+.boss-portrait {
+  position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; flex: none;
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--boss-spell) 45%, #000), #05030a 75%);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--boss-trim) 70%, transparent), 0 0 34px color-mix(in srgb, var(--boss-spell) 35%, transparent), 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+.boss-portrait img, .boss-portrait svg { display: block; width: 100%; height: 100%; object-fit: cover; }
+.boss-portrait::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.55); pointer-events: none; }
+.boss-portrait.large { width: clamp(150px, 22vw, 230px); }
+.boss-portrait.small { width: 64px; border-radius: 8px; }
+
+/* Boss intro card. */
+.menu-screen.boss { place-items: center start; padding-left: clamp(16px, 6vw, 110px); background: linear-gradient(90deg, rgba(7, 5, 16, 0.9) 0%, rgba(7, 5, 16, 0.6) 50%, transparent 80%); }
+.menu-panel.boss-card { width: min(660px, calc(100vw - 32px)); gap: 14px; }
+.boss-card-body { display: flex; gap: 24px; align-items: center; }
+.boss-text { display: grid; gap: 4px; min-width: 0; }
+.boss-fight { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: var(--boss-spell, var(--gold)); }
+.boss-name {
+  margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(44px, 6vw, 68px); line-height: 0.95; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #fff; text-shadow: 0 0 36px color-mix(in srgb, var(--boss-spell) 75%, transparent), 0 4px 18px #000;
+}
+.boss-title { margin: 0; font-family: var(--display); font-size: 21px; letter-spacing: 0.06em; color: var(--boss-trim); }
+.boss-intro { margin: 8px 0 4px; font-size: 18px; line-height: 1.35; color: var(--ink); font-style: italic; }
+.boss-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 4px 0 0; font-size: 15px; }
+.boss-facts dt { color: var(--ink-dim); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; font-size: 12px; align-self: center; }
+.boss-facts dd { margin: 0; font-weight: 700; letter-spacing: 0.04em; }
+.threat { display: flex; gap: 6px; align-items: center; }
+.threat i { width: 10px; height: 10px; transform: rotate(45deg); border: 1.5px solid rgba(255, 255, 255, 0.35); }
+.threat i.on { background: var(--boss-spell); border-color: var(--boss-trim); box-shadow: 0 0 8px var(--boss-spell); }
+.boss-card > button { width: 100%; }
+
+.boss-ladder { display: flex; align-items: center; gap: 0; margin: 0 0 4px; padding: 0; list-style: none; }
+.boss-ladder li { position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; }
+.boss-ladder li + li { margin-left: 34px; }
+.boss-ladder li + li::before { content: ''; position: absolute; right: 100%; top: 50%; width: 34px; height: 2px; background: rgba(255, 255, 255, 0.18); }
+.boss-ladder li.cleared + li::before, .boss-ladder li.cleared + li.current::before { background: var(--gold); }
+.boss-ladder li::after { content: ''; position: absolute; inset: 4px; transform: rotate(45deg); border: 2px solid rgba(255, 255, 255, 0.3); background: rgba(10, 6, 20, 0.8); z-index: 0; }
+.boss-ladder li span { position: relative; z-index: 1; font-weight: 700; font-size: 12px; color: var(--ink-dim); }
+.boss-ladder li.cleared::after { background: color-mix(in srgb, var(--gold) 70%, #000); border-color: var(--gold); }
+.boss-ladder li.cleared span { color: #1d1206; }
+.boss-ladder li.current::after { background: var(--boss-spell); border-color: #fff; box-shadow: 0 0 14px var(--boss-spell); }
+.boss-ladder li.current span { color: #0b0814; }
+.boss-ladder li.current { animation: ladder-pulse 1.2s ease-in-out infinite alternate; }
+@keyframes ladder-pulse { to { transform: scale(1.12); } }
+
+/* Gauntlet results and completion. */
+.results-boss { display: flex; align-items: center; gap: 14px; }
+.menu-screen.complete { background: rgba(7, 5, 16, 0.7); backdrop-filter: blur(6px); }
+.menu-panel.complete { width: min(720px, calc(100vw - 32px)); justify-items: center; text-align: center; }
+.menu-panel.complete .result-title { color: #ffe9b8; text-shadow: 0 0 50px rgba(255, 190, 90, 0.85); }
+.menu-panel.complete > button { width: min(440px, 100%); }
+.complete-roll { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin: 6px 0; padding: 0; list-style: none; }
+.complete-roll li { display: grid; justify-items: center; gap: 2px; width: 108px; }
+.complete-roll .boss-portrait.small { width: 84px; margin-bottom: 4px; }
+.complete-roll b { font-family: var(--display); font-size: 16px; letter-spacing: 0.06em; color: var(--boss-spell); }
+.complete-roll small { font-size: 12px; color: var(--ink-dim); }
+.pause-sub { margin-top: -6px; }
+
+.setting.toggle.god-setting span small { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-dim); }
+
+@media (max-width: 640px) {
+  .boss-card-body { flex-direction: column; align-items: flex-start; }
+  .boss-ladder li + li { margin-left: 18px; }
+  .boss-ladder li + li::before { width: 18px; }
+}
+@media (max-height: 760px) {
+  .menu-screen.main .title { font-size: clamp(40px, 6vw, 64px); }
+  .menu-screen.main .tip { display: none; }
+}

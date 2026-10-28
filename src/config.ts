@@ -306,10 +306,20 @@ export const CONFIG = {
     damageNumberLife: 0.85,
   },
 
-  /** Testing aids. God mode: the player takes no damage and deals `godPowerMultiplier`x damage. */
+  /**
+   * Testing aids. God mode: the player takes no damage, has unlimited mana, deals
+   * `godPowerMultiplier`x damage and casts spells with `godClashMultiplier`x clash power.
+   * Toggle by typing 9 twice quickly, F9, the Settings toggle, or start with `?god` in the URL.
+   * It is never saved: a reload turns it off again.
+   */
   debug: {
     godMode: false,
     godPowerMultiplier: 2,
+    godClashMultiplier: 2,
+    godHotkey: 'F9',
+    /** Press one of these twice within `godCheatWindowMs` to toggle god mode ("99"). */
+    godCheatKeys: ['Digit9', 'Numpad9'],
+    godCheatWindowMs: 600,
   },
 
   controls: {

@@ -25,8 +25,10 @@ export interface BossDef {
 }
 
 /**
- * The boss ladder, easiest first. Fight 1 is deliberately gentle (slower and less accurate than
- * the Apprentice difficulty); each fight after it is a clear step up.
+ * The boss ladder, easiest first, and the game's only difficulty progression (Quick Duel has one
+ * fixed rival). Fight 1 is deliberately gentle (slower and less accurate than even the old
+ * Apprentice preset, CONFIG.ai.difficulty.easy); each fight after it is a clear step up.
+ * `__duel.qa.run('campaign.ladder_escalates')` and `__duel.qa.campaignSoak()` measure the ladder.
  */
 export const BOSSES: BossDef[] = [
   {
@@ -134,8 +136,8 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.95,
       preferredRange: [8, 13],
     },
-    healthMultiplier: 1.15,
-    damageMultiplier: 1.1,
+    healthMultiplier: 1.05,
+    damageMultiplier: 1.0,
   },
   {
     id: 'morvane',
@@ -161,7 +163,17 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 1.05,
       preferredRange: [8, 13],
     },
-    healthMultiplier: 1.35,
-    damageMultiplier: 1.2,
+    healthMultiplier: 1.15,
+    damageMultiplier: 1.05,
   },
 ];
+
+/** Display names for the arena environments, shown on the boss cards. */
+export const ARENA_NAMES: Record<ArenaThemeId, string> = {
+  moonlit: 'Moonlit Ruins',
+  grove: 'Thornwood Grove',
+  volcano: 'Ember Caldera',
+  glacier: 'Frostspire Glacier',
+  desert: 'Sunken Dunes',
+  void: 'The Hollow Void',
+};

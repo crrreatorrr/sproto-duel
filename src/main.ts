@@ -5,7 +5,8 @@ import { QAHarness } from './qa/QAHarness';
 import { registerAIScenarios } from './qa/aiScenarios';
 import { registerSpellScenarios } from './qa/spellScenarios';
 import { registerRegressionScenarios } from './qa/regressionScenarios';
-import { soak } from './qa/soak';
+import { registerCampaignScenarios } from './qa/campaignScenarios';
+import { campaignSoak, soak } from './qa/soak';
 import type { Difficulty } from './config';
 
 async function boot() {
@@ -26,9 +27,12 @@ async function boot() {
   registerSpellScenarios(qa, game);
   registerAIScenarios(qa, game);
   registerRegressionScenarios(qa, game);
+  registerCampaignScenarios(qa, game, app);
   const qaApi = Object.assign(qa, {
     /** `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance. */
     soak: (difficulty: Difficulty = 'normal', rounds = 6) => soak(qa, game, difficulty, rounds),
+    /** `await __duel.qa.campaignSoak(4)`: a reference AI vs each gauntlet boss, round lengths per boss. */
+    campaignSoak: (rounds = 4, reference: Difficulty = 'normal') => campaignSoak(qa, game, rounds, reference),
   });
   (window as unknown as { __duel: unknown }).__duel = { game, app, qa: qaApi };
 }
