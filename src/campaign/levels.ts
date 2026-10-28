@@ -220,7 +220,7 @@ export const BOSSES: BossDef[] = [
     // bars, closes in). Knock out the nearest first and you face an enraged Obama; a sharp player
     // drops Obama first.
     stageHealth: [380, 440, 500],
-    damageMultiplier: 0.98,
+    damageMultiplier: 0.93,
     partner: {
       // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
       id: 'midget',
@@ -302,7 +302,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [9, 14],
     },
     stageHealth: [880, 900, 1000],
-    damageMultiplier: 1.03,
+    damageMultiplier: 1.0,
   }),
   boss({
     id: 'agent',
@@ -347,7 +347,7 @@ export const BOSSES: BossDef[] = [
     },
     // Retuned for the player's carpet, Pump It and vape cloud (the cloud's healing and cover especially).
     stageHealth: [1096, 1118, 1274],
-    damageMultiplier: 1.35,
+    damageMultiplier: 1.0,
   }),
   boss({
     id: 'tinubu',
@@ -396,8 +396,8 @@ export const BOSSES: BossDef[] = [
       preferredRange: [8, 13],
     },
     // Retuned for the four spells the player brings (bigger bars keep stages at ~5 minutes).
-    stageHealth: [1100, 1111, 1122],
-    damageMultiplier: 1.32,
+    stageHealth: [1100, 1111, 900],
+    damageMultiplier: 0.86,
   }),
 ];
 

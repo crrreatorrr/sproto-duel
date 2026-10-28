@@ -220,24 +220,23 @@ never cast these.
   is in `Wizard.updateMovement`, the smoke in `Arena.addSmoke`. Tuning: `CONFIG.rewardSpells`; keys:
   `CONFIG.controls` / `CONFIG.gamepad.bindings`. Icons: `ui/spells/spell_<id>.png`.
 
-**Reference ladder** (`await __duel.qa.campaignSoak(20, { seed: 2026 })`, the reference AI bringing
-the boss spells it would have learned by then; 20 single-life fights per boss, about 3 minutes):
+**Reference ladder** (`await __duel.qa.campaignSoak(16, { seed: 2026, spells: 'ladder' })`, the
+reference AI bringing the boss spells it would have learned by then; single-life fights):
 
-| Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Damage taken / healed (packs / vape) |
+| Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Boss damage/s per stage |
 |---|---|---|---|---|---|---|
-| Sahil | none | 100% (20/20) | 15.6 min | 3 | 5.1 / 5.3 / 5.2 | 242 / 150 / 0 |
-| Bitcoin Obama & The Midget | carpet | 75% (15/20) | 13.4 min | 3 / 3 | 5.5 / 6.3 / 3.3 | 343 / 183 / 0 |
-| Broccoli Head | carpet, pump | 35% (7/20) | 12.9 min | 3 | 4.1 / 4.7 / 4.8 | 408 / 211 / 0 |
-| Glowie | carpet, pump, vape | 0% (0/20) | 11.1 min | 2.75 | 4.9 / 5.4 / – | 426 / 178 / 27 |
-| Tinubu | carpet, pump, vape, lock-on | 0% (0/20) | 8.2 min | 2 | 4.8 / – / – | 451 / 201 / 30 |
+| Sahil | none | 100% (16/16) | 15.5 min | 3 | 5.0 / 5.3 / 5.2 | 0.10 / 0.28 / 0.39 |
+| Bitcoin Obama & The Midget | carpet | 69% (11/16) | 14.2 min | 3 / 3 | 5.8 / 6.8 / 3.0 | 0.20 / 0.52 / 0.52 |
+| Broccoli Head | carpet, pump | 44% (7/16) | 13.2 min | 3 | 4.2 / 4.5 / 4.9 | 0.27 / 0.50 / 0.82 |
+| Glowie | carpet, pump, vape | 19% (3/16) | 14.5 min | 3 | 4.8 / 5.4 / 5.9 | 0.35 / 0.53 / 0.84 |
+| Tinubu | carpet, pump, vape, lock-on | 4% (1/24) | 11.7 min | 2.75 | 4.7 / 5.2 / 5.2 | 0.44 / 0.78 / 1.19 |
 
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
-fights), so a 20-fight rate moves by ±10–15 points between runs: the duo measured 50–85% and
-Glowie 5–35% around these settings. Glowie (damage ×1.35, bars +8%) and Tinubu (×1.32, bars +10%)
-were buffed for the spells, when the vape cloud's healing and cover was what the reference AI leaned
-on most (128–164 HP a fight). Since the cloud was toned down (2 HP/s, none right after attacking,
-and attacking from it gives you away) it heals about 30, and the last three rows were re-measured:
-Glowie fell from 10% to 0% for the reference AI.
+fights), so a 16-fight rate moves by roughly ±10 points between runs. Final tuning (after the vape
+cloud was toned down: 2 HP/s, none right after attacking, and attacking from it gives you away):
+the duo ×0.93, Broccoli Head ×1.0, Glowie ×1.0 and Tinubu ×0.86 damage, with Tinubu's last bar at
+900. Tinubu is almost impossible: the reference AI nearly always reaches his final form but rarely
+outlasts it.
 
 ## God mode (testing)
 
