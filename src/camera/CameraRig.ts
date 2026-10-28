@@ -63,7 +63,8 @@ export class CameraRig {
   updateOrbit(dt: number): void {
     this.orbitAngle += dt * 0.07;
     const cam = this.camera;
-    cam.position.set(Math.sin(this.orbitAngle) * 17, 6.5, Math.cos(this.orbitAngle) * 17);
+    const r = CONFIG.render.orbitRadius;
+    cam.position.set(Math.sin(this.orbitAngle) * r, CONFIG.render.orbitHeight, Math.cos(this.orbitAngle) * r);
     cam.lookAt(0, 1.6, 0);
     if (cam.fov !== C.fov) {
       cam.fov = C.fov;

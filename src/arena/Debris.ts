@@ -11,11 +11,14 @@ export class Debris {
   private readonly life: Float32Array;
   private next = 0;
   private readonly dummy = new THREE.Object3D();
+  /** The material the debris was built with (the moonlit look). */
+  readonly defaultMaterial: THREE.Material;
 
   constructor(scene: THREE.Scene, private readonly capacity = 160, material?: THREE.Material, geometry?: THREE.BufferGeometry) {
+    this.defaultMaterial = material ?? new THREE.MeshStandardMaterial({ color: 0x8a8394, roughness: 0.95, flatShading: true });
     this.mesh = new THREE.InstancedMesh(
       geometry ?? new THREE.DodecahedronGeometry(0.22, 0),
-      material ?? new THREE.MeshStandardMaterial({ color: 0x8a8394, roughness: 0.95, flatShading: true }),
+      this.defaultMaterial,
       capacity,
     );
     this.mesh.castShadow = true;
@@ -45,6 +48,15 @@ export class Debris {
     }
     this.scale[i] = size;
     this.life[i] = life;
+  }
+
+  get material(): THREE.Material {
+    return this.mesh.material as THREE.Material;
+  }
+
+  /** Re-skin the chunks for an environment theme. */
+  setMaterial(material: THREE.Material): void {
+    this.mesh.material = material;
   }
 
   /** Small chips flying off a hit point. */

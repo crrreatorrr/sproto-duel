@@ -43,8 +43,14 @@ export const CONFIG = {
     bloomRadius: 0.5,
     bloomThreshold: 0.78,
     shadows: true,
-    shadowMapSize: 1024,
+    shadowMapSize: 2048,
     exposure: 1.0,
+    /** Fog distances in meters; themes scale them (ArenaTheme.fog). */
+    fogNear: 47,
+    fogFar: 132,
+    /** Menu orbit camera: radius and height around the arena centre. */
+    orbitRadius: 17,
+    orbitHeight: 8,
   },
 
   sim: {
@@ -62,11 +68,11 @@ export const CONFIG = {
   },
 
   arena: {
-    floorRadius: 26,
+    floorRadius: 36,
     /** Hard collision wall behind the fire. */
-    wallRadius: 21.6,
+    wallRadius: 30,
     /** Inner edge of the fire ring. Touching it burns. */
-    fireRadius: 19.5,
+    fireRadius: 27.8,
     fireWidth: 1.8,
     fireDps: 26,
     fireTickInterval: 0.25,
@@ -74,11 +80,19 @@ export const CONFIG = {
     firePush: 11,
     /** Seconds left on the clock when the fire ring starts closing in. */
     suddenDeathAt: 30,
-    suddenDeathMinRadius: 8.5,
-    spawnDistance: 12,
+    suddenDeathMinRadius: 9,
+    spawnDistance: 16,
+    /** Fire-bowl braziers standing on the wall. */
+    braziers: 10,
     pillars: {
-      count: 6,
-      ringRadius: 9.5,
+      /**
+       * Cover layout: rings of pillars around the centre. `offset` rotates a ring by a fraction of
+       * one step; the inner ring's half step keeps the spawn line (z axis) clear.
+       */
+      rings: [
+        { count: 6, radius: 10.5, offset: 0.5 },
+        { count: 8, radius: 20, offset: 0 },
+      ],
       radius: 0.85,
       height: 5.5,
       hp: 70,
@@ -271,7 +285,7 @@ export const CONFIG = {
         stunChance: 0.35,
         punishChance: 0.6,
         strafeSpeed: 0.85,
-        preferredRange: [9, 14],
+        preferredRange: [9, 15],
       },
       hard: {
         label: 'Archmage',
@@ -287,7 +301,7 @@ export const CONFIG = {
         stunChance: 0.55,
         punishChance: 0.95,
         strafeSpeed: 1.0,
-        preferredRange: [8, 13],
+        preferredRange: [8, 14],
       },
     } satisfies Record<Difficulty, AIProfile>,
   },
