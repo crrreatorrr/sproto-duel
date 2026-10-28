@@ -120,8 +120,8 @@ any of them by replacing the file.
 |---|---|---|---|---|
 | 1. Sahil, the RugMaster | `sahil/stage1..3.glb` (2.0 / 2.25 / 2.55 m) | `sahil.png`, `sahil_stage2.png`, `sahil_stage3.png` | `desert` | rolled rugs, flying carpets |
 | 2. Bitcoin Obama and The Midget (two enemies) | `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m), `obama/sidekick.glb` (1.25 m) | `obama.png`, `obama_stage2.png`, `obama_stage3.png` | `void` | phones, carpets |
-| 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `grove` | florets, whole broccoli |
-| 4. The Agent | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `glacier` | bullets, grenades |
+| 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `city` | florets, whole broccoli |
+| 4. The Agent | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `office` | bullets, grenades |
 | 5. Tinubu, the Unshackled Demon | `tinubu/stage1..3.glb` (2.1 / 2.45 / 2.9 m) | `tinubu.png`, `tinubu_stage2.png`, `tinubu_stage3.png` | `volcano` | hellfire, burning skulls |
 
 Boss models are static meshes (the game animates them procedurally), ≤ 9k triangles each. Generate
@@ -140,8 +140,8 @@ assets in the next sections.
 | `textures/themes/<theme>/floor.jpg` | Square, top-down circular arena floor filling the image edge to edge (mapped onto a disc). |
 | `textures/themes/<theme>/sky.jpg` | 2:1 equirectangular sky panorama. |
 | `textures/themes/<theme>/stone.jpg` | Square, seamless tileable surface for the wall and placeholder pillars. |
-| `models/themes/<theme>/pillar.glb` | Cover column ≤ 5k triangles, fitted to 5.5 m; collision is a ~1.7 m wide cylinder, so keep it column-shaped. |
-| `models/themes/<theme>/prop.glb` | Decorative set piece placed 8 times, 8 m outside the wall, ≤ 8k triangles. |
+| `models/themes/<theme>/pillar.glb` | Cover column ≤ 5k triangles, fitted to 5.5 m; collision is a ~1.7 m wide cylinder, so keep it column-shaped. **Office (cubicle layout):** one cubicle, ≤ 5k triangles, square footprint, centred, front facing +X like other Tripo exports; it is scaled per axis to the box collider: 2.2 x 2.2 m footprint, 1.3 m tall (partitions plus whatever is inside). Collision is the solid box, so keep the walls on the footprint's edges. The cabinets, copiers and water coolers in the office layout and every crumbled desk stump stay procedural. |
+| `models/themes/<theme>/prop.glb` | Decorative set piece placed 8 times, 8 m outside the wall, ≤ 8k triangles, fitted to the theme's prop height (5 m; void 6 m, city palm 9 m, office 1.35 m). |
 
 | Theme | Mood |
 |---|---|
@@ -150,6 +150,8 @@ assets in the next sections.
 | `glacier` | Frozen arena: ice-glazed stone, aurora night sky, lilac frost runes. |
 | `desert` | Sandstone ruins at golden dusk: turquoise and gold inlays, dunes, obelisks. |
 | `void` | Arena floating in a cosmic void: violet-black stone, green rune circuitry, nebula sky. |
+| `city` | Los Angeles at sunset (Broccoli Head). Floor: a top-down asphalt intersection with crosswalk paint, curbs and a manhole. Sky: orange-pink-purple sunset over a skyline and palms, sun low in the +X direction of the panorama. Stone: concrete with pastel graffiti (tinted darker in game). Pillar: a graffiti concrete freeway column with a flared cap. Prop: a palm tree (fronds may be single-sided). Without files: a procedural intersection, a shader sunset with smog, skyline and palm silhouettes, graffiti columns, and code-built palms, storefronts, neon and city blocks outside the wall. |
+| `office` | Government office (Glowie). Floor: grey-blue carpet tiles with a fictional eye-in-a-triangle emblem in the centre. Sky: an office-interior panorama (cubicle rows, fluorescent panels, blinds), horizon at mid-height; a procedural ceiling with light panels stays overhead and the procedural room walls are hidden while it is present. Stone: beige drywall over a fabric band and a baseboard (the 1.4 m ring wall shows it once vertically). Pillar: a cubicle (see the pillar row). Prop: filing cabinets with a water cooler. Without files: procedural carpet and emblem, room walls with blinds, ceiling troffers, columns, a cubicle farm, cabinets, coolers and plants. |
 
 ## Textures
 

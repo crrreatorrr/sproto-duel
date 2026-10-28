@@ -10,6 +10,7 @@
  */
 
 import type { ArenaThemeId } from '../arena/themes';
+import { CONFIG } from '../config';
 
 export type WizardClip = 'idle' | 'run' | 'cast' | 'castBig' | 'dodge' | 'hit' | 'stunned' | 'victory' | 'defeat';
 
@@ -145,18 +146,21 @@ export interface ThemeAssets {
   sky: string;
   /** Tileable surface texture for the wall and placeholder pillars. */
   stone: string;
-  /** Cover column, roughly cylindrical (collision is a cylinder). */
+  /**
+   * Cover piece. Ring layouts: a column, roughly cylindrical (collision is a cylinder, the shaft is
+   * fitted to it). The office's cubicle layout: a cubicle, fitted per axis to its square box collider.
+   */
   pillar: ModelAsset;
   /** Decorative set piece placed around the outside of the wall. */
   prop: ModelAsset;
 }
 
-const themeAssets = (id: string, propHeight: number): ThemeAssets => ({
+const themeAssets = (id: string, propHeight: number, pillarHeight = CONFIG.arena.pillars.height): ThemeAssets => ({
   floor: `textures/themes/${id}/floor.jpg`,
   sky: `textures/themes/${id}/sky.jpg`,
   stone: `textures/themes/${id}/stone.jpg`,
   // Higgsfield/Tripo exports face +X; rotate so the front faces +Z like every other model.
-  pillar: { path: `models/themes/${id}/pillar.glb`, fitHeight: 5.5, maxTriangles: 5000, rotationY: -90 },
+  pillar: { path: `models/themes/${id}/pillar.glb`, fitHeight: pillarHeight, maxTriangles: 5000, rotationY: -90 },
   prop: { path: `models/themes/${id}/prop.glb`, fitHeight: propHeight, maxTriangles: 8000, rotationY: -90, doubleSided: true },
 });
 
@@ -173,6 +177,10 @@ export const THEME_ASSETS: Record<ArenaThemeId, ThemeAssets> = {
   glacier: themeAssets('glacier', 5),
   desert: themeAssets('desert', 5),
   void: themeAssets('void', 6),
+  // A palm tree (its fronds are single-sided, hence doubleSided).
+  city: themeAssets('city', 9),
+  // A cubicle (fitted to the cubicle box collider) and a row of filing cabinets with a water cooler.
+  office: themeAssets('office', 1.35, CONFIG.arena.cubicles.height),
 };
 
 /** Boss portraits for the campaign screens (square PNG/WebP). */

@@ -172,7 +172,7 @@ export function registerArenaScenarios(qa: QAHarness, game: Game): void {
         c.player.intent.press('bolt');
         c.step(0.6);
         c.expect(c.enemy.health === hp, `${id}: bolt went through a pillar`);
-        c.expect(pillar.hp < A.pillars.hp, `${id}: pillar took no damage`);
+        c.expect(pillar.hp < pillar.shape.hp, `${id}: pillar took no damage`);
         const shown = pillar.describe();
         c.expect(shown.wholeVisible && !shown.stumpVisible, `${id}: pillar not standing before the crumble`);
         pillar.damage(1e6, p.clone().setY(1.2));

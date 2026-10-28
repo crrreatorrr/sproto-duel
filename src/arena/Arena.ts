@@ -7,8 +7,9 @@ import { RegenTexture, drawArenaFloor, drawGround, drawStone, glowTexture } from
 import type { Physics } from '../physics/Physics';
 import { Debris } from './Debris';
 import type { FireRing } from './FireRing';
+import { layoutSpots, type ArenaLayout } from './layouts';
 import { Pillar } from './Pillar';
-import { ThemeKit, pillarFitScale } from './themeKit';
+import { ThemeKit, boxFitScale, pillarFitScale } from './themeKit';
 import { THEMES, isThemeId, type ArenaTheme, type ArenaThemeId, type SkyDef } from './themes';
 
 const A = CONFIG.arena;
@@ -39,6 +40,11 @@ const SKY_FRAG = /* glsl */ `
   uniform vec3 uAuroraA, uAuroraB, uCloudA, uCloudB, uSilColor;
   uniform float uAurora, uClouds, uTime;
   uniform vec4 uSil;
+  uniform vec4 uSmog;
+  uniform float uSmogHeight;
+  uniform vec4 uCity;
+  uniform vec3 uCityColor, uCityWindow;
+  uniform float uDowntown;
   varying vec3 vDir;
   float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
   float noise3(vec3 p) {
@@ -87,6 +93,47 @@ const SKY_FRAG = /* glsl */ `
     float m = dot(vDir, uMoonDir);
     c += uMoonColor * smoothstep(uMoonSize.x, uMoonSize.y, m);
     c += uMoonGlow * pow(max(m, 0.0), uMoonGlowPow);
+    if (uSmog.w > 0.0) {
+      // Hazy band hugging the horizon (it dims a low sun too).
+      float band = (1.0 - smoothstep(0.0, uSmogHeight, h)) * smoothstep(-0.08, 0.0, h);
+      c = mix(c, uSmog.rgb, band * uSmog.w);
+    }
+    if (uCity.y > 0.0) {
+      // Skyline: a hazy far layer and a dark near layer of blocky buildings with lit windows,
+      // taller around the downtown azimuth, then palm silhouettes in front.
+      float t = az / 6.2831853 + 0.5;
+      float dd = abs(fract(t - uDowntown + 0.5) - 0.5);
+      float downtown = exp(-dd * dd * 700.0);
+      for (int L = 0; L < 2; L++) {
+        float fl = float(L);
+        float n = t * uCity.z * (1.0 - 0.3 * fl) + fl * 17.3;
+        float k = floor(n);
+        float hk = hash(vec3(k, 1.7 + fl, 3.3));
+        float top = uCity.x + uCity.y * (0.12 + 0.45 * hk * hk + 1.7 * downtown * hk) * (0.5 + 0.5 * fl);
+        float fx = fract(n);
+        top = mix(uCity.x, top, step(0.05, fx) * step(fx, 0.97));
+        float inside = 1.0 - smoothstep(top - 0.0012, top + 0.0012, h);
+        vec3 bc = mix(mix(uCityColor, uSmog.rgb, 0.45), uCityColor, fl);
+        vec2 cell = vec2(fract(n * 5.0), fract(h * 150.0));
+        float win = step(0.3, cell.x) * step(cell.x, 0.72) * step(0.35, cell.y) * step(cell.y, 0.8);
+        float lit = step(0.72, hash(vec3(floor(n * 5.0), floor(h * 150.0), k + fl * 31.0)));
+        bc += uCityWindow * win * lit * step(h, top - 0.003) * (0.35 + 0.65 * fl);
+        c = mix(c, bc, inside);
+      }
+      for (int i = 0; i < 40; i++) {
+        float fi = float(i);
+        if (fi >= uCity.w) break;
+        float pt = hash(vec3(fi, 9.1, 2.3));
+        float crownY = uCity.x + 0.05 + 0.06 * hash(vec3(fi, 4.4, 8.8));
+        float dx = (fract(t - pt + 0.5) - 0.5) * 6.2831853;
+        float lean = (hash(vec3(fi, 1.3, 7.7)) - 0.5) * 0.12;
+        float trunk = step(abs(dx - (h - uCity.x) * lean), 0.0011) * step(h, crownY);
+        vec2 q = vec2(dx - (crownY - uCity.x) * lean, h - crownY);
+        float fr = pow(abs(cos(atan(q.y, q.x) * 3.5)), 2.0);
+        float crown = step(length(q), 0.02 * (0.2 + 0.8 * fr)) * step(-0.014, q.y);
+        c = mix(c, uCityColor * 0.5, max(trunk, crown));
+      }
+    }
     if (uSil.y > 0.0) {
       // Horizon silhouette: integer harmonics of the azimuth, so it wraps without a seam.
       float t = az / 6.2831853 + 0.5;
@@ -129,8 +176,14 @@ interface ThemeResources {
 }
 
 export class Arena {
-  readonly pillars: Pillar[] = [];
   readonly debris: Debris;
+  /** Cover layout of the current theme ('rings' of pillars, or the office 'cubicles'). */
+  layout: ArenaLayout = 'rings';
+  /** Obstacles per layout, built on first use; only the current layout's are visible and collide. */
+  private readonly layouts = new Map<ArenaLayout, Pillar[]>();
+  /** The original chunk shape (themes may swap in flat partition panels). */
+  private readonly chunkGeometry: THREE.BufferGeometry;
+  private panelGeometry: THREE.BufferGeometry | null = null;
   /** Current inner radius of the fire ring (shrinks during sudden death). */
   fireRadius: number = A.fireRadius;
   /** Active environment theme. */
@@ -165,7 +218,7 @@ export class Arena {
   private readonly tmpColor = new THREE.Color();
   private readonly tmpColor2 = new THREE.Color();
 
-  constructor(private readonly scene: THREE.Scene, physics: Physics, private readonly assets: AssetLoader) {
+  constructor(private readonly scene: THREE.Scene, private readonly physics: Physics, private readonly assets: AssetLoader) {
     scene.background = this.background;
     scene.fog = this.fog;
 
@@ -181,12 +234,8 @@ export class Arena {
     physics.addRingWall(A.wallRadius, WALL_HEIGHT, 56);
 
     this.debris = this.makeDebris(scene, assets);
-    for (const ring of A.pillars.rings) {
-      for (let i = 0; i < ring.count; i++) {
-        const a = ((i + ring.offset) / ring.count) * Math.PI * 2;
-        this.pillars.push(new Pillar(scene, physics, Math.sin(a) * ring.radius, Math.cos(a) * ring.radius, this.debris));
-      }
-    }
+    this.chunkGeometry = this.debris.geometry;
+    this.obstaclesFor('rings');
 
     const fromUrl = new URLSearchParams(location.search).get('theme');
     if (isThemeId(fromUrl)) this.devTheme = fromUrl;
@@ -213,6 +262,22 @@ export class Arena {
     this.ambientSoft.clear();
     this.ambientGlow.clear();
     return this.loadFiles(res);
+  }
+
+  /** Destructible cover of the current layout (pillars, or cubicles and office furniture). */
+  get pillars(): Pillar[] {
+    return this.obstaclesFor(this.layout);
+  }
+
+  /** A layout's obstacles, created (inactive unless it is the current layout) on first use. */
+  obstaclesFor(layout: ArenaLayout): Pillar[] {
+    let list = this.layouts.get(layout);
+    if (!list) {
+      list = layoutSpots(layout).map((s) => new Pillar(this.scene, this.physics, s.x, s.z, this.debris, s.shape));
+      for (const p of list) p.setActive(layout === this.layout);
+      this.layouts.set(layout, list);
+    }
+    return list;
   }
 
   /** Connect the fire ring (created by Game after the effects) so applyTheme recolours it too. */
@@ -253,6 +318,7 @@ export class Arena {
       ground: this.ground.visible ? [this.groundMat.color.getHexString(), this.groundMat.map?.uuid ?? null] : null,
       props: this.props?.name ?? null,
       terrain: this.terrain?.name ?? null,
+      layout: [this.layout, this.pillars.length],
       pillar: this.pillars[0].describe().key,
       debris: this.debris.material.uuid,
       brazier: [this.bowlMat.color.getHexString(), this.brazierFlames[0].material.color.getHexString()],
@@ -275,6 +341,7 @@ export class Arena {
       cached.stone.acquire();
       cached.wall.acquire();
       cached.ground?.acquire();
+      cached.kit.acquire();
       return cached;
     }
     const t = THEMES[id];
@@ -434,21 +501,37 @@ export class Arena {
     this.wallMat.emissive.setScalar(t.wall.emissive);
     res.kit.setStone(files.stone ?? res.stone.texture);
 
-    // Props and terrain dressing (a prop GLB replaces the placeholder props).
+    // Props and terrain dressing (a prop GLB replaces the placeholder props). Indoors, a room
+    // panorama (sky file) replaces the procedural room walls; the ceiling stays.
     const props = files.prop ? this.propCopies(res, files.prop) : res.kit.props;
     this.swap('props', props);
     this.swap('terrain', res.kit.terrain);
+    res.kit.setRoomWalls(!files.sky);
 
-    // Pillars (a pillar GLB replaces the placeholder; the replaced visual is freed).
+    // Cover layout: switching hides the old obstacles (no collision) and resets the new ones.
+    const layout = t.layout ?? 'rings';
+    if (layout !== this.layout) {
+      for (const p of this.pillars) p.setActive(false);
+      this.layout = layout;
+      for (const p of this.pillars) {
+        p.setActive(true);
+        p.reset();
+      }
+    }
+
+    // Pillars (a pillar GLB replaces the placeholder column or cubicle; the replaced visual is freed).
     const glb = files.pillar;
     const key = glb ? `${id}:glb:${glb.root.uuid}` : id;
     const prevKey = res.pillarKey;
     res.pillarKey = key;
     this.pillars.forEach((p, i) => {
-      p.setVisual(key, () => (glb ? this.glbPillar(res, glb, i) : { whole: res.kit.makePillar(), stump: this.stump(res, i) }));
+      const kind = p.shape.kind;
+      const useGlb = glb && (kind === 'pillar' || kind === 'cubicle');
+      p.setVisual(key, () => (useGlb ? this.glbPillar(res, glb, p, i) : { whole: res.kit.makePillar(kind), stump: this.stump(res, p, i) }));
       if (prevKey && prevKey !== key) p.dropVisual(prevKey);
     });
     this.debris.setMaterial(res.debris);
+    this.debris.setGeometry(t.debris.shape === 'panel' ? this.panels() : this.chunkGeometry);
 
     // Braziers and the fire ring.
     this.bowlMat.color.setHex(t.brazier.bowl);
@@ -456,8 +539,13 @@ export class Arena {
     this.fire?.setTheme(t.fire);
 
     const amb = t.ambient.kind;
-    this.ambientSoft.points.visible = amb === 'snow' || amb === 'sand' || amb === 'embers';
-    this.ambientGlow.points.visible = amb === 'fireflies' || amb === 'embers' || amb === 'motes';
+    this.ambientSoft.points.visible = amb === 'snow' || amb === 'sand' || amb === 'embers' || amb === 'dust';
+    this.ambientGlow.points.visible = amb === 'fireflies' || amb === 'embers' || amb === 'motes' || amb === 'vape';
+  }
+
+  /** Flat partition panels for the debris (sized like the 0.22 m chunks the sim expects). */
+  private panels(): THREE.BufferGeometry {
+    return (this.panelGeometry ??= new THREE.BoxGeometry(0.42, 0.3, 0.04));
   }
 
   private swap(slot: 'props' | 'terrain', next: THREE.Object3D): void {
@@ -496,23 +584,44 @@ export class Arena {
     const sil = s.silhouette;
     (u.uSil.value as THREE.Vector4).set(sil?.height ?? 0, sil?.amplitude ?? 0, sil?.frequency ?? 1, sil?.jagged ?? 0);
     if (sil) (u.uSilColor.value as THREE.Vector3).fromArray(sil.color);
+    const smog = s.smog;
+    (u.uSmog.value as THREE.Vector4).set(smog?.color[0] ?? 0, smog?.color[1] ?? 0, smog?.color[2] ?? 0, smog?.strength ?? 0);
+    u.uSmogHeight.value = smog?.height ?? 0.1;
+    const city = s.skyline;
+    (u.uCity.value as THREE.Vector4).set(city?.height ?? 0, city?.amplitude ?? 0, city?.density ?? 1, city?.palms ?? 0);
+    if (city) {
+      (u.uCityColor.value as THREE.Vector3).fromArray(city.color);
+      (u.uCityWindow.value as THREE.Vector3).fromArray(city.window);
+      // Downtown rises beside the sun.
+      u.uDowntown.value = Math.atan2(s.moonDir[2], s.moonDir[0]) / (Math.PI * 2) + 0.5 + 0.025;
+    }
   }
 
-  private stump(res: ThemeResources, i: number): THREE.Object3D {
-    const model = res.theme.id === 'moonlit' ? this.assets.instantiate('pillarBroken') : null;
-    return model?.root ?? res.kit.makeStump(i);
+  private stump(res: ThemeResources, p: Pillar, i: number): THREE.Object3D {
+    const model = res.theme.id === 'moonlit' && p.shape.kind === 'pillar' ? this.assets.instantiate('pillarBroken') : null;
+    return model?.root ?? res.kit.makeStump(i, p.shape.kind);
   }
 
-  /** A pillar GLB instance, its shaft scaled to the collider, with its own materials for damage tint. */
-  private glbPillar(res: ThemeResources, template: ModelTemplate, i: number): { whole: THREE.Object3D; stump: THREE.Object3D } {
-    const fit = (template.root.userData.fitXZ ??= pillarFitScale(template.root)) as number;
+  /**
+   * A pillar GLB instance with its own materials for damage tint. A column's shaft is scaled to
+   * the cylinder collider; a cubicle is fitted per axis to its box collider (footprint and height).
+   */
+  private glbPillar(res: ThemeResources, template: ModelTemplate, p: Pillar, i: number): { whole: THREE.Object3D; stump: THREE.Object3D } {
     const model = this.assets.instantiateModel(template);
-    model.root.scale.set(fit, 1, fit);
+    const s = p.shape;
+    if (p.isBox) {
+      const key = `fitBox:${s.halfX}:${s.halfZ}:${s.height}`;
+      const fit = (template.root.userData[key] ??= boxFitScale(template.root, s.halfX, s.halfZ, s.height)) as [number, number, number];
+      model.root.scale.set(fit[0], fit[1], fit[2]);
+    } else {
+      const fit = (template.root.userData.fitXZ ??= pillarFitScale(template.root)) as number;
+      model.root.scale.set(fit, 1, fit);
+    }
     model.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) mesh.material = Array.isArray(mesh.material) ? mesh.material.map((m) => m.clone()) : mesh.material.clone();
     });
-    return { whole: model.root, stump: this.stump(res, i) };
+    return { whole: model.root, stump: this.stump(res, p, i) };
   }
 
   private propCopies(res: ThemeResources, template: ModelTemplate): THREE.Group {
@@ -545,6 +654,8 @@ export class Arena {
           uAuroraA: v3(), uAuroraB: v3(), uAurora: { value: 0 },
           uCloudA: v3(), uCloudB: v3(), uClouds: { value: 0 },
           uSilColor: v3(), uSil: { value: new THREE.Vector4() },
+          uSmog: { value: new THREE.Vector4() }, uSmogHeight: { value: 0.1 },
+          uCity: { value: new THREE.Vector4() }, uCityColor: v3(), uCityWindow: v3(), uDowntown: { value: 0 },
           uTime: { value: 0 },
         },
       }),
@@ -732,6 +843,16 @@ export class Arena {
         case 'motes':
           this.ambientGlow.emit(x, rnd() * 9, z, (rnd() - 0.5) * 0.4, 0.15 + rnd() * 0.4, (rnd() - 0.5) * 0.4,
             alt, 2.2, 0.1 + rnd() * 0.08, 4 + rnd() * 3, { drag: 0.1, sizeEnd: 0.03 });
+          break;
+        case 'vape':
+          // Big, faint pastel clouds that swell as they drift and rise.
+          this.ambientGlow.emit(x, 0.3 + rnd() * 3, z, 0.25 + (rnd() - 0.5) * 0.5, 0.1 + rnd() * 0.25, (rnd() - 0.5) * 0.5,
+            alt, 0.05, 1.0 + rnd() * 1.4, 5 + rnd() * 4, { drag: 0.25, sizeEnd: 2.6 + rnd() * 1.8 });
+          break;
+        case 'dust':
+          // Specks hanging in the fluorescent light.
+          this.ambientSoft.emit(x, 0.3 + rnd() * 6, z, (rnd() - 0.5) * 0.25, (rnd() - 0.5) * 0.12, (rnd() - 0.5) * 0.25,
+            alt, 0.9, 0.035 + rnd() * 0.03, 6 + rnd() * 4, { drag: 0.2, sizeEnd: 0.02 });
           break;
       }
     }

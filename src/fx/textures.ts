@@ -36,6 +36,13 @@ type Rand = () => number;
 
 /** Palette and decoration for the procedural arena floor. Colours are 0-255 sRGB. */
 export interface FloorStyle {
+  /**
+   * Base layout: concentric flagstones with a rune circle (default), a city intersection
+   * ('plaza': `stone` asphalt, `gap` sidewalk concrete, `rune` crosswalk paint, `glyph` lane
+   * paint) or office carpet tiles ('carpet': `stone` carpet, `rune` emblem glow, `glyph` emblem
+   * lines, `mark` floor tape).
+   */
+  pattern?: 'flagstones' | 'plaza' | 'carpet';
   /** Mortar between flagstones (shows through the gaps). */
   gap: string;
   /** Flagstone colour: `stone` plus a random shade in [0, stoneRange) on every channel. */
@@ -67,6 +74,8 @@ const rgb = (c: RGB, v: number) => `rgb(${c[0] + v},${c[1] + v},${c[2] + v})`;
 
 /** Placeholder arena floor: concentric flagstones with a rune circle. Used when no floor texture is supplied. */
 export function drawArenaFloor(style: FloorStyle = MOONLIT_FLOOR): HTMLCanvasElement {
+  if (style.pattern === 'plaza') return drawPlazaFloor(style);
+  if (style.pattern === 'carpet') return drawCarpetFloor(style);
   const size = 2048;
   const [c, g] = canvas(size);
   const r = rng(7);
@@ -288,7 +297,8 @@ export interface StoneStyle {
   grit: RGB;
   gritRange: number;
   gritAlpha: number;
-  extras?: 'moss' | 'veins' | 'frost' | 'sand' | 'void';
+  /** 'graffiti': spray-paint blocks and tags over concrete; 'office': beige wall, fabric band, baseboard. */
+  extras?: 'moss' | 'veins' | 'frost' | 'sand' | 'void' | 'graffiti' | 'office';
 }
 
 export const MOONLIT_STONE: StoneStyle = {
@@ -353,7 +363,360 @@ export function drawStone(style: StoneStyle = MOONLIT_STONE): HTMLCanvasElement 
         crack(g, r, r() * 512, r() * 512, 7, 18);
       }
       break;
+    case 'graffiti':
+      graffiti(g, r, 512, 512, 14);
+      break;
+    case 'office': {
+      // Beige drywall over a blue-grey fabric band and a brushed-metal baseboard (a 1.4 m wall).
+      g.fillStyle = style.bg;
+      g.fillRect(0, 0, 512, 290);
+      for (let i = 0; i < 40; i++) blob(g, r() * 512, r() * 290, 20 + r() * 60, 'rgba(255,250,235,0.12)', 'rgba(255,250,235,0)');
+      g.fillStyle = '#5c6e86';
+      g.fillRect(0, 290, 512, 160);
+      for (let i = 0; i < 9000; i++) {
+        g.fillStyle = r() < 0.5 ? 'rgba(130,150,180,0.35)' : 'rgba(40,50,66,0.35)';
+        g.fillRect(r() * 512, 290 + r() * 160, 2, 2);
+      }
+      g.fillStyle = '#9aa0a6';
+      g.fillRect(0, 284, 512, 7);
+      g.fillRect(0, 448, 512, 6);
+      const base = g.createLinearGradient(0, 454, 0, 512);
+      base.addColorStop(0, '#7a7e84');
+      base.addColorStop(1, '#4e5258');
+      g.fillStyle = base;
+      g.fillRect(0, 454, 512, 58);
+      break;
+    }
   }
+  return c;
+}
+
+const SPRAY = ['255,70,170', '40,230,215', '255,200,40', '170,90,255', '255,120,50'];
+
+/** Spray-paint colour blocks, drips and tags (city walls, columns and floor). */
+function graffiti(g: CanvasRenderingContext2D, r: Rand, w: number, h: number, count: number, alpha = 0.78): void {
+  g.lineCap = 'round';
+  for (let i = 0; i < count; i++) {
+    const col = SPRAY[Math.floor(r() * SPRAY.length)];
+    const x = r() * w, y = r() * h;
+    if (r() < 0.45) {
+      // Colour block with drips.
+      const bw = 30 + r() * 90, bh = 20 + r() * 50;
+      g.fillStyle = `rgba(${col},${alpha})`;
+      g.beginPath();
+      g.ellipse(x, y, bw / 2, bh / 2, (r() - 0.5) * 0.5, 0, Math.PI * 2);
+      g.fill();
+      for (let d = 0; d < 3; d++) g.fillRect(x - bw / 3 + r() * bw * 0.6, y, 3, bh / 2 + r() * 30);
+    } else {
+      // A looping tag.
+      g.strokeStyle = `rgba(${col},${alpha})`;
+      g.lineWidth = 4 + r() * 4;
+      g.beginPath();
+      g.moveTo(x, y);
+      let px = x, py = y;
+      for (let k = 0; k < 6; k++) {
+        const nx = px + 10 + r() * 16, ny = y + (r() - 0.5) * 30;
+        g.quadraticCurveTo(px + (r() - 0.3) * 30, py - 20 - r() * 20, nx, ny);
+        px = nx;
+        py = ny;
+      }
+      g.stroke();
+    }
+  }
+  g.lineCap = 'butt';
+}
+
+/**
+ * City floor: an intersection clipped to the arena disc. Asphalt roads along x and z (the spawn
+ * line runs down one), concrete sidewalk corners with curbs, zebra crosswalks, lane paint, a
+ * manhole at the centre, oil stains, cracks, sidewalk stars and spray tags.
+ */
+function drawPlazaFloor(style: FloorStyle): HTMLCanvasElement {
+  const size = 2048;
+  const [c, g] = canvas(size);
+  const r = rng(11);
+  const cx = size / 2;
+  const m = cx / 30.6; // pixels per metre (the floor disc is 30.6 m)
+  const road = 6.2 * m; // half width of each road
+  const curbR = 2.4 * m;
+  g.fillStyle = `rgb(${style.stone[0]},${style.stone[1]},${style.stone[2]})`;
+  g.fillRect(0, 0, size, size);
+  // Asphalt grit.
+  const gr = style.grit;
+  for (let i = 0; i < 30000; i++) {
+    const v = Math.floor(r() * style.gritRange);
+    g.fillStyle = `rgba(${gr[0] + v},${gr[1] + v},${gr[2] + v},${style.gritAlpha})`;
+    g.fillRect(r() * size, r() * size, 2, 2);
+  }
+  // Sidewalk corners: concrete slabs inside a rounded curb.
+  const slab = 1.6 * m;
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      const x = sx > 0 ? cx + road : 0, y = sy > 0 ? cx + road : 0, w = cx - road, h = cx - road;
+      // Round the corner nearest the centre: [top-left, top-right, bottom-right, bottom-left].
+      const radii = sx > 0 ? (sy > 0 ? [curbR, 0, 0, 0] : [0, 0, 0, curbR]) : (sy > 0 ? [0, curbR, 0, 0] : [0, 0, curbR, 0]);
+      g.save();
+      g.beginPath();
+      g.roundRect(x, y, w, h, radii);
+      g.clip();
+      g.fillStyle = style.gap;
+      g.fillRect(x, y, w, h);
+      for (let yy = y; yy < y + h; yy += slab) {
+        for (let xx = x; xx < x + w; xx += slab) {
+          const v = Math.floor(r() * 18) - 9;
+          g.fillStyle = `rgb(${126 + v},${121 + v},${114 + v})`;
+          g.fillRect(xx + 2, yy + 2, slab - 4, slab - 4);
+        }
+      }
+      g.restore();
+      g.strokeStyle = 'rgba(205,200,190,0.95)';
+      g.lineWidth = 0.22 * m;
+      g.beginPath();
+      g.roundRect(x, y, w, h, radii);
+      g.stroke();
+    }
+  }
+  // Crosswalks on each arm, a stop line behind each, lane paint beyond.
+  const along = (arm: number, a: number, b: number, w0: number, w1: number) => {
+    const [dx, dy] = [[1, 0], [-1, 0], [0, 1], [0, -1]][arm];
+    const xA = cx + dx * a, yA = cx + dy * a, xB = cx + dx * b, yB = cx + dy * b;
+    if (dx) g.fillRect(Math.min(xA, xB), cx + w0, Math.abs(xB - xA), w1 - w0);
+    else g.fillRect(cx + w0, Math.min(yA, yB), w1 - w0, Math.abs(yB - yA));
+  };
+  const cwA = road + 0.6 * m, cwB = cwA + 3.2 * m;
+  for (let arm = 0; arm < 4; arm++) {
+    g.fillStyle = style.rune;
+    const bar = 0.55 * m;
+    for (let w = -road + 0.4 * m; w + bar < road - 0.3 * m; w += bar * 2) along(arm, cwA, cwB, w, w + bar);
+    along(arm, cwB + 0.5 * m, cwB + 0.9 * m, 0.15 * m, road - 0.3 * m); // stop line
+    g.fillStyle = style.glyph;
+    along(arm, cwB + 0.6 * m, cx, -0.28 * m, -0.12 * m);
+    along(arm, cwB + 0.6 * m, cx, 0.12 * m, 0.28 * m);
+    g.fillStyle = style.rune;
+    for (let d = cwB + 2 * m; d < cx; d += 4.5 * m) {
+      along(arm, d, d + 2.4 * m, road / 2 - 0.08 * m, road / 2 + 0.08 * m);
+      along(arm, d, d + 2.4 * m, -road / 2 - 0.08 * m, -road / 2 + 0.08 * m);
+    }
+  }
+  // Worn paint: dark flecks everywhere.
+  for (let i = 0; i < 9000; i++) {
+    g.fillStyle = `rgba(40,38,40,${0.3 + r() * 0.4})`;
+    g.fillRect(r() * size, r() * size, 2 + r() * 3, 2 + r() * 3);
+  }
+  // Oil stains, tyre marks, cracks.
+  for (let i = 0; i < 70; i++) {
+    const [x, y] = inDisc(r, size, 0, 0.95, 0.6);
+    blob(g, x, y, 14 + r() * 50, 'rgba(18,16,20,0.45)', 'rgba(18,16,20,0)');
+  }
+  g.lineWidth = 0.25 * m;
+  g.strokeStyle = 'rgba(20,18,20,0.3)';
+  for (let i = 0; i < 10; i++) {
+    const rr = (3 + r() * 6) * m;
+    const a = r() * Math.PI * 2;
+    g.beginPath();
+    g.arc(cx + Math.cos(a) * rr * 0.6, cx + Math.sin(a) * rr * 0.6, rr, a, a + 0.6 + r());
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(25,22,24,0.7)';
+  g.lineWidth = 2;
+  for (let i = 0; i < 60; i++) {
+    const [x, y] = inDisc(r, size);
+    crack(g, r, x, y, 5 + Math.floor(r() * 6), 22);
+  }
+  // Sidewalk stars (pink terrazzo, brass rim) along the corners.
+  for (let i = 0; i < 16; i++) {
+    const sx = r() < 0.5 ? -1 : 1, sy = r() < 0.5 ? -1 : 1;
+    const d = (9 + r() * 14) * m;
+    const side = r() < 0.5;
+    const x = cx + sx * (side ? road + 2.2 * m : d), y = cx + sy * (side ? d : road + 2.2 * m);
+    if (Math.hypot(x - cx, y - cx) > cx * 0.92) continue;
+    g.fillStyle = '#3a3438';
+    g.fillRect(x - 0.8 * m, y - 0.8 * m, 1.6 * m, 1.6 * m);
+    g.fillStyle = 'rgba(232,120,160,0.95)';
+    g.strokeStyle = 'rgba(214,170,80,0.95)';
+    g.lineWidth = 3;
+    g.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2 - Math.PI / 2;
+      const rr = (k % 2 ? 0.28 : 0.65) * m;
+      if (k) g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+      else g.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    g.closePath();
+    g.fill();
+    g.stroke();
+  }
+  // Spray tags and gum.
+  graffiti(g, r, size, size, 26, 0.5);
+  g.fillStyle = 'rgba(40,36,40,0.35)';
+  for (let i = 0; i < 900; i++) {
+    const [x, y] = inDisc(r, size);
+    const s = 3 + r() * 5;
+    g.fillRect(x, y, s, s);
+  }
+  // Manhole cover in the middle.
+  g.fillStyle = '#2c2422';
+  g.beginPath();
+  g.arc(cx, cx, 0.75 * m, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = 'rgba(120,96,80,0.9)';
+  g.lineWidth = 4;
+  g.stroke();
+  g.lineWidth = 2;
+  const mr = 0.7 * m;
+  g.beginPath();
+  for (let k = -5; k <= 5; k++) {
+    const o = (k / 6) * mr;
+    const h = Math.sqrt(Math.max(0, mr * mr - o * o));
+    g.moveTo(cx + o, cx - h);
+    g.lineTo(cx + o, cx + h);
+    g.moveTo(cx - h, cx + o);
+    g.lineTo(cx + h, cx + o);
+  }
+  g.stroke();
+  return c;
+}
+
+/** Carpet tiles with the weave turned on alternate tiles. Shared by the floor and the outer ground. */
+function carpetTiles(g: CanvasRenderingContext2D, r: Rand, size: number, tile: number, base: RGB, range: number): void {
+  for (let y = 0, ty = 0; y < size; y += tile, ty++) {
+    for (let x = 0, tx = 0; x < size; x += tile, tx++) {
+      const v = Math.floor(r() * range) - range / 2;
+      g.fillStyle = `rgb(${base[0] + v},${base[1] + v},${base[2] + v})`;
+      g.fillRect(x, y, tile, tile);
+      g.strokeStyle = 'rgba(20,24,32,0.22)';
+      g.lineWidth = 1;
+      const turn = (tx + ty) % 2 === 0;
+      g.beginPath();
+      for (let k = 2; k < tile; k += 3) {
+        if (turn) {
+          g.moveTo(x + k, y + 1);
+          g.lineTo(x + k, y + tile - 1);
+        } else {
+          g.moveTo(x + 1, y + k);
+          g.lineTo(x + tile - 1, y + k);
+        }
+      }
+      g.stroke();
+      g.strokeStyle = 'rgba(16,18,24,0.22)';
+      g.strokeRect(x + 0.5, y + 0.5, tile - 1, tile - 1);
+    }
+  }
+}
+
+/**
+ * Office floor: grey-blue carpet tiles, worn walkways and coffee stains, with a fictional agency
+ * emblem (an eye in a triangle in a ring, glowing green) in the centre and tape on the spawn marks.
+ */
+function drawCarpetFloor(style: FloorStyle): HTMLCanvasElement {
+  const size = 2048;
+  const [c, g] = canvas(size);
+  const r = rng(23);
+  const cx = size / 2;
+  const m = cx / 30.6;
+  carpetTiles(g, r, size, Math.round(0.9 * m), style.stone, style.stoneRange);
+  const gr = style.grit;
+  for (let i = 0; i < 26000; i++) {
+    const v = Math.floor(r() * style.gritRange);
+    g.fillStyle = `rgba(${gr[0] + v},${gr[1] + v},${gr[2] + v},${style.gritAlpha})`;
+    g.fillRect(r() * size, r() * size, 2, 2);
+  }
+  // Worn walkways (lighter) and coffee stains.
+  for (let i = 0; i < 90; i++) {
+    const [x, y] = inDisc(r, size, 0.1, 1, 0.5);
+    blob(g, x, y, 40 + r() * 120, 'rgba(150,160,170,0.12)', 'rgba(150,160,170,0)');
+  }
+  for (let i = 0; i < 26; i++) {
+    const [x, y] = inDisc(r, size, 0.2, 0.95, 0.5);
+    const rr = 8 + r() * 18;
+    g.strokeStyle = `rgba(90,62,36,${0.35 + r() * 0.3})`;
+    g.lineWidth = 2 + r() * 3;
+    g.beginPath();
+    g.arc(x, y, rr, r() * 6, r() * 6 + 4 + r() * 2);
+    g.stroke();
+    if (r() < 0.5) blob(g, x + rr, y, rr * 1.2, 'rgba(80,56,30,0.35)', 'rgba(80,56,30,0)');
+  }
+
+  // The emblem: rings, lettering, triangle, rays and an eye. Green parts glow (bright texels).
+  const R = 7.2 * m;
+  const glow = (w: number, path: () => void) => {
+    g.strokeStyle = style.rune;
+    g.lineWidth = w * 2.6;
+    g.globalAlpha = 0.25;
+    path();
+    g.stroke();
+    g.globalAlpha = 1;
+    g.lineWidth = w;
+    path();
+    g.stroke();
+  };
+  const circle = (rad: number, y = cx) => () => {
+    g.beginPath();
+    g.arc(cx, y, rad, 0, Math.PI * 2);
+  };
+  g.strokeStyle = style.glyph;
+  g.lineWidth = 0.35 * m;
+  circle(R)();
+  g.stroke();
+  g.lineWidth = 0.12 * m;
+  circle(R + 0.9 * m)();
+  g.stroke();
+  glow(0.14 * m, circle(R - 0.55 * m));
+  g.fillStyle = style.glyph;
+  g.font = `bold ${Math.round(0.55 * m)}px sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  const text = 'BUREAU OF GENERAL OVERSIGHT ★ EST. MCMXLVII ★ ';
+  const tr = R + 0.47 * m;
+  for (let i = 0; i < text.length; i++) {
+    const a = (i / text.length) * Math.PI * 2 - Math.PI / 2;
+    g.save();
+    g.translate(cx + Math.cos(a) * tr, cx + Math.sin(a) * tr);
+    g.rotate(a + Math.PI / 2);
+    g.fillText(text[i], 0, 0);
+    g.restore();
+  }
+  g.strokeStyle = style.glyph;
+  g.lineWidth = 0.3 * m;
+  g.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + (i / 3) * Math.PI * 2;
+    const x = cx + Math.cos(a) * (R - 0.9 * m), y = cx + Math.sin(a) * (R - 0.9 * m);
+    if (i) g.lineTo(x, y);
+    else g.moveTo(x, y);
+  }
+  g.closePath();
+  g.stroke();
+  const ey = cx + 0.4 * m;
+  glow(0.08 * m, () => {
+    g.beginPath();
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      g.moveTo(cx + Math.cos(a) * 1.9 * m, ey + Math.sin(a) * 1.9 * m);
+      g.lineTo(cx + Math.cos(a) * 2.9 * m, ey + Math.sin(a) * 2.9 * m);
+    }
+  });
+  g.fillStyle = 'rgba(200,204,196,0.9)';
+  g.beginPath();
+  g.moveTo(cx - 2.4 * m, ey);
+  g.quadraticCurveTo(cx, ey - 2.0 * m, cx + 2.4 * m, ey);
+  g.quadraticCurveTo(cx, ey + 2.0 * m, cx - 2.4 * m, ey);
+  g.fill();
+  g.strokeStyle = style.glyph;
+  g.lineWidth = 0.14 * m;
+  g.stroke();
+  g.fillStyle = 'rgba(60,200,120,0.95)';
+  circle(0.75 * m, ey)();
+  g.fill();
+  glow(0.1 * m, circle(0.78 * m, ey));
+  g.fillStyle = '#121614';
+  circle(0.36 * m, ey)();
+  g.fill();
+
+  // Floor tape on the spawn marks (z = +-8 m).
+  g.strokeStyle = style.mark;
+  g.lineWidth = 0.14 * m;
+  for (const sgn of [-1, 1]) g.strokeRect(cx - 0.8 * m, cx + sgn * 8 * m - 0.8 * m, 1.6 * m, 1.6 * m);
   return c;
 }
 
@@ -365,7 +728,7 @@ export function stoneTexture(style?: StoneStyle): THREE.Texture {
   return tex;
 }
 
-export type GroundKind = 'grass' | 'lava' | 'snow' | 'sand';
+export type GroundKind = 'grass' | 'lava' | 'snow' | 'sand' | 'asphalt' | 'carpet';
 
 /** Seamless 512² ground texture for the terrain outside the arena wall. */
 export function drawGround(kind: GroundKind): HTMLCanvasElement {
@@ -461,6 +824,128 @@ export function drawGround(kind: GroundKind): HTMLCanvasElement {
         }
       }
       break;
+    case 'asphalt':
+      g.fillStyle = '#383436';
+      g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 30; i++) {
+        const rad = 30 + r() * 70;
+        const tone = r() < 0.5 ? 'rgba(70,64,66,0.5)' : 'rgba(22,20,22,0.45)';
+        wrapped(r() * S, r() * S, rad, (x, y) => blob(g, x, y, rad, tone, 'rgba(40,38,40,0)'));
+      }
+      for (let i = 0; i < 9000; i++) {
+        const v = Math.floor(r() * 60);
+        g.fillStyle = `rgba(${40 + v},${38 + v},${40 + v},0.4)`;
+        g.fillRect(r() * S, r() * S, 2, 2);
+      }
+      g.lineWidth = 1.5;
+      g.strokeStyle = 'rgba(16,14,16,0.6)';
+      for (let i = 0; i < 12; i++) crack(g, r, 60 + r() * (S - 120), 60 + r() * (S - 120), 5, 12);
+      break;
+    case 'carpet':
+      carpetTiles(g, r, S, 32, [72, 80, 94], 10);
+      break;
+  }
+  return c;
+}
+
+/** 512² office ceiling (8 x 8 acoustic tiles, two fluorescent troffers). `glowOnly`: just the lit panels. */
+export function drawCeiling(glowOnly = false): HTMLCanvasElement {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(41);
+  const tile = S / 8;
+  g.fillStyle = glowOnly ? '#000' : '#8e928c';
+  g.fillRect(0, 0, S, S);
+  if (!glowOnly) {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const v = Math.floor(r() * 14);
+        g.fillStyle = `rgb(${190 + v},${192 + v},${184 + v})`;
+        g.fillRect(x * tile + 2, y * tile + 2, tile - 4, tile - 4);
+        g.fillStyle = 'rgba(120,124,116,0.35)';
+        for (let k = 0; k < 60; k++) g.fillRect(x * tile + 3 + r() * (tile - 6), y * tile + 3 + r() * (tile - 6), 1.5, 1.5);
+      }
+    }
+  }
+  for (const [tx, ty] of [[1, 1], [5, 5]]) {
+    const x = tx * tile + 3, y = ty * tile + 3, w = 2 * tile - 6, h = tile - 6;
+    g.fillStyle = glowOnly ? '#000' : '#d8dcd6';
+    g.fillRect(x, y, w, h);
+    const grad = g.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, '#d4f0da');
+    grad.addColorStop(0.5, '#ffffff');
+    grad.addColorStop(1, '#d4f0da');
+    g.fillStyle = grad;
+    g.fillRect(x + 6, y + 6, w - 12, h - 12);
+    g.fillStyle = glowOnly ? 'rgba(0,0,0,0.35)' : 'rgba(150,160,150,0.5)';
+    for (let k = 1; k < 4; k++) g.fillRect(x + 6, y + (h * k) / 4 - 1, w - 12, 2);
+  }
+  return c;
+}
+
+/**
+ * 512² office wall section (mapped once over the 12 m room height): beige wall, a window with
+ * blinds lit from outside, and a baseboard. `glowOnly`: just the daylight through the blinds.
+ */
+export function drawOfficeWall(glowOnly = false): HTMLCanvasElement {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(43);
+  g.fillStyle = glowOnly ? '#000' : '#c4b896';
+  g.fillRect(0, 0, S, S);
+  if (!glowOnly) {
+    for (let i = 0; i < 30; i++) blob(g, r() * S, r() * S, 30 + r() * 60, 'rgba(255,248,230,0.1)', 'rgba(255,248,230,0)');
+    g.fillStyle = '#54585c';
+    g.fillRect(0, S - 14, S, 14);
+    g.fillStyle = 'rgba(110,100,80,0.3)';
+    g.fillRect(0, 0, 8, S);
+  }
+  const x0 = 70, x1 = S - 70, y0 = S * 0.5, y1 = S * 0.84;
+  g.fillStyle = glowOnly ? '#000' : '#62685e';
+  g.fillRect(x0 - 8, y0 - 8, x1 - x0 + 16, y1 - y0 + 16);
+  const sky = g.createLinearGradient(0, y0, 0, y1);
+  sky.addColorStop(0, '#eef6ff');
+  sky.addColorStop(1, '#bcd2dc');
+  g.fillStyle = sky;
+  g.fillRect(x0, y0, x1 - x0, y1 - y0);
+  for (let y = y0; y < y0 + (y1 - y0) * 0.7; y += 6) {
+    g.fillStyle = glowOnly ? 'rgba(0,0,0,0.6)' : 'rgba(204,200,186,0.95)';
+    g.fillRect(x0, y, x1 - x0, 3.5);
+  }
+  g.fillStyle = glowOnly ? '#000' : '#565a58';
+  g.fillRect((x0 + x1) / 2 - 3, y0, 6, y1 - y0);
+  return c;
+}
+
+/** 256² building facade (4 x 4 windows), some lit warm, teal or pink. `glowOnly`: just the lit windows. */
+export function drawFacade(glowOnly = false): HTMLCanvasElement {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(47);
+  g.fillStyle = glowOnly ? '#000' : '#3c3038';
+  g.fillRect(0, 0, S, S);
+  if (!glowOnly) {
+    for (let i = 0; i < 3000; i++) {
+      g.fillStyle = `rgba(${90 + r() * 40},${70 + r() * 30},${80 + r() * 30},0.25)`;
+      g.fillRect(r() * S, r() * S, 2, 2);
+    }
+  }
+  const cell = S / 4;
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < 4; x++) {
+      const lit = r();
+      const wx = x * cell + 14, wy = y * cell + 16, ww = cell - 28, wh = cell - 26;
+      let col = glowOnly ? '#000' : '#1a1820';
+      if (lit < 0.17) col = '#ffb866';
+      else if (lit < 0.21) col = '#7ff0ff';
+      else if (lit < 0.24) col = '#ff7ac8';
+      g.fillStyle = col;
+      g.fillRect(wx, wy, ww, wh);
+      if (!glowOnly) {
+        g.fillStyle = 'rgba(20,16,24,0.6)';
+        g.fillRect(wx + ww / 2 - 1, wy, 2, wh);
+      }
+    }
   }
   return c;
 }

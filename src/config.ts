@@ -99,6 +99,44 @@ export const CONFIG = {
       /** Damage multiplier for spells hitting pillars. */
       spellDamageMultiplier: 1.0,
     },
+    /**
+     * Office cover (themes with `layout: 'cubicles'`): a grid of cubicles with aisles replaces the
+     * pillar rings. Cubicles are square boxes. Their 1.3 m partitions stop chest-height bolts
+     * (chest 1.2 m, wand 1.36 m) and line of sight, yet sit below the 1.40 m jump apex, so a wizard
+     * can hop onto one. Entries are for the +x/+z quadrant and are mirrored into the other three, so
+     * both spawns (on the z axis) see the same cover; `turn` is a yaw in quarter turns.
+     */
+    cubicles: {
+      size: 2.2,
+      height: 1.3,
+      /** What's left after a crumble: the desk and partition stubs (blocks walking; bolts fly over). */
+      stumpHeight: 0.78,
+      /** Tougher than a pillar (70): a cubicle is a much bigger target for stray bolts. */
+      hp: 90,
+      quadrant: [
+        // Inner pods flanking the centre aisle (each mirrors into a 2.2 x 4.4 m back-to-back pair).
+        { x: 5.6, z: 1.1, turn: 0 },
+        // Diagonal cover beside each spawn.
+        { x: 9.2, z: 9.0, turn: 1 },
+        // Behind each spawn, off the spawn line.
+        { x: 3.6, z: 15.2, turn: 2 },
+        // Flanks.
+        { x: 15.6, z: 3.4, turn: 3 },
+      ],
+      /** Smaller obstructions (same quadrant mirroring). Only `cover` ones are tall enough to hide behind. */
+      obstructions: [
+        { kind: 'cabinet', x: 18.4, z: 10.0, turn: 1 },
+        { kind: 'copier', x: 11.6, z: 17.8, turn: 0 },
+        { kind: 'cooler', x: 0, z: 12.5, turn: 0 },
+      ] as { kind: 'cabinet' | 'copier' | 'cooler'; x: number; z: number; turn: number }[],
+      /** A bank of three lateral filing cabinets. */
+      cabinet: { halfX: 1.05, halfZ: 0.32, height: 1.25, stumpHeight: 0.45, hp: 55, cover: true },
+      copier: { halfX: 0.55, halfZ: 0.4, height: 1.1, stumpHeight: 0.5, hp: 40, cover: false },
+      /** Water cooler (a short cylinder). */
+      cooler: { radius: 0.3, height: 1.35, stumpHeight: 0.4, hp: 25, cover: false },
+      /** Height of the office ceiling (well above the menu orbit and any jump camera). */
+      ceilingHeight: 12,
+    },
   },
 
   wizard: {

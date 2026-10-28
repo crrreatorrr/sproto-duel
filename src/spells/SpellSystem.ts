@@ -538,9 +538,9 @@ export class SpellSystem {
     }
     for (const pillar of this.arena.pillars) {
       if (!pillar.alive) continue;
-      const d = Math.hypot(pillar.position.x - origin.x, pillar.position.z - origin.z) - CONFIG.arena.pillars.radius;
+      const d = pillar.surfaceDistance(origin.x, origin.z);
       if (d > radius) continue;
-      tmpPoint.set(pillar.position.x, origin.y, pillar.position.z);
+      pillar.closestPoint(origin.x, origin.z, tmpPoint).y = origin.y;
       pillar.damage(damage * lerp(1, 0.35, Math.max(0, d) / radius), tmpPoint);
     }
     this.fx.explosion(origin, owner.team.blast, radius);
@@ -614,7 +614,7 @@ export class SpellSystem {
 
       for (const pillar of this.arena.pillars) {
         if (!pillar.alive || wave.hitPillars.has(pillar)) continue;
-        const d = Math.hypot(pillar.position.x - wave.origin.x, pillar.position.z - wave.origin.z) - CONFIG.arena.pillars.radius;
+        const d = pillar.surfaceDistance(wave.origin.x, wave.origin.z);
         if (d > wave.radius) continue;
         wave.hitPillars.add(pillar);
         tmpPoint.copy(pillar.position).setY(1.5);

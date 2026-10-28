@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vector3 } from 'three';
-import type { Pillar } from '../arena/Pillar';
+import type { ObstacleShape, Pillar } from '../arena/Pillar';
 import type { Wizard } from '../wizard/Wizard';
 
 /** What a collider belongs to, so query hits can be routed to gameplay objects. */
@@ -108,16 +108,29 @@ export class Physics {
     }
   }
 
-  /** Full column collider plus a short stump collider that takes over once the pillar crumbles. */
-  addPillar(x: number, z: number, radius: number, height: number, stumpHeight: number, pillar: Pillar) {
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, 0, z));
+  /**
+   * Full collider (a cylinder, or a box turned by `shape.yaw`) plus a short stump collider that
+   * takes over once the pillar crumbles.
+   */
+  addPillar(x: number, z: number, shape: ObstacleShape, pillar: Pillar) {
+    const half = shape.yaw / 2;
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(x, 0, z).setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) }),
+    );
+    const box = shape.collider === 'box';
+    const s = shape.stumpScale;
+    const fullDesc = box
+      ? RAPIER.ColliderDesc.cuboid(shape.halfX, shape.height / 2, shape.halfZ)
+      : RAPIER.ColliderDesc.cylinder(shape.height / 2, shape.radius);
+    const stumpDesc = box
+      ? RAPIER.ColliderDesc.cuboid(shape.halfX * s, shape.stumpHeight / 2, shape.halfZ * s)
+      : RAPIER.ColliderDesc.cylinder(shape.stumpHeight / 2, shape.radius * s);
     const full = this.world.createCollider(
-      RAPIER.ColliderDesc.cylinder(height / 2, radius).setTranslation(0, height / 2, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
+      fullDesc.setTranslation(0, shape.height / 2, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
       body,
     );
     const stump = this.world.createCollider(
-      RAPIER.ColliderDesc.cylinder(stumpHeight / 2, radius * 1.15).setTranslation(0, stumpHeight / 2, 0)
-        .setCollisionGroups(groups(GROUP.WORLD, 0xffff)).setEnabled(false),
+      stumpDesc.setTranslation(0, shape.stumpHeight / 2, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)).setEnabled(false),
       body,
     );
     this.tags.set(full.handle, { kind: 'pillar', pillar });

@@ -302,9 +302,10 @@ export class AIController implements TickController {
     let best = Infinity;
     this.hasCover = false;
     for (const pillar of this.arena.pillars) {
-      if (!pillar.alive) continue;
+      if (!pillar.alive || !pillar.cover) continue;
       const away = tmpC.subVectors(pillar.position, this.target.pos).setY(0).normalize();
-      const spot = tmpB.copy(pillar.position).addScaledVector(away, CONFIG.arena.pillars.radius + 1.3);
+      // Just behind the far side of the footprint (a cylinder's radius, or a box's extent that way).
+      const spot = tmpB.copy(pillar.position).addScaledVector(away, pillar.extentToward(away.x, away.z) + 1.3);
       const d = spot.distanceTo(this.self.pos) + spot.distanceTo(this.target.pos) * 0.3;
       if (d < best) {
         best = d;

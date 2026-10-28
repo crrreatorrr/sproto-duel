@@ -68,11 +68,20 @@ export class Debris {
     }
   }
 
-  /** A whole column collapsing. */
-  spawnColumn(base: THREE.Vector3, height: number, radius: number, count: number): void {
+  /** Re-shape the chunks for an environment theme (e.g. flat partition panels in the office). */
+  setGeometry(geometry: THREE.BufferGeometry): void {
+    this.mesh.geometry = geometry;
+  }
+
+  get geometry(): THREE.BufferGeometry {
+    return this.mesh.geometry;
+  }
+
+  /** A whole column collapsing (chunks start between `minY` and `minY + height`). */
+  spawnColumn(base: THREE.Vector3, height: number, radius: number, count: number, minY = 0.8): void {
     for (let k = 0; k < count; k++) {
       const a = Math.random() * Math.PI * 2;
-      const y = 0.8 + Math.random() * height;
+      const y = minY + Math.random() * height;
       const out = 1 + Math.random() * 4;
       this.emit(base.x + Math.cos(a) * radius * 0.8, y, base.z + Math.sin(a) * radius * 0.8,
         Math.cos(a) * out, Math.random() * 3, Math.sin(a) * out,
