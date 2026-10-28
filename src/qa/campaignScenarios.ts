@@ -341,6 +341,21 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       c.expect(!!bolt && bolt.power === B.power * CONFIG.debug.godClashMultiplier, `bolt clash power ${bolt?.power}`);
       c.step(0.8);
       c.near(hp - e.health, B.damage * CONFIG.debug.godPowerMultiplier, 1e-6, 'god bolt dmg');
+      // No cooldowns: Blast, Shield and Stun are ready again on the next tick; the Ultimate stays charged.
+      c.setup();
+      const S = CONFIG.spells;
+      p.cd.blast = S.blast.cooldown;
+      p.cd.shield = S.shield.cooldown;
+      p.cd.stun = S.stun.cooldown;
+      p.ult = 0;
+      c.step(1 / 60);
+      c.expect(p.cd.blast === 0 && p.cd.shield === 0 && p.cd.stun === 0, `god cooldowns ${p.cd.blast}/${p.cd.shield}/${p.cd.stun}`);
+      c.expect(p.ult === S.ultimate.chargeMax, `god ult charge ${p.ult}`);
+      p.intent.press('shield');
+      c.step(S.shield.duration + 0.1);
+      p.intent.press('shield');
+      c.step(1 / 60);
+      c.expect(p.shieldTime > 0, 'shield not ready again right after the last one ended');
       off();
       // Off again: normal rules.
       game.setGodMode(false);
@@ -432,7 +447,10 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
         if (ev.wizard === p) noMana++;
       });
       let minMana = Infinity;
+      // Sprinting pauses while a spell winds up, and with no cooldowns Blast winds up constantly, so
+      // count only the ticks where sprint was possible (no cast pending).
       let sprintTicks = 0;
+      let sprintable = 0;
       let t = 0;
       // Spam every spell and sprint in circles for 8 s.
       c.step(8, () => {
@@ -444,17 +462,31 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
         if (Math.floor(t * 10) % 7 === 0) p.intent.press('stun');
         if (Math.floor(t * 10) % 11 === 0) p.intent.press('shield');
         game.enemy.health = game.enemy.maxHealth;
-        if (p.sprinting) sprintTicks++;
+        if (p.cast === null) {
+          sprintable++;
+          if (p.sprinting) sprintTicks++;
+        }
         minMana = Math.min(minMana, p.mana);
       });
       off();
       const casts = p.stats.casts;
-      c.note(`casts=${casts} minMana=${minMana.toFixed(1)} sprint=${((sprintTicks * CONFIG.sim.fixedDt) / 8 * 100).toFixed(0)}%`);
+      const sprintShare = sprintTicks / Math.max(1, sprintable);
+      c.note(`casts=${casts} minMana=${minMana.toFixed(1)} sprint=${(sprintShare * 100).toFixed(0)}% of ${sprintable} free ticks`);
       c.expect(noMana === 0, `${noMana} NO MANA in god mode`);
       c.expect(minMana >= CONFIG.wizard.maxMana - S.blast.manaCost, `mana dropped to ${minMana.toFixed(1)}`);
       c.expect(p.mana >= CONFIG.wizard.maxMana - 1, `mana ended at ${p.mana.toFixed(1)}`);
       c.expect(casts > 40, `only ${casts} casts in 8 s of spam`);
-      c.expect(sprintTicks * CONFIG.sim.fixedDt > 6.5, 'sprint exhausted in god mode');
+      c.expect(sprintShare > 0.9, 'sprint stalled during the spell spam in god mode');
+      // Long sprint while firing bolts (no wind-ups): it must never run dry.
+      let longSprint = 0;
+      c.step(6, () => {
+        t += CONFIG.sim.fixedDt;
+        p.intent.move.set(Math.cos(t * 1.5), 0, Math.sin(t * 1.5));
+        p.intent.sprint = true;
+        p.intent.holdBolt = true;
+        if (p.sprinting) longSprint++;
+      });
+      c.expect(longSprint * CONFIG.sim.fixedDt > 5.7, `sprint exhausted in god mode (${(longSprint * CONFIG.sim.fixedDt).toFixed(2)} of 6 s)`);
       // Without god mode the same spam runs dry.
       game.setGodMode(false);
       c.setup();

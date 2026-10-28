@@ -382,15 +382,16 @@ export const CONFIG = {
   },
 
   /**
-   * Testing aids. God mode: the player takes no damage, has unlimited mana, deals
+   * Testing aids. God mode: the player takes no damage, has unlimited mana, no spell cooldowns
+   * (Blast, Shield and Stun are ready again at once, the Ultimate is always charged), deals
    * `godPowerMultiplier`x damage and casts spells with `godClashMultiplier`x clash power.
    * Toggle by typing 9 twice quickly, F9, the Settings toggle, or start with `?god` in the URL.
    * It is never saved: a reload turns it off again.
    */
   debug: {
     godMode: false,
-    godPowerMultiplier: 2,
-    godClashMultiplier: 2,
+    godPowerMultiplier: 5,
+    godClashMultiplier: 5,
     godHotkey: 'F9',
     /** Press one of these twice within `godCheatWindowMs` to toggle god mode ("99"). */
     godCheatKeys: ['Digit9', 'Numpad9'],

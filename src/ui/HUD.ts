@@ -86,7 +86,7 @@ export class HUD {
       <div class="crosshair"><i></i><i></i><i></i><i></i></div>
       <div class="enemy-tag"><div class="enemy-tag-fill"></div></div>
       <div class="offscreen-arrow"></div>
-      <div class="god-badge" title="God mode: no damage, unlimited mana (99 or ${CONFIG.debug.godHotkey} toggles)">God Mode</div>
+      <div class="god-badge" title="God mode: no damage, unlimited mana, no cooldowns, ${CONFIG.debug.godPowerMultiplier}× damage (99 or ${CONFIG.debug.godHotkey} toggles)">God Mode</div>
       <div class="banner"><div class="banner-main"></div><div class="banner-sub"></div></div>
       <div class="hud-bottom">
         <div class="slots"></div>

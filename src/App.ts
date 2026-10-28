@@ -261,7 +261,7 @@ export class App {
   setGodMode(on: boolean): void {
     this.game.setGodMode(on);
     this.menus.syncGodMode(on);
-    this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · ${CONFIG.debug.godPowerMultiplier}× power` : '', on ? 'god-on' : 'god-off');
+    this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · no cooldowns · ${CONFIG.debug.godPowerMultiplier}× damage` : '', on ? 'god-on' : 'god-off');
   }
 
   /**

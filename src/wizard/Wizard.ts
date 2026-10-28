@@ -122,6 +122,8 @@ export class Wizard {
   immune = false;
   /** Mana never runs out (god mode): spells cost nothing and sprint never exhausts. */
   infiniteMana = false;
+  /** No spell cooldowns (god mode): Blast, Shield and Stun are ready at once, the Ultimate stays charged. */
+  noCooldowns = false;
 
   constructor(
     readonly index: number,
@@ -275,6 +277,10 @@ export class Wizard {
     if (this.manaDelay > 0) this.manaDelay -= dt;
     else if (!this.sprinting) this.mana = Math.min(W.maxMana, this.mana + W.manaRegen * dt);
     if (this.infiniteMana) this.mana = W.maxMana;
+    if (this.noCooldowns) {
+      this.cd.blast = this.cd.shield = this.cd.stun = 0;
+      this.addUlt(CONFIG.spells.ultimate.chargeMax);
+    }
   }
 
   /** Movement, dodge and knockback integration through the character controller. */

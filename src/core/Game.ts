@@ -174,6 +174,7 @@ export class Game {
     const p = this.player;
     p.immune = on;
     p.infiniteMana = on;
+    p.noCooldowns = on;
     if (on) p.mana = CONFIG.wizard.maxMana;
     p.damageMultiplier = on ? D.godPowerMultiplier : 1;
     p.clashPowerMultiplier = on ? D.godClashMultiplier : 1;
@@ -185,12 +186,12 @@ export class Game {
    */
   useDefaultStats(): () => void {
     const saved = this.wizards.map((w) => ({
-      w, max: w.maxHealth, mult: w.damageMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana,
+      w, max: w.maxHealth, mult: w.damageMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana, cds: w.noCooldowns,
     }));
     for (const w of this.wizards) {
       w.maxHealth = CONFIG.wizard.maxHealth;
       w.damageMultiplier = w.clashPowerMultiplier = 1;
-      w.immune = w.infiniteMana = false;
+      w.immune = w.infiniteMana = w.noCooldowns = false;
     }
     return () => {
       for (const s of saved) {
@@ -200,6 +201,7 @@ export class Game {
         s.w.clashPowerMultiplier = s.clash;
         s.w.immune = s.immune;
         s.w.infiniteMana = s.mana;
+        s.w.noCooldowns = s.cds;
       }
     };
   }

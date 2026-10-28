@@ -83,7 +83,8 @@ boss. Beating Morvane clears the gauntlet.
 ## God mode (testing)
 
 No damage taken (hits still flash and show **IMMUNE**), unlimited mana (spells never fail, sprint
-never runs dry), 2× damage and 2× clash power. Toggle it any time by typing **9 9** quickly, with
+never runs dry), no spell cooldowns (Blast, Shield and Stun are ready again at once and the
+Ultimate is always charged; bolts keep their normal fire rate), 5× damage and 5× clash power. Toggle it any time by typing **9 9** quickly, with
 **F9**, or in Settings; start with it on via `?god` in the URL. A **GOD MODE** badge shows on the
 HUD. It is never saved: a reload turns it off. Tuning: `CONFIG.debug`.
 

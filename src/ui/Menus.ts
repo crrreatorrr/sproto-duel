@@ -304,7 +304,7 @@ export class Menus {
         ${slider('aimAssist', 'Aim assist', 0, 1.5, 0.05)}
         ${toggle('rumble', 'Vibration')}
         <h3>Testing</h3>
-        <label class="setting toggle god-setting"><span>God mode (testing)<small>No damage, unlimited mana, ${CONFIG.debug.godPowerMultiplier}× damage · type 99 or press ${CONFIG.debug.godHotkey} · resets on reload</small></span>
+        <label class="setting toggle god-setting"><span>God mode (testing)<small>No damage, unlimited mana, no cooldowns, ${CONFIG.debug.godPowerMultiplier}× damage · type 99 or press ${CONFIG.debug.godHotkey} · resets on reload</small></span>
           <input type="checkbox" data-god ${this.h.godMode() ? 'checked' : ''}><i></i></label>
         <button class="primary" data-act="back">Back</button>
       </div>`, 'settings');
