@@ -565,6 +565,8 @@ export const CONFIG = {
     spinSpeed: 1.7,
     /** Light beam above each ticket, so it reads from across the arena. */
     beamHeight: 11,
+    /** Beam opacity multiplier per arena theme: warm skies swallow a pale-gold beam. */
+    beamThemeBoost: { desert: 1.55, volcano: 1.45, city: 1.35 } as Partial<Record<string, number>>,
     /** Sparkles per second around a ticket and around a boosted wizard. */
     sparkleRate: 26,
     auraSparkleRate: 22,
@@ -581,7 +583,7 @@ export const CONFIG = {
     /** AI: mana fraction (of the normal max) below which any ticket in range is worth it. */
     aiLowMana: 0.45,
     /** AI: chance per check (every `aiCheckInterval` s) to commit to an eligible ticket. */
-    aiSeekChance: 0.3,
+    aiSeekChance: 0.5,
     aiCheckInterval: 0.5,
     /** AI: seconds without reaching it before giving up; seconds after being hit that count as under fire. */
     aiGiveUpTime: 6,
@@ -718,6 +720,8 @@ export const CONFIG = {
 
   ui: {
     damageNumberLife: 0.85,
+    /** Minimum seconds between "IMMUNE" popups on the same wizard. */
+    immunePopupInterval: 0.3,
   },
 
   /** Boss Gauntlet: every boss evolves through 3 stages within each round as its health drops. */

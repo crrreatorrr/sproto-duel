@@ -162,4 +162,33 @@ export function registerRegressionScenarios(qa: QAHarness, game: Game): void {
     c.note(`drawCalls=${calls}`);
     c.expect(calls > 10, `renderer reports ${calls} draw calls`);
   });
+
+  qa.add('popups.immune_rate_limited_per_target', (c) => {
+    // God mode or a transforming boss: a burst of zero-damage hits shows at most one IMMUNE per interval.
+    c.setup();
+    const p = c.player;
+    let immune = 0;
+    const spawn = game.popups.spawn.bind(game.popups);
+    game.popups.spawn = (pos, text, style) => {
+      if (text === 'IMMUNE') immune++;
+      spawn(pos, text, style);
+    };
+    p.immune = true;
+    try {
+      for (let i = 0; i < 7; i++) {
+        game.spells.dealDamage(p, c.enemy, 3, p.pos, 'bolt');
+        c.step(0.01);
+      }
+      c.expect(immune === 1, `${immune} IMMUNE popups from a 7-hit burst`);
+      c.step(CONFIG.ui.immunePopupInterval + 0.05);
+      game.spells.dealDamage(p, c.enemy, 3, p.pos, 'bolt');
+      c.expect(immune === 2, `no new IMMUNE popup after the interval (${immune})`);
+      // God mode also shrugs off stuns.
+      p.applyStun(1);
+      c.expect(!p.stunned, 'immune (god mode) player was stunned');
+    } finally {
+      game.popups.spawn = spawn;
+      p.immune = false;
+    }
+  });
 }

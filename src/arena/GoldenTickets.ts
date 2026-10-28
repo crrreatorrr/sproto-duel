@@ -114,8 +114,8 @@ function horizontalDistance(a: THREE.Vector3, x: number, z: number): number {
 
 /**
  * Golden tickets: up to `CONFIG.tickets.maxActive` floating pickups during the fight phase. Any
- * wizard that touches one gets a mana boost (`Wizard.manaBoost`): max mana x1.5 and refilled, regen x2
- * with no delay, for 15 s; another ticket refreshes it. Spawn spots are random open floor inside the
+ * wizard that touches one gets a mana boost (`Wizard.manaBoost`): max mana x1.5 and refilled (regen per
+ * CONFIG.tickets), for 15 s; another ticket refreshes it. Spawn spots are random open floor inside the
  * fire ring, checked with a physics shape query (so any obstacle shape counts), away from wizards.
  *
  * Fixed-tick `update` owns spawning, lifetimes and pickups; `updateVisual` animates the pooled
@@ -439,7 +439,8 @@ export class GoldenTickets {
       t.glow.material.opacity = 0.5 * alpha;
       const beam = t.beam.material.uniforms;
       beam.uTime.value = time;
-      beam.uOpacity.value = 0.55 * alpha * Math.min(1, t.active ? t.popTime / POP_TIME : 1) * (0.85 + 0.15 * Math.sin(time * 2.5 + t.phase));
+      const themeBoost = T.beamThemeBoost[this.arena.theme] ?? 1;
+      beam.uOpacity.value = Math.min(1, 0.55 * themeBoost) * alpha * Math.min(1, t.active ? t.popTime / POP_TIME : 1) * (0.85 + 0.15 * Math.sin(time * 2.5 + t.phase));
       t.beam.scale.set(scale * far, 1, scale * far);
       t.floorGlow.material.opacity = 0.5 * alpha * (0.8 + 0.2 * Math.sin(time * 3 + t.phase));
     }

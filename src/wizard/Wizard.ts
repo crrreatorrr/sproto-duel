@@ -137,7 +137,7 @@ export class Wizard {
   damageMultiplier = 1;
   /** Multiplies the clash power of this wizard's projectiles (god mode). */
   clashPowerMultiplier = 1;
-  /** Takes no damage (god mode). Hits still flash, knock back and stun. */
+  /** Takes no damage and can't be stunned (god mode). Hits still flash and knock back. */
   immune = false;
   /** Mana never runs out (god mode): spells cost nothing and sprint never exhausts. */
   infiniteMana = false;
@@ -376,7 +376,7 @@ export class Wizard {
   }
 
   applyStun(seconds: number): void {
-    if (this.evolving) return;
+    if (this.evolving || this.immune) return;
     this.stunTime = Math.max(this.stunTime, seconds);
     this.cast = null;
     this.vel.multiplyScalar(0.2);
