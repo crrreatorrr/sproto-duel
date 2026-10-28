@@ -76,7 +76,8 @@ function bossStages<Id extends string>(id: Id, heights: [number, number, number]
 }
 
 export const MODELS = {
-  wizardPlayer: { path: 'models/wizard_player.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
+  // Player: Higgsfield/Tripo static mesh (faces +X), animated procedurally like the bosses.
+  wizardPlayer: { path: 'models/wizard_player.glb', fitHeight: 1.9, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS },
   wizardRival: { path: 'models/wizard_rival.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
   pillar: { path: 'models/pillar.glb', fitHeight: 5.5 },
   pillarBroken: { path: 'models/pillar_broken.glb', fitHeight: 1.0 },
