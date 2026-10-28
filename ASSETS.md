@@ -129,6 +129,48 @@ The Midget is a second boss wizard in fight 2 with his own short hitbox (1.25 m)
 are fitted to 1.25-1.6 m rather than ~2 m (manifest keys `bossMidget1..3`). Without his GLBs he is a
 scaled-down placeholder wizard in royal blue and bronze with a small gold top hat.
 
+### Muzzle points (where spells leave each model)
+
+Every boss stage and the player's model has **muzzle points**: where its spells come out (staff
+orb or gem, phone, vape mouthpiece or cannon outlet, gun barrel, Tinubu's raised hand and mouth).
+They are measured on each GLB, so **re-measure them whenever you regenerate a model**: boss stages
+in `levels.ts` (`muzzle` on each stage, partners included), the player in `manifest.ts`
+(`wizardPlayer.muzzle`).
+
+A point is `[forward, up, right]` as **fractions of the model's height**, measured from the centre
+of its feet (the centroid of the lowest 12 % of vertices, the loader's `anchor: 'feet'`), as the
+character faces in game. The game multiplies by `fitHeight`, so a changed fit height needs no
+re-measuring. Example: Sahil stage 1 (2.0 m) `[0.15, 0.895, 0.265]` is 0.30 m forward, 1.79 m up,
+0.53 m to his right.
+
+To measure: run the game, instantiate the model (`__duel.game.assets.instantiate('bossSahil1')`),
+read vertex positions in its root's frame (+Z forward, +X the model's left, feet at 0), find the prop
+(texture colours and extremes help: the glowing orb, the dark phone, the most forward barrel
+vertices), convert with `[z, y, -x] / fitHeight`, and check with a marker sphere from the front and
+the side. `__duel.qa.runAll('muzzles.')` then checks every stage fires from its data. Measured
+values (meters at the fit height):
+
+| Model | Points (m: forward, up, right) | Casts |
+|---|---|---|
+| Player (1.9 m) | staff orb 0.14, 1.74, 0.39 | everything |
+| Sahil 1 / 2 / 3 | staff gem 0.30, 1.79, 0.53 / 0.47, 2.01, 0.70 / 0.42, 2.28, 0.84 | everything |
+| Bitcoin Obama 1 | phone (right hand) 0.34, 1.42, 0.41 | everything |
+| Bitcoin Obama 2 | phones: right 0.11, 1.43, 0.66; left 0.21, 1.39, -0.60 | alternate |
+| Bitcoin Obama 3 | fists (phones drawn in code): right 0.08, 1.19, 0.60; left 0.23, 1.16, -0.50 | alternate |
+| The Midget 1 | phone (left hand) 0.23, 0.75, -0.31 | everything |
+| The Midget 2 | phones: right 0.27, 0.87, 0.31; left 0.28, 0.87, -0.30 | alternate |
+| The Midget 3 | fists (phones drawn in code): right 0.13, 0.79, 0.37; left 0.04, 0.77, -0.52 | alternate |
+| Broccoli Head 1 / 2 / 3 | pen mouthpiece 0.28, 1.51, 0.30 / box mod 0.46, 1.74, 0.43 / cannon outlet 1.16, 1.26, 0.29 | everything (puff size 1 / 1.6 / 2.6) |
+| Glowie 1 / 2 / 3 | pistol 0.17, 0.69, 0.49 / SMG 0.44, 1.50, -0.25 / minigun 1.14, 1.00, -0.52 | everything |
+| Tinubu 1 | hand (raised palm) 0.50, 1.64, 0.48; mouth 0.15, 1.67, -0.05 | bolt/stun hand, blast/volley mouth, Ultimate both |
+| Tinubu 2 | right claw 0.41, 1.18, 0.86; mouth 0.40, 1.92, -0.03 | as stage 1 |
+| Tinubu 3 | right claw 0.52, 1.33, 1.03; mouth 0.33, 2.29, 0.07 | as stage 1 |
+
+A muzzle set lists named points and, optionally, which point each cast uses (`use`); several
+points for one cast alternate shot by shot. Without a GLB, the primitive placeholder carries a
+matching code-built prop (`PLACEHOLDER_MUZZLES`). A model with no muzzle data casts from a generic
+wand point in front of the right hand.
+
 Boss models are static meshes (the game animates them procedurally), ≤ 9k triangles each. Generate
 concepts in a wide standing stance rather than a T-pose, since there is no rig: whole body, front
 view, plain background, one character, few detached floating objects. Projectiles are built in code
@@ -278,7 +320,8 @@ Settings. To regenerate the placeholders after changing the synth script: `npm r
 ## Spell effects
 
 Spell visuals (bolts, orbs, shield bubble, stun beam, ultimate wave, fire ring, sparks, smoke,
-debris) are particle systems and shaders written in code, as requested. They are not assets and
+debris, and the muzzle effects at each caster's staff, phones, vape, gun, hand and mouth) are
+particle systems and shaders written in code, as requested. They are not assets and
 need nothing from Higgsfield. Their colours come from `CONFIG.teams` in `src/config.ts`.
 The bosses' thrown objects (rugs, carpets, phones, pigs, broccoli, bullets, grenades, hellfire,
 burning skulls) are low-poly meshes built in code too (`src/spells/ProjectileSkins.ts`), with

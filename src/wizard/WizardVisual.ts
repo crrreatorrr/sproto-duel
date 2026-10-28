@@ -4,7 +4,7 @@ import type { ModelInstance } from '../assets/AssetLoader';
 import type { WizardClip, ModelAsset } from '../assets/manifest';
 import { muzzleSetFor } from '../campaign/muzzleIndex';
 import { glowTexture } from '../fx/textures';
-import { damp, lerp, saturate, wrapAngle } from '../core/math';
+import { clamp, damp, lerp, saturate, wrapAngle } from '../core/math';
 import { PLACEHOLDER_MUZZLES, resolveMuzzles, type CastKind, type MuzzleType, type ResolvedMuzzles } from './muzzles';
 import type { Wizard } from './Wizard';
 
@@ -82,10 +82,10 @@ const MAX_MUZZLES = 3;
  * per second, and how bright a muzzle light it asks for when flashing.
  */
 const MUZZLE_LOOK: Record<MuzzleType, { color: number; idle: number; glow: number; flash: number; flashColor: number; pull: number; decay: number; light: number }> = {
-  staff: { color: 0, idle: 0.55, glow: 0.42, flash: 1.15, flashColor: 0, pull: 0.11, decay: 7, light: 1 },
+  staff: { color: 0, idle: 0.55, glow: 0.42, flash: 0.85, flashColor: 0, pull: 0.11, decay: 7, light: 1 },
   phone: { color: 0xcfe8ff, idle: 0.32, glow: 0.24, flash: 0.8, flashColor: 0xf4f9ff, pull: 0.03, decay: 9, light: 0.8 },
-  vape: { color: 0, idle: 0.45, glow: 0.1, flash: 0.4, flashColor: 0xf6eaff, pull: 0.03, decay: 6, light: 0.35 },
-  gun: { color: 0xffd27a, idle: 0, glow: 0.18, flash: 0.95, flashColor: 0xfff2c8, pull: 0.05, decay: 24, light: 1.6 },
+  vape: { color: 0, idle: 0.45, glow: 0.1, flash: 0.22, flashColor: 0xe8b8ff, pull: 0.03, decay: 6, light: 0.35 },
+  gun: { color: 0xffd27a, idle: 0, glow: 0.18, flash: 0.5, flashColor: 0xfff2c8, pull: 0.05, decay: 24, light: 1.6 },
   hand: { color: 0xff7a1a, idle: 0.4, glow: 0.42, flash: 1.0, flashColor: 0xffb347, pull: 0.06, decay: 6, light: 1.1 },
   mouth: { color: 0xff5a10, idle: 0.18, glow: 0.34, flash: 0.95, flashColor: 0xffa040, pull: 0.09, decay: 6, light: 1.1 },
 };
@@ -159,6 +159,15 @@ function footFront(points: [number, number][]): Float32Array {
   return new Float32Array(keep);
 }
 
+/** Most a lean may tip a look's hem toward the floor (m) before its angle is capped: wide bosses lean less. */
+const LEAN_DIP = 0.1;
+
+/** The steepest lean toward a side with these lowest points (see footFront) before it dips LEAN_DIP. */
+function leanCap(feet: Float32Array): number {
+  for (let a = 0.01; a < 1.2; a += 0.01) if (leanDip(feet, a, 1, 1) > LEAN_DIP) return a - 0.01;
+  return 1.2;
+}
+
 /**
  * How far a lean of `angle` (radians, about the hip pivot at 0.9 m) would push the lowest points
  * on its side below the floor, given the pivot's thin/squash scale. 0 when nothing dips.
@@ -202,6 +211,8 @@ export class WizardVisual {
   boundsRadius = 0.75;
   /** Lowest points toward +Z, -Z, +X and -X (see footFront), for the lean lift. */
   private feet: Float32Array[] = [];
+  /** Steepest lean toward +Z, -Z, +X and -X (leanCap): a wide hem leans less. */
+  private leanCaps = [Math.PI / 2, Math.PI / 2, Math.PI / 2, Math.PI / 2];
   /** Lift added under a lean this frame so wide looks don't dip into the floor (QA). */
   leanLift = 0;
   /** Camera position for the frame, set by Game before visuals update (muzzle glows face it). */
@@ -361,6 +372,7 @@ export class WizardVisual {
     });
     this.boundsRadius = Math.sqrt(r2);
     this.feet = bands.map(footFront);
+    this.leanCaps = this.feet.map(leanCap);
   }
 
   /** Put the look's muzzle points on the anchors (null: none, the generic wand). */
@@ -466,6 +478,33 @@ export class WizardVisual {
     return slot ? slot.anchor.getWorldPosition(out) : out.set(NaN, NaN, NaN);
   }
 
+  /** World position of the spell's windup glow, or NaN when none shows (QA). */
+  chargeGlowWorld(out: THREE.Vector3): THREE.Vector3 {
+    return this.chargeGlow.visible ? this.chargeGlow.getWorldPosition(out) : out.set(NaN, NaN, NaN);
+  }
+
+  /** The visible meshes of the current look (model or placeholder parts), for QA ray and vertex tests. */
+  lookMeshes(): THREE.Mesh[] {
+    const out: THREE.Mesh[] = [];
+    this.body.traverseVisible((o) => {
+      if ((o as THREE.Mesh).isMesh) out.push(o as THREE.Mesh);
+    });
+    return out;
+  }
+
+  /** Lowest point of the current look (model or placeholder) in world space, from its vertices (QA). */
+  lookBottom(): number {
+    this.root.updateMatrixWorld(true);
+    let low = Infinity;
+    this.body.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible) return;
+      const pos = mesh.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) low = Math.min(low, tmpV.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld).y);
+    });
+    return low;
+  }
+
   /** Muzzle objects owned by this visual (QA: the count never changes). */
   get muzzleObjects(): number {
     let n = 1; // chargeGlow
@@ -555,6 +594,7 @@ export class WizardVisual {
     // The robe hem is the lowest, widest thing: what a lean could tip into the floor.
     const hem = new Float32Array([(SKIRT[variant] ?? 0.52) * k, 0]);
     this.feet = [hem, hem, hem, hem];
+    this.leanCaps = this.feet.map(leanCap);
     this.boundsRadius = 0.75 * k;
   }
 
@@ -801,21 +841,21 @@ export class WizardVisual {
       if (slot.type === 'hand' || slot.type === 'mouth') idle *= 0.75 + 0.25 * Math.sin(this.time * 13 + i * 2.1) * Math.sin(this.time * 7.3 + i);
       else if (slot.type === 'staff') idle *= 0.85 + 0.15 * Math.sin(this.time * 2.6);
       const pulse = 1 + slot.charge * (slot.type === 'staff' ? 0.25 * Math.sin(this.time * 18) : 0.1 * Math.sin(this.time * 40));
-      let level = (idle + slot.charge * 1.4 + slot.flare * 0.9) * pulse;
+      let level = (idle + slot.charge * 1.0 + slot.flare * 0.9) * pulse;
       if (slot.type === 'phone') level *= saturate(tmpDir.z * 1.6 + 0.35);
       if (!w.alive) level *= 0.3;
       slot.glow.visible = level * fade > 0.01;
       if (slot.glow.visible) {
         slot.glow.position.copy(tmpDir).multiplyScalar(look.pull * s);
-        slot.glow.material.color.copy(slot.color).multiplyScalar(level * 2);
+        slot.glow.material.color.copy(slot.color).multiplyScalar(level * 1.6);
         slot.glow.material.opacity = fade;
-        slot.glow.scale.setScalar(look.glow * s * (1 + slot.charge * 0.9 + slot.flare * 0.5) * pulse);
+        slot.glow.scale.setScalar(look.glow * s * (1 + slot.charge * 0.6 + slot.flare * 0.5) * pulse);
       }
       const f = slot.flare;
       slot.flash.visible = f > 0.01 && fade > 0.02;
       if (slot.flash.visible) {
         slot.flash.position.copy(tmpDir).multiplyScalar(look.pull * s * 1.5);
-        slot.flash.material.color.copy(slot.flashColor).multiplyScalar(2.5 * f);
+        slot.flash.material.color.copy(slot.flashColor).multiplyScalar(1.8 * f);
         slot.flash.material.opacity = fade * f;
         // Gunfire: a hard star that shrinks away; the rest bloom outward as they fade.
         slot.flash.scale.setScalar(look.flash * s * (slot.type === 'gun' ? 0.7 + 0.4 * f : 1.25 - 0.55 * f));
@@ -844,9 +884,11 @@ export class WizardVisual {
       glow.position.set(-0.34 * k, (1.36 + winding * 0.1) * k, (0.72 + this.armPivot.position.z) * k);
     }
     const spellColor = cast.spell === 'stun' ? w.team.stun : cast.spell === 'ultimate' ? w.team.ultimate : w.team.blast;
-    glow.material.color.setHex(spellColor).multiplyScalar(2.5);
+    // At a prop the muzzle's own glow does much of the work, so the spell's glow is a tighter core.
+    const atProp = first >= 0;
+    glow.material.color.setHex(spellColor).multiplyScalar(atProp ? 1.8 : 2.5);
     glow.material.opacity = fade;
-    const size = (cast.spell === 'ultimate' ? 2.6 : 1.1) * (0.4 + winding) * (1 + Math.sin(this.time * 40) * 0.08);
+    const size = (cast.spell === 'ultimate' ? 2.6 : 1.1) * (atProp ? 0.6 : 1) * (0.4 + winding) * (1 + Math.sin(this.time * 40) * 0.08);
     glow.scale.setScalar(size * Math.max(0.6, this.fxScale));
   }
 
@@ -875,9 +917,13 @@ export class WizardVisual {
       this.leanZ = damp(this.leanZ, (-localX / CONFIG.wizard.sprintSpeed) * 0.3, 10, dt);
     }
 
-    // Lean + recoil.
-    tmpQ.setFromAxisAngle(X_AXIS, this.leanX - w.castPulse * 0.12);
-    tmpQ2.setFromAxisAngle(Z_AXIS, this.leanZ);
+    // Lean + recoil, capped so a wide hem never tips far into the floor (the rest is lifted out below).
+    // +X tips the front down, -X the back; +Z tips the right side (-X) down, -Z the left.
+    const caps = this.leanCaps;
+    const leanX = clamp(this.leanX - w.castPulse * 0.12, -caps[1], caps[0]);
+    const leanZ = clamp(this.leanZ, -caps[2], caps[3]);
+    tmpQ.setFromAxisAngle(X_AXIS, leanX);
+    tmpQ2.setFromAxisAngle(Z_AXIS, leanZ);
     tmpQ.multiply(tmpQ2);
 
     // Dodge roll: full flip around the axis perpendicular to the roll direction.
@@ -939,11 +985,10 @@ export class WizardVisual {
     else if (moving) bob = Math.abs(Math.sin(this.time * (w.sprinting ? 15 : 12))) * 0.06;
     else bob = Math.sin(this.time * 2.2) * 0.012;
     // A lean about the hip tips a wide look's hem into the floor: lift it by whatever would dip
-    // (nothing when standing straight). +X lean tips the front down, +Z lean the right side (-X).
+    // (nothing when standing straight).
     this.leanLift = 0;
     if (w.alive && !w.dodging && this.feet.length === 4) {
-      const ax = this.leanX - w.castPulse * 0.12, az = this.leanZ;
-      this.leanLift = leanDip(this.feet[ax >= 0 ? 0 : 1], ax, thin, squash) + leanDip(this.feet[az >= 0 ? 3 : 2], az, thin, squash);
+      this.leanLift = leanDip(this.feet[leanX >= 0 ? 0 : 1], leanX, thin, squash) + leanDip(this.feet[leanZ >= 0 ? 3 : 2], leanZ, thin, squash);
     }
     this.pivot.position.y = 0.9 * squash + bob + this.leanLift - (w.alive ? 0 : this.deathT * 0.55);
     this.pivot.scale.set(thin, squash, thin);

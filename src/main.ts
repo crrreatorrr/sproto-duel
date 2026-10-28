@@ -15,6 +15,7 @@ import { registerSkinScenarios } from './qa/skinScenarios';
 import { registerStageScenarios } from './qa/stageScenarios';
 import { registerTicketScenarios } from './qa/ticketScenarios';
 import { registerDuoScenarios } from './qa/duoScenarios';
+import { registerMuzzleScenarios } from './qa/muzzleScenarios';
 import { campaignSoak, soak } from './qa/soak';
 import type { Difficulty } from './config';
 import type { ArenaThemeId } from './arena/themes';
@@ -45,6 +46,7 @@ async function boot() {
   registerStageScenarios(qa, game, app);
   registerTicketScenarios(qa, game, app);
   registerDuoScenarios(qa, game, app);
+  registerMuzzleScenarios(qa, game);
   registerOfficeScenarios(qa, game);
   registerArenaKitScenarios(qa, game);
   const qaApi = Object.assign(qa, {

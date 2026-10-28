@@ -294,6 +294,8 @@ export class Game {
     this.spells.pool.prepareSkins(w.index, null);
     w.setEnabled(false);
     w.visual.root.visible = false;
+    // It may be wearing a later stage's model (parked mid-fight): dress it afresh next time, in stage 1's.
+    this.partnerLook = '';
   }
 
   /** God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash power. */
