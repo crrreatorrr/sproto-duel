@@ -46,7 +46,7 @@ export const REWARD_SPELL_INFO: Record<RewardSpellId, RewardSpellInfo> = {
   vape: {
     id: 'vape',
     name: 'Vape Cloud',
-    description: 'Drop a 5 m smoke screen for 6 s. Enemies inside it or looking through it lose track of you and fire at where you were. You heal 3 HP/s inside.',
+    description: 'Drop a 5 m smoke screen for 6 s. Enemies inside it or looking through it lose track of you and fire at where you were. You heal 2 HP/s inside, but attacking from it gives you away and pauses the healing.',
     short: 'Smoke screen: enemies lose you, you heal',
     callout: 'VAPE CLOUD',
     icon: 'ui/spells/spell_vape.png',

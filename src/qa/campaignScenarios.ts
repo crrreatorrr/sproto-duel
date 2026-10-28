@@ -376,11 +376,17 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
         c.expect(next.textContent!.includes(BOSSES[1].name), `results button "${next.textContent}"`);
         next.click();
         c.expect(app.campaign.index === 1 && app.campaign.saved.next === 0, 'Next did not move on (or saved)');
-        // A clean win saves as usual.
+        // A clean win right after it saves nothing either: fight 1 isn't in the save (more in
+        // campaign.god_win_then_legit_win_keeps_save).
         app.startBossFight();
         c.expect(!app.godUsed, 'a fresh fight with god mode off is still marked');
         finishMatch(app, true);
-        c.expect(app.campaign.saved.next === 2 && !app.menus.root.querySelector('.result-tag'), `clean win saved ${JSON.stringify(app.campaign.saved)}`);
+        c.expect(app.campaign.saved.next === 0 && /not saved/i.test(app.menus.root.querySelector('.result-tag')?.textContent ?? ''), `a win after a god-mode win saved ${JSON.stringify(app.campaign.saved)}`);
+        // A clean run saves as usual.
+        app.newGauntlet();
+        button(app, 'begin')!.click();
+        finishMatch(app, true);
+        c.expect(app.campaign.saved.next === 1 && !app.menus.root.querySelector('.result-tag'), `clean win saved ${JSON.stringify(app.campaign.saved)}`);
         // The final boss with god mode on: no clear counted.
         game.setGodMode(true);
         app.campaign.index = BOSSES.length - 1;
@@ -392,6 +398,74 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
         c.expect(/not counted/i.test(app.menus.root.textContent ?? ''), 'completion screen does not say the clear is not counted');
       } finally {
         game.setGodMode(prev);
+      }
+    });
+  });
+
+  qa.add('campaign.god_win_then_legit_win_keeps_save', (c) => {
+    // The QA repro: god mode wins fights 1 and 2 (nothing saved), F9 turns it off on fight 3's card,
+    // fight 3 is won fairly. The save must not skip to fight 4 (Magic Carpet and Pump It were never
+    // learned): a win saves only when every earlier fight of the run is saved.
+    const prev = CONFIG.debug.godMode;
+    const rewardLine = () => app.menus.root.querySelector('.boss-reward small')?.textContent ?? '';
+    const saved = () => JSON.stringify(app.campaign.saved);
+    const win = () => {
+      button(app, 'begin')!.click();
+      c.expect(app.state === 'playing', 'Begin did not start the fight');
+      finishMatch(app, true);
+    };
+    withStashedSave(app, () => {
+      try {
+        app.setGodMode(false);
+        app.campaign.reset();
+        app.setGodMode(true);
+        app.newGauntlet();
+        c.expect(/god mode: progress not saved/i.test(rewardLine()), `fight 1 card with god mode on: "${rewardLine()}"`);
+        win();
+        button(app, 'rematch')!.click();
+        c.expect(app.menus.current === 'boss' && app.campaign.index === 1, 'a god-mode win did not lead to the fight 2 card');
+        c.expect(/god mode: progress not saved/i.test(rewardLine()), `fight 2 card with god mode on: "${rewardLine()}"`);
+        win();
+        button(app, 'rematch')!.click();
+        c.expect(app.campaign.index === 2 && app.campaign.saved.next === 0, `after two god-mode wins: index ${app.campaign.index}, save ${saved()}`);
+        // F9 off on fight 3's card: the reward line now says this run can't be saved.
+        app.setGodMode(false);
+        c.expect(/not saved/i.test(rewardLine()) && !/defeat to learn/i.test(rewardLine()), `fight 3 card after god mode off: "${rewardLine()}"`);
+        win();
+        c.expect(!app.godUsed && app.winUnsaved === 'skipped', `fight 3's clean win: godUsed ${app.godUsed}, unsaved ${app.winUnsaved}`);
+        const fresh = new Campaign().saved;
+        c.expect(app.campaign.saved.next === 0 && app.campaign.unlocked.length === 0 && fresh.next === 0 && fresh.unlockedSpells.length === 0, `the save skipped ahead: ${saved()}`);
+        const root = app.menus.root;
+        c.expect(/not saved/i.test(root.querySelector('.result-tag')?.textContent ?? '') && /not saved/i.test(root.querySelector('.results-boss .boss-fight')?.textContent ?? ''), 'results do not say the win was not saved');
+        c.expect(!root.querySelector('.result-learned'), 'results teach a spell for an unsaved win');
+        const onward = button(app, 'rematch')!;
+        c.expect(/next fight/i.test(onward.textContent ?? '') && onward.textContent!.includes(BOSSES[3].name), `results button "${onward.textContent}"`);
+        button(app, 'quit')!.click();
+        c.expect(!button(app, 'continue'), 'the main menu offers Continue after a run with no saved win');
+
+        // From a real save: fight 1 won fairly (saved), fight 2 in god mode, fight 3 fairly: only
+        // fight 1 counts. Continue picks the saved run back up at fight 2, and a fair win there saves.
+        app.newGauntlet();
+        win();
+        c.expect(app.campaign.saved.next === 1 && app.campaign.hasLearned(BOSSES[0].reward), `fight 1 not saved: ${saved()}`);
+        button(app, 'rematch')!.click();
+        if (app.menus.current === 'reveal') button(app, 'continue')!.click();
+        c.expect(app.menus.current === 'boss' && app.campaign.index === 1, 'no fight 2 card');
+        app.setGodMode(true);
+        win();
+        button(app, 'rematch')!.click();
+        app.setGodMode(false);
+        win();
+        c.expect(app.campaign.saved.next === 1 && !app.campaign.hasLearned(BOSSES[1].reward) && !app.campaign.hasLearned(BOSSES[2].reward), `wins past the save were saved: ${saved()}`);
+        button(app, 'quit')!.click();
+        const cont = button(app, 'continue');
+        c.expect(!!cont && cont.textContent!.includes(BOSSES[1].name), `Continue is not at fight 2: "${cont?.textContent}"`);
+        cont!.click();
+        c.expect(app.campaign.index === 1 && /defeat to learn/i.test(rewardLine()), `Continue's card: index ${app.campaign.index}, "${rewardLine()}"`);
+        win();
+        c.expect(app.campaign.saved.next === 2 && app.campaign.hasLearned(BOSSES[1].reward) && app.winUnsaved === null, `a fair win on the saved run was not saved: ${saved()}`);
+      } finally {
+        app.setGodMode(prev);
       }
     });
   });
@@ -536,7 +610,11 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       c.expect(new Campaign().saved.next === 1, 'progress not in localStorage');
       cont!.click();
       c.expect(app.menus.current === 'boss' && app.campaign.index === 1, 'Continue did not resume at fight 2');
-      // Last boss: winning leads to the completion screen and resets the run.
+      // Last boss (fights 2-4 saved as won): winning leads to the completion screen and resets the run.
+      for (let i = 1; i < BOSSES.length - 1; i++) {
+        app.campaign.index = i;
+        app.campaign.recordWin();
+      }
       app.campaign.index = BOSSES.length - 1;
       app.startBossFight();
       finishMatch(app, true);
@@ -641,6 +719,30 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       app.hud.update(0);
       c.expect(app.hud.root.querySelector('.god-badge.on') === null, 'badge still shown');
       app.toMenu();
+    } finally {
+      game.setGodMode(prev);
+    }
+  });
+
+  qa.add('campaign.god_hazard_ticks_dont_flash', (c) => {
+    // God mode in lava (or the fire ring): every tick deals 0 and must not set the hit flash, or the
+    // player stays solid white. Real hits still flash.
+    const prev = CONFIG.debug.godMode;
+    const p = game.player;
+    try {
+      game.setGodMode(true);
+      c.setup();
+      let flashed = 0;
+      const burns = record('damage');
+      p.spawn(CONFIG.arena.fireRadius - 0.1, 0, 0);
+      c.step(1.2, () => {
+        if (p.hitFlash > 0) flashed++;
+      });
+      const ticks = burns().filter((d) => d.target === p && d.kind === 'fire').length;
+      c.expect(ticks > 0, 'test setup: no fire ticks');
+      c.expect(p.health === p.maxHealth && flashed === 0, `${ticks} fire ticks flashed the god-mode player for ${flashed} ticks (hp ${p.health})`);
+      game.spells.dealDamage(p, game.enemy, 10, p.pos, 'bolt');
+      c.expect(p.hitFlash > 0, 'an immune bolt hit no longer flashes');
     } finally {
       game.setGodMode(prev);
     }
