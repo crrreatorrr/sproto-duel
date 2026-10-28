@@ -771,11 +771,15 @@ export const CONFIG = {
   campaign: {
     /**
      * A Boss Gauntlet fight is one round and you have one life (Match). Every boss stage has its own
-     * health bar (levels.ts `stageHealth`); there is no round timer. After `safetyCap` seconds of
-     * fighting the fire ring starts closing, reaching `capMinRadius` after `capCloseTime` more, so a
-     * stalemate always ends.
+     * health bar (levels.ts `stageHealth`); there is no round timer (the HUD clock counts up). Two
+     * safety caps keep a stalemate from lasting forever (GauntletClock):
+     * - `stageCap`: a stage still going after this many seconds pulls the fire ring in to
+     *   `stageCapRadius` over `capCloseTime` (close quarters, like Quick Duel's sudden death); it
+     *   opens again (`reopenSpeed` m/s) once the stage ends.
+     * - `safetyCap`: past this many seconds of fighting the ring closes all the way
+     *   (`capMinRadius`) over `capCloseTime`, so the fight always ends.
      */
-    fight: { safetyCap: 28 * 60, capCloseTime: 75, capMinRadius: 0 },
+    fight: { stageCap: 9 * 60, stageCapRadius: 9, safetyCap: 35 * 60, capMinRadius: 0, capCloseTime: 60, reopenSpeed: 6 },
     /**
      * Headless transformations (QA, soaks; the real game plays `cinematic` instead, with the
      * simulation frozen): seconds the boss is invulnerable and frozen while it transforms.
@@ -797,7 +801,7 @@ export const CONFIG = {
      * (never below the standard capsule), radius per stage. A short partner scales both to its own
      * size; a placeholder look uses placeholderScale.
      */
-    hurtbox: { modelHeight: 0.85, radius: [0.42, 0.48, 0.55] as [number, number, number] },
+    hurtbox: { modelHeight: 0.9, radius: [0.42, 0.48, 0.55] as [number, number, number] },
     /**
      * Transformation cinematics (src/campaign/BossCinematic.ts), real seconds (pausable). The world
      * freezes (no wizard, spell, fire or lava moves or hurts), the camera swoops around the boss
@@ -853,23 +857,32 @@ export const CONFIG = {
      * capped at maxChance.
      */
     stageAI: {
-      reactionTime: [1, 0.85, 0.7],
-      aimError: [1, 0.85, 0.7],
-      leadBonus: [0, 0.1, 0.2],
-      burstBonus: [0, 1, 2],
-      burstPause: [1, 0.82, 0.66],
+      reactionTime: [1, 0.92, 0.85],
+      aimError: [1, 0.95, 0.9],
+      leadBonus: [0, 0.03, 0.06],
+      burstBonus: [0, 0, 1],
+      burstPause: [1, 0.95, 0.88],
       strafeSpeed: [1, 1.1, 1.2],
-      dodgeChance: [1, 1.2, 1.5],
-      perfectShieldChance: [1, 1.4, 2.0],
-      blastChance: [1, 1.2, 1.4],
-      stunChance: [1, 1.2, 1.4],
-      punishChance: [1, 1.25, 1.5],
+      dodgeChance: [1, 1.06, 1.15],
+      perfectShieldChance: [1, 1.15, 1.35],
+      blastChance: [1, 1, 1.05],
+      stunChance: [1, 1, 1.05],
+      punishChance: [1, 1.05, 1.1],
       maxChance: 0.95,
     },
     /** Multiplies the boss's damage per stage, on top of BossDef.damageMultiplier: the last stage hurts most. */
-    stageDamage: [1, 1.3, 1.65] as [number, number, number],
-    /** Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after a stage begins (x cooldown). */
-    volley: { manaCost: 8, range: 22, firstDelay: 0.35 },
+    stageDamage: [1, 1.25, 1.5] as [number, number, number],
+    /**
+     * Ultimate charge rate for bosses. Their stage bars hold several times a wizard's health, and
+     * charge comes from damage taken and dealt, so at full rate they would cast it every minute.
+     */
+    ultCharge: 0.4,
+    /**
+     * Signature volleys (levels.ts VolleyDef): mana per volley, the AI's max range, first use after
+     * a stage begins (x cooldown), and a multiplier on every VolleyDef cooldown (fights are long
+     * now: a volley every few seconds for fifteen minutes would bury the player).
+     */
+    volley: { manaCost: 8, range: 22, firstDelay: 0.35, cooldownScale: 2.2 },
     /**
      * Double fights (a boss with a `partner`, levels.ts): the pair spawn `spawnSpacing` m apart on
      * the enemy spawn line. Their AIs keep `spacing` m between them (push strength `spacingWeight`)

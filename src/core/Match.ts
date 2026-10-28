@@ -10,9 +10,62 @@ export type Phase = 'menu' | 'intro' | 'fight' | 'roundEnd' | 'matchEnd';
 
 const M = CONFIG.match;
 const A = CONFIG.arena;
+const F = CONFIG.campaign.fight;
 
 /**
- * Best-of-N round flow: intro countdown, fight with timer and sudden death, KO/timeout, results.
+ * A Boss Gauntlet fight's clock and safety caps (CONFIG.campaign.fight), shared by Match and the
+ * campaign soak. Counts fight time and time in the current stage; a stage running past `stageCap`
+ * pulls the fire ring in to `stageCapRadius` (it opens again when the stage ends), and past
+ * `safetyCap` the ring closes completely.
+ */
+export class GauntletClock {
+  elapsed = 0;
+  /** Seconds since the furthest boss stage last changed. */
+  stageElapsed = 0;
+  /** Fire ring radius now. */
+  radius: number = A.fireRadius;
+  private stage = 0;
+
+  reset(): void {
+    this.elapsed = this.stageElapsed = 0;
+    this.stage = 0;
+    this.radius = A.fireRadius;
+  }
+
+  /** The current stage has run past its cap (the ring is pulling in). */
+  get stageCapped(): boolean {
+    return this.stageElapsed > F.stageCap;
+  }
+
+  /** The whole fight has run past the safety cap (the ring closes all the way). */
+  get capped(): boolean {
+    return this.elapsed > F.safetyCap;
+  }
+
+  /** Advance one fight tick at boss stage `stage` (the furthest any boss has reached); returns the ring radius. */
+  update(dt: number, stage: number): number {
+    this.elapsed += dt;
+    if (stage !== this.stage) {
+      this.stage = stage;
+      this.stageElapsed = 0;
+    }
+    this.stageElapsed += dt;
+    const close = (over: number, to: number) => A.fireRadius + (to - A.fireRadius) * Math.min(1, over / F.capCloseTime);
+    let target: number = A.fireRadius;
+    if (this.stageCapped) target = close(this.stageElapsed - F.stageCap, F.stageCapRadius);
+    if (this.capped) target = Math.min(target, close(this.elapsed - F.safetyCap, F.capMinRadius));
+    // Closing follows the target; opening again (a new stage) is gradual.
+    this.radius = target < this.radius ? target : Math.min(target, this.radius + F.reopenSpeed * dt);
+    return this.radius;
+  }
+}
+
+/**
+ * Round flow: intro countdown, fight, KO (or timeout), results. Two modes:
+ * - Quick Duel: best of three, each round on the `roundTime` clock with sudden death at the end.
+ * - Boss Gauntlet (`single`): one round and one life. No clock: it counts up (`elapsed`), the
+ *   player's KO is a defeat (Retry), and the round is won once every boss's last stage is
+ *   depleted. After CONFIG.campaign.fight.safetyCap the fire ring closes so it always ends.
  * Sides, not wizards, win: the player's side (0) takes a round by knocking out every enemy (both
  * bosses in a double fight; a fallen one stays down), the enemies' side (1) by knocking out the
  * player. `wins` is indexed by side. Winners are reported as the side's leader: `game.player` or
@@ -24,6 +77,10 @@ export class Match {
   /** Rounds won per side: [player, enemies]. */
   readonly wins = [0, 0];
   timer: number = M.roundTime;
+  /** The gauntlet's fight clock (counts up) and safety caps. */
+  readonly clock = new GauntletClock();
+  /** A Boss Gauntlet fight: one round, one life, no round timer. */
+  single = false;
   /** Seconds left in the current intro/round-end phase. */
   phaseTime = 0;
   /** Campaign boss for this match (null in Quick Duel). */
@@ -32,6 +89,7 @@ export class Match {
   roundWinners: (Wizard | null)[] = [];
   private lastCount = -1;
   private suddenDeathAnnounced = false;
+  private capAnnounced = false;
 
   constructor(private readonly game: Game) {
     events.on('ko', (e) => {
@@ -94,13 +152,33 @@ export class Match {
     return this.boss ? BOSSES.indexOf(this.boss) : -1;
   }
 
+  /** Rounds a side needs to take the match: 1 in the gauntlet, else CONFIG.match.roundsToWin. */
+  get roundsToWin(): number {
+    return this.single ? 1 : M.roundsToWin;
+  }
+
+  /** Seconds of fight phase this round (the gauntlet's clock counts up). */
+  get elapsed(): number {
+    return this.clock.elapsed;
+  }
+
+  /** A gauntlet safety cap (the stage's or the whole fight's) is pulling the fire ring in. */
+  get capped(): boolean {
+    return this.single && (this.clock.capped || this.clock.stageCapped);
+  }
+
   get inRound(): boolean {
     return this.phase === 'intro' || this.phase === 'fight' || this.phase === 'roundEnd';
   }
 
-  /** `boss`: the campaign fight being played, or null for a Quick Duel. */
+  /** `boss`: the campaign fight being played (one round, one life), or null for a Quick Duel. */
   startMatch(boss: BossDef | null = null): void {
     this.boss = boss;
+    this.single = boss !== null;
+    const g = this.game;
+    // A fresh fight: its full budget of life packs (Retry too), and the mode's ticket pace.
+    g.lifePacks.reset();
+    g.tickets.spawnInterval = this.single ? CONFIG.tickets.bossSpawnInterval : CONFIG.tickets.spawnInterval;
     this.round = 1;
     this.wins[0] = this.wins[1] = 0;
     this.roundWinners = [];
@@ -121,10 +199,12 @@ export class Match {
     g.spawnWizards();
     g.enemyController?.reset?.();
     this.timer = M.roundTime;
+    this.clock.reset();
     this.phase = 'intro';
     this.phaseTime = M.introTime;
     this.lastCount = -1;
     this.suddenDeathAnnounced = false;
+    this.capAnnounced = false;
     g.simulating = true;
     g.actionsLocked = true;
     events.emit('roundIntro', { round: this.round });
@@ -134,6 +214,7 @@ export class Match {
     const g = this.game;
     g.actionsLocked = this.phase !== 'fight';
     g.tickets.enabled = this.phase === 'fight';
+    g.lifePacks.enabled = this.phase === 'fight' && (this.single || CONFIG.lifePacks.quickDuel);
     switch (this.phase) {
       case 'intro': {
         this.phaseTime -= dt;
@@ -150,6 +231,15 @@ export class Match {
         break;
       }
       case 'fight': {
+        if (this.single) {
+          // No round clock: a stage (or the fight) past its safety cap pulls the fire ring in.
+          g.arena.fireRadius = this.clock.update(dt, g.furthestStage());
+          if (this.capped !== this.capAnnounced) {
+            this.capAnnounced = this.capped;
+            if (this.capped) events.emit('fightCap', {});
+          }
+          break;
+        }
         this.timer = Math.max(0, this.timer - dt);
         if (this.timer < A.suddenDeathAt) {
           if (!this.suddenDeathAnnounced) {
@@ -185,7 +275,7 @@ export class Match {
   }
 
   private next(): void {
-    const decided = this.wins[0] >= M.roundsToWin || this.wins[1] >= M.roundsToWin;
+    const decided = this.wins[0] >= this.roundsToWin || this.wins[1] >= this.roundsToWin;
     if (decided) {
       this.phase = 'matchEnd';
       const winner = this.leader(this.wins[0] > this.wins[1] ? 0 : 1);

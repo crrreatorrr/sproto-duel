@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG, type TeamPalette } from './config';
 import { AudioManager } from './audio/AudioManager';
+import { BossCinematic } from './campaign/BossCinematic';
 import { Campaign } from './campaign/Campaign';
 import { BOSSES, bossDisplayName, type BossDef } from './campaign/levels';
 import { DoubleTap } from './core/DoubleTap';
@@ -30,6 +31,13 @@ export class App {
   readonly campaign: Campaign;
   /** Result of the last gauntlet win, so the results screen knows where "next" leads. */
   private gauntletOutcome: 'next' | 'complete' | null = null;
+  /**
+   * God mode was on at some point during this fight: a win then saves no progress and counts no
+   * clear, and the results say so.
+   */
+  godUsed = false;
+  /** Boss transformations as cinematics during a gauntlet fight. */
+  readonly cinematic: BossCinematic;
   /** The "99" god-mode cheat. Public so QA can feed it timed presses. */
   readonly godCheat = new DoubleTap(CONFIG.debug.godCheatKeys, CONFIG.debug.godCheatWindowMs);
   readonly match: Match;
@@ -86,6 +94,8 @@ export class App {
     game.onTick((dt) => this.attractTick(dt));
 
     this.hud = new HUD(game.ui, game, this.match);
+    this.cinematic = new BossCinematic(game, this.hud.root);
+    game.presenter = this.cinematic;
     this.menus = new Menus(game.ui, this.settings, {
       start: () => this.startMatch(),
       gauntlet: () => this.newGauntlet(),
@@ -263,7 +273,7 @@ export class App {
     );
   }
 
-  /** Best of three against the current gauntlet boss, in their arena. */
+  /** One life against the current gauntlet boss (all three stages), in their arena. */
   startBossFight(): void {
     const boss = this.campaign.boss;
     this.mode = 'gauntlet';
@@ -283,6 +293,7 @@ export class App {
   /** God mode (testing): toggled from Settings, F9 in a match, or `?god`. Never saved. */
   setGodMode(on: boolean): void {
     this.game.setGodMode(on);
+    if (on && (this.state === 'playing' || this.state === 'paused')) this.godUsed = true;
     this.menus.syncGodMode(on);
     this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · no cooldowns · ${CONFIG.debug.godPowerMultiplier}× damage` : '', on ? 'god-on' : 'god-off');
   }
@@ -320,6 +331,9 @@ export class App {
     this.audio.gameplayMuted = false;
     g.player.intent.clear();
     this.gauntletOutcome = null;
+    this.godUsed = CONFIG.debug.godMode;
+    this.cinematic.abort();
+    this.cinematic.armed = boss !== null;
     this.menus.hide();
     this.hud.show(true);
     g.rig.orbit = false;
@@ -381,6 +395,8 @@ export class App {
   /** Shared by the main menu, boss cards and the gauntlet-complete screen: attract duel behind a menu. */
   private enterMenuState(mode: GameMode): void {
     const g = this.game;
+    this.cinematic.abort();
+    this.cinematic.armed = false;
     this.mode = mode;
     this.state = 'menu';
     this.match.phase = 'menu';
@@ -398,8 +414,10 @@ export class App {
 
   private onMatchEnd(winner: Wizard | null): void {
     this.resultsTimer = 2.2;
+    if (CONFIG.debug.godMode) this.godUsed = true;
     if (this.mode === 'gauntlet' && this.match.boss && winner === this.game.player) {
-      this.gauntletOutcome = this.campaign.recordWin();
+      // A god-mode win moves you on in this session only: no saved progress, no clear.
+      this.gauntletOutcome = this.godUsed ? (this.campaign.isLast ? 'complete' : 'next') : this.campaign.recordWin();
     }
   }
 
@@ -409,7 +427,7 @@ export class App {
     this.dressEnemy(null);
     this.ai.setProfile(QUICK_DUEL_AI);
     this.resetAttract();
-    this.menus.showCampaignComplete({ clears: this.campaign.saved.clears }, { again: () => this.newGauntlet(), menu: () => this.toMenu() });
+    this.menus.showCampaignComplete({ clears: this.campaign.saved.clears, god: this.godUsed }, { again: () => this.newGauntlet(), menu: () => this.toMenu() });
   }
 
   /** Results screen. Public so QA can finish a match without waiting for the results delay. */
@@ -442,15 +460,19 @@ export class App {
           : { label: `Next: ${bossDisplayName(next)}`, action: () => (c.advance(), this.showBossCard()) };
       const name = bossDisplayName(boss);
       const pair = !!boss.partner;
+      const god = this.godUsed;
       data = {
         title: p1Won ? 'Victory' : 'Defeat',
         subtitle: p1Won ? `${name}, ${boss.title}, ${pair ? 'fall' : 'falls'}.` : `${name}, ${boss.title}, ${pair ? 'win' : 'wins'} this time.`,
-        eyebrow: `Fight ${this.match.bossIndex + 1} of ${BOSSES.length}${p1Won ? ' cleared' : ''}`,
+        eyebrow: `Fight ${this.match.bossIndex + 1} of ${BOSSES.length}${p1Won ? (god ? ' · not saved' : ' cleared') : ''}`,
         boss,
         primary,
         victory: p1Won,
         names: ['You', name],
-        rounds,
+        // One life, one round: the fight's facts instead of a round strip.
+        rounds: [],
+        facts: this.fightFacts(p1Won),
+        tag: god ? 'God mode · progress not saved' : undefined,
         ...stats,
       };
     } else {
@@ -466,6 +488,30 @@ export class App {
     }
     this.menus.showResults(data);
     this.audio.playMusic('musicMenu');
+  }
+
+  /** Gauntlet results: fight length, how far each boss got, life packs, health left. */
+  private fightFacts(won: boolean): { label: string; value: string }[] {
+    const g = this.game;
+    const m = this.match;
+    const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    const roman = ['I', 'II', 'III'];
+    const reached = g.enemies
+      .map((w) => {
+        const st = g.stagesOf(w);
+        if (!st?.current) return '';
+        return g.partnerActive ? `${w.name} ${roman[st.stage]}` : `${st.stage + 1} of 3 · ${st.current.name}`;
+      })
+      .filter(Boolean)
+      .join(' · ');
+    const lp = g.lifePacks;
+    const facts = [
+      { label: 'Fight time', value: clock(m.elapsed) },
+      { label: g.partnerActive ? 'Stages reached' : 'Stage reached', value: reached },
+      { label: 'Life packs', value: `${lp.collected} of ${CONFIG.lifePacks.maxPerFight}` },
+    ];
+    if (won) facts.push({ label: 'Health left', value: `${Math.round((g.player.health / g.player.maxHealth) * 100)}%` });
+    return facts;
   }
 
   private frame(dt: number): void {

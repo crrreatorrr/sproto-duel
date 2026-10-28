@@ -149,7 +149,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.4,
       preferredRange: [10, 15],
     },
-    stageHealth: [900, 1050, 1200],
+    stageHealth: [1420, 1460, 1500],
     damageMultiplier: 0.55,
   }),
   boss({
@@ -189,7 +189,7 @@ export const BOSSES: BossDef[] = [
     },
     // As a pair: Obama is the glass cannon (88 HP, hits hardest), The Midget the tank (123 HP, closes
     // in). Knock out the nearest first and you face an enraged Obama; a sharp player drops Obama first.
-    stageHealth: [420, 500, 580],
+    stageHealth: [390, 430, 470],
     damageMultiplier: 0.66,
     partner: {
       // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
@@ -223,7 +223,7 @@ export const BOSSES: BossDef[] = [
         preferredRange: [7, 12],
         hopRate: 0.45,
       },
-      stageHealth: [560, 660, 760],
+      stageHealth: [510, 550, 590],
       damageMultiplier: 0.52,
       hitbox: { radius: 0.32, height: 1.25 },
     },
@@ -261,7 +261,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.85,
       preferredRange: [9, 14],
     },
-    stageHealth: [800, 950, 1100],
+    stageHealth: [700, 720, 740],
     damageMultiplier: 0.9,
   }),
   boss({
@@ -301,7 +301,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.95,
       preferredRange: [8, 13],
     },
-    stageHealth: [800, 950, 1100],
+    stageHealth: [830, 850, 870],
     damageMultiplier: 0.9,
   }),
   boss({
@@ -341,7 +341,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 1.05,
       preferredRange: [8, 13],
     },
-    stageHealth: [800, 950, 1100],
+    stageHealth: [900, 920, 940],
     damageMultiplier: 1.1,
   }),
 ];

@@ -68,6 +68,10 @@ export interface ResultData {
   victory: boolean;
   names: [string, string];
   rounds: ('win' | 'lose' | 'draw')[];
+  /** Boss Gauntlet (one round): facts shown instead of the round strip, e.g. fight time and stage reached. */
+  facts?: { label: string; value: string }[];
+  /** A pill above the title, e.g. "God mode · progress not saved". */
+  tag?: string;
   player: { damageDealt: number; casts: number; hits: number; perfects: number; dodges: number };
   enemy: { damageDealt: number; casts: number; hits: number; perfects: number; dodges: number };
   /** Small line above the title, e.g. "Fight 2 of 5". */
@@ -248,13 +252,13 @@ export class Menus {
     const s = this.mount(`
       <div class="menu-panel main">
         <h1 class="title">Arcane<span>Duel</span></h1>
-        <p class="tagline">Wands up. Best of three.</p>
+        <p class="tagline">Wands up. One life against each boss.</p>
         <div class="mode-block gauntlet-block">
           <h3>Boss Gauntlet</h3>
           <div class="row">
             ${cont}
             <button class="gauntlet-btn" data-act="gauntlet">
-              <b>${g.canContinue ? 'New Gauntlet' : 'Boss Gauntlet'}</b><small>${g.canContinue ? 'Start again at fight 1' : `${BOSSES.length} bosses, ${BOSSES.length} arenas${g.clears ? ` · cleared ×${g.clears}` : ''}`}</small>
+              <b>${g.canContinue ? 'New Gauntlet' : 'Boss Gauntlet'}</b><small>${g.canContinue ? 'Start again at fight 1' : `${BOSSES.length} bosses, one life each${g.clears ? ` · cleared ×${g.clears}` : ''}`}</small>
             </button>
           </div>
         </div>
@@ -290,6 +294,7 @@ export class Menus {
           <li>Roll through the Ultimate's wave, or hide behind a pillar. Pillars crumble.</li>
           <li>The ring of fire burns. When time runs low, it closes in.</li>
           <li>Deal damage to charge your Ultimate. It carries over between rounds.</li>
+          <li>Boss Gauntlet: one life per boss. Each boss stage has its own health bar; empty it and the boss transforms. Grab the life packs (three per fight).</li>
         </ul>
         <button class="primary" data-act="back">Back</button>
       </div>`, 'howto');
@@ -388,8 +393,9 @@ export class Menus {
   showBossIntro(info: BossIntro, actions: { begin(): void; back(): void }): void {
     const b = info.boss;
     const pair = b.partner;
-    const hpOf = (f: BossFighter) => Math.round(CONFIG.wizard.maxHealth * f.healthMultiplier);
-    const hp = pair ? `${hpOf(b)} + ${hpOf(pair)} HP` : `${hpOf(b)} HP`;
+    // Every stage has its own bar: list all three.
+    const hpOf = (f: BossFighter) => f.stageHealth.join(' · ');
+    const hp = pair ? `${b.name.split(' ').pop()} ${hpOf(b)}<br>${pair.name.replace(/^The /, '')} ${hpOf(pair)}` : `${hpOf(b)} HP`;
     const threat = BOSSES.map((_, i) => `<i class="${i <= info.index ? 'on' : ''}"></i>`).join('');
     const stages = pair
       ? `<p class="boss-stages-who">${b.name}</p>${this.stagesHtml(b)}
@@ -407,7 +413,8 @@ export class Menus {
             <p class="boss-intro">${b.intro}</p>
             <dl class="boss-facts">
               <dt>Arena</dt><dd>${ARENA_NAMES[b.theme]}</dd>
-              <dt>Vitality</dt><dd>${hp}</dd>
+              <dt>Lives</dt><dd>One. ${CONFIG.lifePacks.maxPerFight} life packs</dd>
+              <dt>Stage bars</dt><dd>${hp}</dd>
               <dt>Threat</dt><dd class="threat">${threat}</dd>
             </dl>
           </div>
@@ -421,7 +428,7 @@ export class Menus {
   }
 
   /** Shown after the final boss falls. */
-  showCampaignComplete(info: { clears: number }, actions: { again(): void; menu(): void }): void {
+  showCampaignComplete(info: { clears: number; god?: boolean }, actions: { again(): void; menu(): void }): void {
     const s = this.mount(`
       <div class="menu-panel complete">
         <p class="boss-fight">Boss Gauntlet</p>
@@ -430,7 +437,7 @@ export class Menus {
         <ol class="complete-roll">
           ${BOSSES.map((b) => `<li style="${bossStyleVars(b)}">${bossPortraitHtml(b, 'small')}<b>${bossDisplayName(b)}</b><small>${b.title}</small></li>`).join('')}
         </ol>
-        <p class="note">${info.clears > 1 ? `Gauntlet cleared ${info.clears} times.` : 'First clear. Well duelled.'}</p>
+        <p class="note">${info.god ? 'God mode was on: this clear is not counted.' : info.clears > 1 ? `Gauntlet cleared ${info.clears} times.` : 'First clear. Well duelled.'}</p>
         <button class="primary" data-act="again">Run It Again</button>
         <button class="ghost" data-act="menu">Main Menu</button>
       </div>`, 'complete');
@@ -445,9 +452,12 @@ export class Menus {
     const s = this.mount(`
       <div class="menu-panel results ${r.victory ? 'victory' : 'defeat'}${r.boss ? ' boss-results' : ''}" style="${r.boss ? bossStyleVars(r.boss) : ''}">
         ${r.boss ? `<div class="results-boss">${bossPortraitHtml(r.boss, 'small')}<p class="boss-fight">${r.eyebrow ?? ''}</p></div>` : r.eyebrow ? `<p class="boss-fight">${r.eyebrow}</p>` : ''}
+        ${r.tag ? `<p class="result-tag">${r.tag}</p>` : ''}
         <h1 class="result-title">${r.title}</h1>
         <p class="tagline">${r.subtitle}</p>
-        <div class="round-strip">${r.rounds.map((x, i) => `<i class="${x}" title="Round ${i + 1}">${i + 1}</i>`).join('')}</div>
+        ${r.facts
+          ? `<dl class="fight-facts">${r.facts.map((f) => `<div><dt>${f.label}</dt><dd>${f.value}</dd></div>`).join('')}</dl>`
+          : `<div class="round-strip">${r.rounds.map((x, i) => `<i class="${x}" title="Round ${i + 1}">${i + 1}</i>`).join('')}</div>`}
         <div class="stats">
           <span class="you">${r.names[0]}</span><b></b><span class="them">${r.names[1]}</span>
           ${row('Damage dealt', Math.round(r.player.damageDealt), Math.round(r.enemy.damageDealt))}

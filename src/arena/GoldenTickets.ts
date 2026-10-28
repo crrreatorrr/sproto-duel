@@ -129,6 +129,8 @@ export class GoldenTickets {
   readonly pool: GoldenTicket[] = [];
   /** Seconds until the next spawn attempt (counts down while fewer than maxActive exist). */
   spawnTimer = 0;
+  /** Seconds between spawns [min, max]: CONFIG.tickets.spawnInterval, or bossSpawnInterval in a gauntlet fight (Match sets it). */
+  spawnInterval: readonly [number, number] = T.spawnInterval;
   private nextId = 1;
   private visualTime = 0;
   private readonly auras: Aura[] = [];
@@ -241,7 +243,7 @@ export class GoldenTickets {
     if (!this.enabled || this.activeCount >= T.maxActive) return;
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
-      this.spawnTimer = this.spawn() ? rand(T.spawnInterval[0], T.spawnInterval[1]) : T.retryDelay;
+      this.spawnTimer = this.spawn() ? rand(this.spawnInterval[0], this.spawnInterval[1]) : T.retryDelay;
     }
   }
 

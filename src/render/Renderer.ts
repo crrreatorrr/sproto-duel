@@ -13,6 +13,8 @@ export class Renderer {
   private bloom: UnrealBloomPass;
   /** Pixel height factor used by point-sprite shaders for size attenuation. */
   pointScale = 1;
+  /** Extra bloom on top of CONFIG.render.bloomStrength (a boss transformation's burst). */
+  bloomBoost = 0;
   private resizeListeners: (() => void)[] = [];
 
   constructor(container: HTMLElement) {
@@ -78,6 +80,7 @@ export class Renderer {
 
   render(): void {
     this.renderer.info.reset();
+    this.bloom.strength = CONFIG.render.bloomStrength + this.bloomBoost;
     this.composer.render();
   }
 }

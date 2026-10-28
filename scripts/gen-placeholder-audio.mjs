@@ -425,6 +425,57 @@ S.fireRoar = () => {
   return drive(lowpass(x, 3500), 2);
 };
 
+// Boss transformation cinematics: the charge, the roar as the old form bursts, the landing.
+S.bossRise = () => {
+  // A rising, swelling drone with a whooshing swirl: the boss lifts off and charges up.
+  const x = buf(1.6);
+  osc(x, 0, 1.55, (u) => lerp(48, 150, u * u), adsr(0.5, 0.6), 'saw', 0.35);
+  osc(x, 0, 1.55, (u) => lerp(72, 225, u * u), adsr(0.5, 0.6), 'saw', 0.22);
+  osc(x, 0, 1.55, (u, t) => lerp(300, 900, u) + Math.sin(t * 2 * Math.PI * 7) * 30, adsr(0.6, 0.5), 'sine', 0.18);
+  noise(x, 0, 1.55, (u, t) => adsr(0.4, 0.5)(u) * (0.7 + 0.3 * Math.sin(t * 2 * Math.PI * (3 + u * 9))), 0.5, (u) => lerp(0.97, 0.75, u));
+  return drive(lowpass(x, 5200), 1.6);
+};
+S.bossRoar = () => {
+  // A growling roar: detuned saws through a formant-ish band, a noisy breath, and a boom under it.
+  const x = buf(1.8);
+  const growl = (u, t) => lerp(95, 62, u) + Math.sin(t * 2 * Math.PI * 34) * 9 + Math.sin(t * 2 * Math.PI * 7) * 6;
+  osc(x, 0, 1.7, growl, adsr(0.06, 1.4), 'saw', 0.55);
+  osc(x, 0, 1.7, (u, t) => growl(u, t) * 1.51, adsr(0.08, 1.5), 'saw', 0.35);
+  osc(x, 0, 1.7, (u, t) => growl(u, t) * 2.02, adsr(0.08, 1.6), 'square', 0.12);
+  noise(x, 0, 1.7, adsr(0.05, 1.3), 0.6, (u) => lerp(0.6, 0.85, u));
+  osc(x, 0, 0.9, (u) => lerp(70, 28, u), decay(3.5), 'sine', 1.0);
+  return drive(lowpass(highpass(x, 45), 3200), 2.4);
+};
+S.bossSlam = () => {
+  // A huge ground impact: sub thump, a crack, rubble and a long low rumble.
+  const x = buf(1.6);
+  osc(x, 0, 0.7, (u) => lerp(90, 24, u), decay(4.5), 'sine', 1.2);
+  noise(x, 0, 0.05, decay(25), 1.0);
+  noise(x, 0.01, 1.5, decay(3.2), 0.8, 0.93);
+  for (let k = 0; k < 14; k++) noise(x, 0.08 + Math.abs(rnd()) * 0.9, 0.03, decay(22), 0.35 - k * 0.015, 0.5);
+  return drive(lowpass(x, 2600), 2.2);
+};
+// Life packs (Boss Gauntlet health pickups).
+S.lifePackSpawn = () => {
+  // A soft, warm two-note glow: something good has appeared.
+  const x = buf(1.0);
+  for (const [n, t0] of [[76, 0], [83, 0.12]]) {
+    osc(x, t0, 0.85, note(n), adsr(0.02, 3), 'sine', 0.4);
+    osc(x, t0, 0.85, note(n) * 2, adsr(0.02, 4), 'sine', 0.12);
+  }
+  return echo(x, 0.16, 0.35, 0.35);
+};
+S.lifePackPickup = () => {
+  // A bright rising heal chime with a shimmer.
+  const x = buf(1.2);
+  [72, 76, 79, 84].forEach((n, i) => {
+    osc(x, i * 0.07, 0.8, note(n), adsr(0.01, 3), 'triangle', 0.32);
+    osc(x, i * 0.07, 0.8, note(n) * 2.01, adsr(0.01, 4), 'sine', 0.1);
+  });
+  noise(x, 0, 0.9, adsr(0.05, 2), 0.08, 0.2);
+  return echo(highpass(x, 200), 0.11, 0.3, 0.3);
+};
+
 let total = 0;
 for (const [name, fn] of Object.entries(S)) {
   const x = normalize(fn(), name.startsWith('music') ? 0.7 : 0.89);

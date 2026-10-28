@@ -7,6 +7,7 @@ import { BossStages } from '../campaign/BossStages';
 import { Arena } from '../arena/Arena';
 import { FireRing } from '../arena/FireRing';
 import { GoldenTickets } from '../arena/GoldenTickets';
+import { LifePacks } from '../arena/LifePacks';
 import { CameraRig } from '../camera/CameraRig';
 import { Effects } from '../fx/Effects';
 import { Physics } from '../physics/Physics';
@@ -70,6 +71,8 @@ export class Game {
   readonly popups: DamageNumbers;
   /** Golden-ticket pickups (mana boost). Match enables spawning during the fight phase. */
   readonly tickets: GoldenTickets;
+  /** Life packs (health pickups, Boss Gauntlet only): Match enables them during a gauntlet fight. */
+  readonly lifePacks: LifePacks;
   /** Drives the enemies inside the fixed tick (App: the rival's AI, and the partner's in a double fight). */
   enemyController: TickController | null = null;
   /** The campaign boss the rival is dressed as, or null for the default rival. */
@@ -89,6 +92,19 @@ export class Game {
   actionsLocked = false;
   /** Set by the QA harness: match flow and other tick hooks stay out of scenario runs. */
   qaMode = false;
+  /**
+   * Plays boss transformations as cinematics (App's BossCinematic). While it is `live` (a gauntlet
+   * fight being played, not QA or a soak) BossStages leaves the light show to it.
+   */
+  presenter: { readonly live: boolean } | null = null;
+  /**
+   * Time scale a cinematic applies to the simulation, on top of hit-stop and slow-mo: 1 normal, 0
+   * frozen (no ticks: nobody moves, casts, burns or takes damage). Below 1 the player's input is
+   * ignored, and effects (particles, flashes, rings) run on real time so the cinematic stays alive.
+   */
+  cinematicScale = 1;
+  /** Takes over the camera each frame after the rig has placed it (BossCinematic), or null. */
+  director: ((realDt: number) => void) | null = null;
   /** Total simulated time. */
   simTime = 0;
   /** Smoothed frame stats for the QA harness / perf overlay. */
@@ -140,6 +156,7 @@ export class Game {
 
     this.spells = new SpellSystem(scene, physics, this.fx, this.wizards, this.arena);
     this.tickets = new GoldenTickets(scene, physics, this.fx, this.wizards, this.arena, assets);
+    this.lifePacks = new LifePacks(scene, physics, this.fx, this.player, this.enemies, this.tickets, this.arena, () => this.furthestStage(), assets);
     this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemies);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
     this.stages = new BossStages(this, this.enemy, this.player);
@@ -196,6 +213,7 @@ export class Game {
   resetArena(): void {
     this.spells.clear();
     this.tickets.clear();
+    this.lifePacks.clearPack();
     this.arena.reset();
     this.fx.clear();
     this.popups.clear();
@@ -216,7 +234,7 @@ export class Game {
     this.boss = boss;
     e.team = team;
     e.name = boss ? boss.name : team.name;
-    e.maxHealth = Math.round(CONFIG.wizard.maxHealth * (boss?.healthMultiplier ?? 1));
+    e.maxHealth = boss ? boss.stageHealth[0] : CONFIG.wizard.maxHealth;
     e.health = Math.min(e.health, e.maxHealth);
     e.damageMultiplier = boss?.damageMultiplier ?? 1;
     this.spells.pool.setTeamPalette(e.index, team);
@@ -235,6 +253,11 @@ export class Game {
   /** A double fight is on: the partner is in `wizards` and `enemies`. */
   get partnerActive(): boolean {
     return this.enemies.length > 1;
+  }
+
+  /** The furthest stage (0..2) any boss of this fight has reached (life packs unlock one per stage). */
+  furthestStage(): number {
+    return this.partnerActive ? Math.max(this.stages.stage, this.partnerStages.stage) : this.stages.stage;
   }
 
   /** The stages driving boss wizard `w` (the rival's or the partner's), or null for anyone else. */
@@ -256,7 +279,7 @@ export class Game {
     }
     w.team = def.palette;
     w.name = def.name;
-    w.maxHealth = Math.round(CONFIG.wizard.maxHealth * def.healthMultiplier);
+    w.maxHealth = def.stageHealth[0];
     w.damageMultiplier = def.damageMultiplier;
     w.setHitbox(def.hitbox.radius, def.hitbox.height);
     this.spells.pool.setTeamPalette(w.index, def.palette);
@@ -313,11 +336,11 @@ export class Game {
    */
   useDefaultStats(): () => void {
     const saved = this.wizards.map((w) => ({
-      w, max: w.maxHealth, mult: w.damageMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana, cds: w.noCooldowns,
+      w, max: w.maxHealth, mult: w.damageMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana, cds: w.noCooldowns, ultk: w.ultChargeMultiplier,
     }));
     for (const w of this.wizards) {
       w.maxHealth = CONFIG.wizard.maxHealth;
-      w.damageMultiplier = w.clashPowerMultiplier = 1;
+      w.damageMultiplier = w.clashPowerMultiplier = w.ultChargeMultiplier = 1;
       w.immune = w.infiniteMana = w.noCooldowns = false;
     }
     const stagesSuspended = this.stages.suspended;
@@ -329,6 +352,7 @@ export class Game {
         s.w.health = Math.min(s.w.health, s.max);
         s.w.damageMultiplier = s.mult;
         s.w.clashPowerMultiplier = s.clash;
+        s.w.ultChargeMultiplier = s.ultk;
         s.w.immune = s.immune;
         s.w.infiniteMana = s.mana;
         s.w.noCooldowns = s.cds;
@@ -373,22 +397,33 @@ export class Game {
     requestAnimationFrame(this.frame);
   }
 
+  /** Boss transformations play as cinematics right now (headless otherwise). */
+  get transformCinematics(): boolean {
+    return !!this.presenter?.live;
+  }
+
   private readonly frame = (now: number) => {
     requestAnimationFrame(this.frame);
     // Clamp both ways: long stalls (tab switch) and clocks going backwards must never explode smoothing.
     const realDt = Math.max(0, Math.min(0.1, (now - this.lastTime) / 1000));
     this.lastTime = now;
+    this.advance(realDt);
+  };
+
+  /** One rendered frame: input, simulation steps, render. The rAF loop calls it; QA may too (no new loop). */
+  advance(realDt: number): void {
     this.trackPerf(realDt);
 
-    if (this.playerControl && this.simulating) {
+    // A cinematic freezes the fight: no aiming, moving or casting until it hands control back.
+    if (this.playerControl && this.simulating && this.cinematicScale >= 1) {
       this.playerController.look();
       this.playerController.update();
     } else {
       this.input.consumeMouseDelta();
     }
 
-    // Hit-stop and slow-mo scale simulated time; camera and UI keep running on real time.
-    const scale = this.simulating ? feel.update(realDt) : 0;
+    // Hit-stop, slow-mo and cinematics scale simulated time; camera and UI keep running on real time.
+    const scale = this.simulating ? feel.update(realDt) * this.cinematicScale : 0;
     const fixed = CONFIG.sim.fixedDt;
     this.accumulator += realDt * scale;
     let steps = 0;
@@ -401,9 +436,11 @@ export class Game {
     if (steps >= CONFIG.sim.maxStepsPerFrame) this.accumulator = 0;
     const alpha = Math.min(1, this.accumulator / fixed);
 
-    this.renderFrame(realDt, realDt * scale, alpha);
+    // Effects keep real time through a cinematic (the world is frozen, its light show isn't).
+    const fxDt = this.simulating && this.cinematicScale < 1 ? realDt : realDt * scale;
+    this.renderFrame(realDt, realDt * scale, alpha, fxDt);
     this.input.endFrame();
-  };
+  }
 
   /** One fixed simulation step. Deterministic given the same intents. */
   tick(dt: number): void {
@@ -426,27 +463,33 @@ export class Game {
     this.arena.update(dt);
     this.fire.updateDamage(dt, this.arena.fireRadius, this.wizards, this.fireDamage);
     this.tickets.update(dt);
+    this.lifePacks.update(dt);
     if (!this.qaMode) for (const fn of this.tickHooks) fn(dt);
   }
 
-  private renderFrame(realDt: number, simDt: number, alpha: number): void {
+  private renderFrame(realDt: number, simDt: number, alpha: number, fxDt = simDt): void {
     this.renderTime += simDt;
     for (const w of this.wizards) w.visual.update(w, simDt, alpha);
     this.spells.sync(alpha, this.renderTime, simDt);
     this.fire.updateVisual(simDt, this.arena.fireRadius);
     this.arena.updateVisual(simDt, this.renderer.camera.position);
     this.tickets.updateVisual(simDt, this.renderer.camera.position);
+    this.lifePacks.updateVisual(simDt, this.renderer.camera.position);
     this.dustTimer -= simDt;
     if (this.dustTimer <= 0) {
       this.dustTimer = 0.06;
       for (const w of this.wizards) if (w.sprinting && w.grounded && w.pos.y === 0) this.fx.footDust(w.pos);
     }
-    this.fx.update(simDt);
+    this.fx.update(fxDt);
 
     tmp.copy(this.player.visual.root.position);
     feel.listener.copy(tmp);
     if (this.rig.orbit) this.rig.updateOrbit(realDt);
     else this.rig.update(realDt, tmp, this.physics, this.player.sprinting, this.player.dodging);
+    if (this.director) {
+      this.director(realDt);
+      this.renderer.camera.updateMatrixWorld();
+    }
     this.popups.update(realDt);
     for (const fn of this.frameHooks) fn(realDt, alpha);
     this.renderer.render();

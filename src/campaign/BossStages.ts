@@ -295,7 +295,7 @@ export class BossStages {
     this.driven = true;
     tf.t = Math.max(tf.t, clamp(progress, 0, 1));
     // Keep the owner frozen and immune however long the cinematic runs.
-    this.owner.evolveTime = Math.max(this.owner.evolveTime, 1e-3);
+    this.owner.evolveTime = Math.max(this.owner.evolveTime, 1);
     this.applyTransform();
   }
 
@@ -403,12 +403,17 @@ export class BossStages {
 
   /**
    * Per stage: the boss hits harder (CONFIG.campaign.stageDamage) and has that stage's bar as its
-   * max health. Left alone while suspended (QA stock stats).
+   * max health; its Ultimate charges at CONFIG.campaign.ultCharge. Left alone while suspended (QA stock stats).
    */
   private applyStats(): void {
-    if (!this.boss || this.suspended) return;
+    if (!this.boss) {
+      this.owner.ultChargeMultiplier = 1;
+      return;
+    }
+    if (this.suspended) return;
     this.owner.damageMultiplier = this.boss.damageMultiplier * C.stageDamage[this.stage];
     this.owner.maxHealth = this.stageHealth();
+    this.owner.ultChargeMultiplier = C.ultCharge;
   }
 
   private announce(): void {

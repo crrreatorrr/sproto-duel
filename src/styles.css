@@ -559,3 +559,84 @@ html, body {
   .mana-buff { top: calc(100% + 11px); left: auto; right: 0; }
   .plate-right .mana-buff { right: auto; left: 0; }
 }
+
+/* ------------------------------------------------------------------ Boss Gauntlet: one life */
+/* No round pips in a single-round fight; the timer is the fight clock (counts up). */
+.hud.single .pip-row { display: none; }
+.timer.clock { font-size: 30px; min-width: 96px; letter-spacing: 0.02em; }
+/* Life packs left this fight, under the player's bars. */
+.life-packs { display: none; gap: 6px; margin-top: 2px; }
+.life-packs.on { display: flex; }
+.life-packs i {
+  width: 22px; height: 22px; border-radius: 50%; background: #2a0c12 center / cover no-repeat;
+  box-shadow: 0 0 0 1.5px rgba(255, 120, 135, 0.9), 0 0 10px rgba(255, 50, 70, 0.6);
+  display: grid; place-items: center; font-style: normal; font-size: 14px; color: #ff4a5e; line-height: 1;
+  transition: opacity 0.3s, filter 0.3s, transform 0.3s;
+}
+.life-packs i.live { animation: pack-live 0.5s ease-in-out infinite alternate; }
+.life-packs i.used { opacity: 0.28; filter: grayscale(1); box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.25); transform: scale(0.85); }
+@keyframes pack-live { to { transform: scale(1.18); box-shadow: 0 0 0 2px #fff, 0 0 18px #ff3a50; } }
+.plate.healed .bar.hp { box-shadow: inset 0 0 0 1px #c8ffd8, 0 0 18px rgba(80, 255, 140, 0.85); }
+.popup-heal { color: #6dff9a; font-family: var(--display); font-size: 30px; letter-spacing: 0.04em; text-shadow: 0 0 14px rgba(40, 255, 120, 0.9), 0 2px 0 rgba(0, 0, 0, 0.6); }
+.banner.lifepack .banner-main { font-size: 46px; color: #ff9aa6; text-shadow: 0 0 30px rgba(255, 50, 70, 0.95), 0 4px 20px #000; }
+.banner.lifepack { top: 26%; }
+/* A transforming boss's bar refills: a glowing sweep. */
+.plate.refill .bar.hp { box-shadow: inset 0 0 0 1px #fff, 0 0 22px var(--rival, var(--red)), 0 0 6px #fff; }
+.plate.refill .hp-fill { filter: brightness(1.45) saturate(1.3); }
+.plate.refill .bar.hp::after {
+  content: ''; position: absolute; inset: 0; z-index: 2;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.75) 50%, transparent 100%);
+  background-size: 40% 100%; background-repeat: no-repeat; animation: refill-sweep 0.45s linear infinite;
+}
+@keyframes refill-sweep { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+/* Results: the fight's facts instead of a round strip, and a god-mode tag. */
+.fight-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; margin: 4px 0 6px; }
+.fight-facts div { display: grid; justify-items: center; gap: 1px; }
+.fight-facts dt { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); }
+.fight-facts dd { margin: 0; font-family: var(--display); font-size: 18px; letter-spacing: 0.04em; }
+.result-tag {
+  justify-self: center; margin: 0; padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: #ffe9a8; background: rgba(120, 80, 0, 0.45); border: 1px solid rgba(255, 210, 110, 0.6);
+}
+
+/* ------------------------------------------------------------------ transformation cinematic */
+/* Combat chrome steps aside while a cinematic plays (BossCinematic toggles #ui.cinematic). */
+#ui.cinematic .crosshair, #ui.cinematic .hud-bottom, #ui.cinematic .enemy-tag, #ui.cinematic .offscreen-arrow,
+#ui.cinematic .popups, #ui.cinematic .banner, #ui.cinematic .vignette, #ui.cinematic .ult-dim { opacity: 0 !important; transition: opacity 0.2s; }
+.cine { position: absolute; inset: 0; pointer-events: none; display: none; }
+.cine.on { display: block; }
+.cine-bar { position: absolute; left: 0; right: 0; height: 12vh; background: #000; transform: scaleY(0); }
+.cine-bar.top { top: 0; transform-origin: top; }
+.cine-bar.bottom { bottom: 0; transform-origin: bottom; }
+.cine.tier2 .cine-bar { height: 15vh; }
+/* The title card sits in the bottom letterbox band, clear of the boss and the HUD's timer. */
+.cine-card {
+  position: absolute; left: 50%; bottom: 1.6vh; height: 9vh; display: flex; align-items: center; gap: 14px;
+  opacity: 0; transform: translate(-50%, 24px); white-space: nowrap;
+}
+.cine.tier2 .cine-card { height: 12vh; bottom: 1.5vh; gap: 18px; }
+.cine-art {
+  height: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px;
+  box-shadow: 0 0 0 2px var(--rival-hi, #ffd2a8), 0 0 26px var(--rival, var(--red));
+}
+.cine-text { display: grid; gap: 2px; }
+.cine-eyebrow { margin: 0; font-size: clamp(11px, 1.6vh, 15px); font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--rival-hi, #ffd2a8); }
+.cine-title {
+  margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(22px, 4.6vh, 46px); line-height: 1; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #fff; text-shadow: 0 0 22px var(--rival, var(--red)), 0 0 6px var(--rival, var(--red));
+}
+.cine.tier2 .cine-title { font-size: clamp(26px, 6.4vh, 64px); }
+.cine.enrage .cine-title { color: #ffd0c4; text-shadow: 0 0 26px #ff2a10, 0 0 8px #ff2a10; }
+.cine-hp { position: relative; height: 7px; width: min(36vw, 420px); margin-top: 4px; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.cine-hp i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, var(--rival-lo, #e2381f), var(--rival-hi, #ff9a6a)); box-shadow: 0 0 12px var(--rival, var(--red)); }
+.cine-count {
+  position: absolute; left: 50%; top: 21%; transform: translate(-50%, -50%); font-family: var(--display); font-weight: 800;
+  font-size: clamp(40px, 9vh, 80px); color: #fff; text-shadow: 0 0 30px var(--rival, var(--red)), 0 4px 18px #000;
+}
+.cine-count.pop { animation: cine-pop 0.3s cubic-bezier(0.2, 0.9, 0.2, 1); }
+@keyframes cine-pop { from { transform: translate(-50%, -50%) scale(1.6); opacity: 0.2; } }
+.cine-skip { position: absolute; right: 2.2vw; bottom: 2.2vh; font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255, 255, 255, 0.55); opacity: 0; }
+@media (max-width: 900px), (max-height: 600px) {
+  .cine-card { gap: 10px; }
+  .cine-hp { width: 40vw; }
+}

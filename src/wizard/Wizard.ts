@@ -134,6 +134,8 @@ export class Wizard {
   damageMultiplier = 1;
   /** Multiplies the clash power of this wizard's projectiles (god mode). */
   clashPowerMultiplier = 1;
+  /** Multiplies Ultimate charge gained (campaign bosses: their big stage bars would charge it far too often). */
+  ultChargeMultiplier = 1;
   /** Takes no damage and can't be stunned (god mode). Hits still flash and knock back. */
   immune = false;
   /**
@@ -319,7 +321,7 @@ export class Wizard {
 
   addUlt(amount: number): void {
     const max = CONFIG.spells.ultimate.chargeMax;
-    this.ult = Math.min(max, this.ult + amount);
+    this.ult = Math.min(max, this.ult + amount * this.ultChargeMultiplier);
     if (this.ult >= max && !this.ultAnnounced) {
       this.ultAnnounced = true;
       events.emit('ultReady', { wizard: this });
