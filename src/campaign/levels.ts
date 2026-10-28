@@ -10,6 +10,7 @@ export type ProjectileSkin =
   | 'orb' // the default glowing spell orb
   | 'rugRoll' // a rolled-up carpet, tumbling
   | 'carpet' // an unrolled flying carpet, rippling
+  | 'pig' // a chubby pink pig, legs flailing
   | 'phone' // a spinning smartphone with a lit screen
   | 'floret' // a broccoli floret
   | 'broccoli' // a whole head of broccoli
@@ -126,7 +127,7 @@ export const BOSSES: BossDef[] = [
     id: 'obama',
     name: 'Bitcoin Obama',
     title: 'and The Midget',
-    intro: 'A two-man pump crew: Bitcoin Obama and The Midget. Two enemies, phones and rugs. Take them both down.',
+    intro: 'Shiller shills',
     theme: 'void',
     stages: [
       { name: 'Pump', model: 'bossObama1', attacks: NONE },
@@ -137,7 +138,7 @@ export const BOSSES: BossDef[] = [
         attacks: { ...ALL, sidekickFires: true, volley: { name: 'Pump & Dump', count: 4, spreadDeg: 30, interval: 0, cooldown: 4.5, damageScale: 0.7 } },
       },
     ],
-    skins: { bolt: 'phone', blast: 'carpet' },
+    skins: { bolt: 'phone', blast: 'pig' },
     sidekick: { name: 'The Midget', model: 'bossObamaSidekick' },
     palette: { name: 'Bitcoin Obama', robe: 0x18181f, trim: 0xe0b23a, spell: 0xf7931a, blast: 0x3fb8ff, stun: 0xfff0c0, ultimate: 0xf7931a },
     ai: {
@@ -163,7 +164,7 @@ export const BOSSES: BossDef[] = [
     id: 'broccoli',
     name: 'Broccoli Head',
     title: 'the Floret Lord',
-    intro: 'Eat your vegetables, or they eat you.',
+    intro: 'Leads the LA Vape Cabal.',
     theme: 'grove',
     stages: [
       { name: 'Sprout', model: 'bossBroccoli1', attacks: NONE },
@@ -197,9 +198,9 @@ export const BOSSES: BossDef[] = [
   }),
   boss({
     id: 'agent',
-    name: 'The Agent',
+    name: 'Glowie',
     title: 'Government Enforcement',
-    intro: 'He brought a gun to a wand fight. Keep moving and shield the bursts.',
+    intro: 'Unknown',
     theme: 'glacier',
     stages: [
       { name: 'Routine Inquiry', model: 'bossAgent1', attacks: NONE },
@@ -215,9 +216,9 @@ export const BOSSES: BossDef[] = [
       },
     ],
     skins: { bolt: 'bullet', blast: 'grenade' },
-    palette: { name: 'The Agent', robe: 0x16181d, trim: 0xd8dde6, spell: 0xffd27a, blast: 0xff5a2a, stun: 0xbfe8ff, ultimate: 0xff3030 },
+    palette: { name: 'Glowie', robe: 0x16181d, trim: 0xd8dde6, spell: 0xffd27a, blast: 0xff5a2a, stun: 0xbfe8ff, ultimate: 0xff3030 },
     ai: {
-      label: 'The Agent',
+      label: 'Glowie',
       reactionTime: 0.2,
       aimError: 0.06,
       leadFactor: 0.7,
@@ -239,7 +240,7 @@ export const BOSSES: BossDef[] = [
     id: 'tinubu',
     name: 'Tinubu',
     title: 'the Unshackled Demon',
-    intro: 'The final duel. It is his turn, and he is not giving it back.',
+    intro: 'Infects you to make you sell your tickets.',
     theme: 'volcano',
     stages: [
       { name: 'Emi Lokan', model: 'bossTinubu1', attacks: { blast: true, stun: false, ultimate: false } },
