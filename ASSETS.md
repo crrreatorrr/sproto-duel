@@ -109,21 +109,25 @@ Meshopt-compressed GLBs load natively. If a model is still over budget, lower `-
 
 ## Campaign bosses
 
-The Boss Gauntlet has five bosses, easiest first (roster and tuning in `src/campaign/levels.ts`).
-Each has a model and a portrait; the first batch was generated with Higgsfield (concept image with
-`gpt_image_2_5`, then `tripo_h3_1_image_to_3d`). Regenerate any of them by replacing the file.
+The Boss Gauntlet has five bosses, easiest first (roster, stages and tuning in
+`src/campaign/levels.ts`). Every boss evolves twice per round (at 2/3 and 1/3 health), so each has
+**three stage models** that grow taller and more monstrous, plus a portrait per stage. All were
+generated with Higgsfield (concept image with `gpt_image_2_5`, stages 2 and 3 made with the stage 1
+image as a reference so they read as the same character, then `tripo_h3_1_image_to_3d`). Regenerate
+any of them by replacing the file.
 
-| Boss | Model | Portrait | Arena theme |
-|---|---|---|---|
-| 1. Bramble, the Hedge Witch | `models/bosses/bramble.glb` (2.0 m) | `ui/bosses/bramble.png` | `grove` |
-| 2. Cinder, the Ember Adept | `models/bosses/cinder.glb` (2.0 m) | `ui/bosses/cinder.png` | `volcano` |
-| 3. Ysolde, the Frost Warden | `models/bosses/ysolde.glb` (2.1 m) | `ui/bosses/ysolde.png` | `glacier` |
-| 4. Khepri, the Sand Magus | `models/bosses/khepri.glb` (2.2 m) | `ui/bosses/khepri.png` | `desert` |
-| 5. Morvane, the Archlich | `models/bosses/morvane.glb` (2.5 m) | `ui/bosses/morvane.png` | `void` |
+| Boss | Models (`models/bosses/<id>/`) | Portraits (`ui/bosses/`) | Arena theme | Projectiles |
+|---|---|---|---|---|
+| 1. Sahil, the RugMaster | `sahil/stage1..3.glb` (2.0 / 2.25 / 2.55 m) | `sahil.png`, `sahil_stage2.png`, `sahil_stage3.png` | `desert` | rolled rugs, flying carpets |
+| 2. Bitcoin Obama and Lil' Satoshi | `obama/stage1..3.glb` (2.1 / 2.3 / 2.55 m), `obama/sidekick.glb` (1.25 m) | `obama.png`, `obama_stage2.png`, `obama_stage3.png` | `void` | phones, carpets |
+| 3. Broccoli Head, the Floret Lord | `broccoli/stage1..3.glb` (2.0 / 2.35 / 2.8 m) | `broccoli.png`, `broccoli_stage2.png`, `broccoli_stage3.png` | `grove` | florets, whole broccoli |
+| 4. The Agent | `agent/stage1..3.glb` (2.0 / 2.2 / 2.5 m) | `agent.png`, `agent_stage2.png`, `agent_stage3.png` | `glacier` | bullets, grenades |
+| 5. Tinubu, the Unshackled Demon | `tinubu/stage1..3.glb` (2.1 / 2.45 / 2.9 m) | `tinubu.png`, `tinubu_stage2.png`, `tinubu_stage3.png` | `volcano` | hellfire, burning skulls |
 
-Boss models are static meshes (the game animates them procedurally), ≤ 9k triangles. Generate the
-concept in a natural spell-casting stance rather than a T-pose, since there is no rig: whole body,
-front view, plain background.
+Boss models are static meshes (the game animates them procedurally), ≤ 9k triangles each. Generate
+concepts in a wide standing stance rather than a T-pose, since there is no rig: whole body, front
+view, plain background, one character, few detached floating objects. Projectiles are built in code
+(`skins` in `levels.ts`).
 
 ## Arena environments
 
