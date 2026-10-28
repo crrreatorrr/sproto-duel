@@ -396,8 +396,8 @@ export const BOSSES: BossDef[] = [
       preferredRange: [8, 13],
     },
     // Retuned for the four spells the player brings (bigger bars keep stages at ~5 minutes).
-    stageHealth: [1100, 1111, 900],
-    damageMultiplier: 0.86,
+    stageHealth: [1100, 1111, 800],
+    damageMultiplier: 1.0,
   }),
 ];
 

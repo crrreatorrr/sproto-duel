@@ -229,14 +229,15 @@ reference AI bringing the boss spells it would have learned by then; single-life
 | Bitcoin Obama & The Midget | carpet | 69% (11/16) | 14.2 min | 3 / 3 | 5.8 / 6.8 / 3.0 | 0.20 / 0.52 / 0.52 |
 | Broccoli Head | carpet, pump | 44% (7/16) | 13.2 min | 3 | 4.2 / 4.5 / 4.9 | 0.27 / 0.50 / 0.82 |
 | Glowie | carpet, pump, vape | 19% (3/16) | 14.5 min | 3 | 4.8 / 5.4 / 5.9 | 0.35 / 0.53 / 0.84 |
-| Tinubu | carpet, pump, vape, lock-on | 4% (1/24) | 11.7 min | 2.75 | 4.7 / 5.2 / 5.2 | 0.44 / 0.78 / 1.19 |
+| Tinubu | carpet, pump, vape, lock-on | 4% (1/24) | 10.1 min | 2.5 | 4.6 / 4.7 / 3.4 | 0.46 / 0.92 / 1.34 |
 
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
 fights), so a 16-fight rate moves by roughly ±10 points between runs. Final tuning (after the vape
 cloud was toned down: 2 HP/s, none right after attacking, and attacking from it gives you away):
-the duo ×0.93, Broccoli Head ×1.0, Glowie ×1.0 and Tinubu ×0.86 damage, with Tinubu's last bar at
-900. Tinubu is almost impossible: the reference AI nearly always reaches his final form but rarely
-outlasts it.
+the duo ×0.93, Broccoli Head ×1.0, Glowie ×1.0 and Tinubu ×1.0 damage, with Tinubu's last bar at
+800. Every boss hits harder than before the "bosses do more damage" pass (stage damage ×1 / ×1.25 /
+×1.5, up from ×1 / ×1.1 / ×1.25). Tinubu is almost impossible: the reference AI usually dies in his
+second or third form, and in the rare win his final form falls in about 3.5 minutes.
 
 ## God mode (testing)
 
