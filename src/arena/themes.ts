@@ -235,7 +235,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
         gap: '#8094b8', stone: [58, 74, 106], stoneRange: 24, grit: [90, 110, 140], gritRange: 50, gritAlpha: 0.2,
         rune: 'rgba(200,150,255,0.8)', glyph: 'rgba(215,180,255,0.9)', mark: 'rgba(255,255,255,0.18)', extras: 'frost',
       },
-      roughness: 0.35, metalness: 0.1, emissive: 0.05,
+      roughness: 0.55, metalness: 0.1, emissive: 0.05,
     },
     stone: { bg: '#71809c', brick: [104, 122, 156], brickRange: 26, grit: [150, 166, 196], gritRange: 40, gritAlpha: 0.25, extras: 'frost' },
     wall: { color: 0xaab8d8, emissive: 0 },
@@ -318,9 +318,10 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
       clouds: { a: [0.35, 0.05, 0.6], b: [0.04, 0.4, 0.24], strength: 1 },
     },
     fog: { color: 0x0e0818, density: 0.8 },
-    hemi: { sky: 0x9a6ad8, ground: 0x1c2438, intensity: 1.0 },
+    // Brighter fill from below than the old 0x1c2438 / 0.22: dark-suited bosses (Bitcoin Obama) read as silhouettes otherwise.
+    hemi: { sky: 0x9a6ad8, ground: 0x34406a, intensity: 1.15 },
     sun: { color: 0xd0b0ff, intensity: 2.0, position: [-14, 28, -18] },
-    bounce: { color: 0x60ff9a, intensity: 0.22 },
+    bounce: { color: 0x60ff9a, intensity: 0.42 },
     floor: {
       style: {
         gap: '#6a2aa0', stone: [24, 20, 32], stoneRange: 14, grit: [10, 8, 16], gritRange: 30, gritAlpha: 0.3,

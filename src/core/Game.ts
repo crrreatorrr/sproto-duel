@@ -164,6 +164,8 @@ export class Game {
   }
 
   private dustTimer = 0;
+  /** Sim time of each wizard's last IMMUNE popup (rate limit). */
+  private readonly immunePopupAt = new Map<Wizard, number>();
 
   private bindPopups(): void {
     events.on('dodge', (e) => this.fx.roll(e.wizard.pos, e.wizard.dodgeDir, e.wizard.team.spell));
@@ -171,7 +173,12 @@ export class Game {
     events.on('land', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), Math.round(2 + e.speed * 0.6), 1.1));
     events.on('damage', (e) => {
       if ((e.target.immune || e.target.evolving) && e.amount <= 0) {
-        this.popups.spawn(e.target.chest(tmp), 'IMMUNE', 'block');
+        // Rate-limited per target: bursts and the fire ring would otherwise stack them illegibly.
+        const last = this.immunePopupAt.get(e.target) ?? -1e9;
+        if (this.simTime - last >= CONFIG.ui.immunePopupInterval) {
+          this.immunePopupAt.set(e.target, this.simTime);
+          this.popups.spawn(e.target.chest(tmp), 'IMMUNE', 'block');
+        }
         return;
       }
       const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' ? 'burn' : 'dmg';

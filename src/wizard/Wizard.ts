@@ -134,7 +134,7 @@ export class Wizard {
   damageMultiplier = 1;
   /** Multiplies the clash power of this wizard's projectiles (god mode). */
   clashPowerMultiplier = 1;
-  /** Takes no damage (god mode). Hits still flash, knock back and stun. */
+  /** Takes no damage and can't be stunned (god mode). Hits still flash and knock back. */
   immune = false;
   /**
    * Asked when a hit empties the health bar: true keeps the wizard standing at 0 HP instead of a KO.
@@ -352,7 +352,7 @@ export class Wizard {
   }
 
   applyStun(seconds: number): void {
-    if (this.evolving) return;
+    if (this.evolving || this.immune) return;
     this.stunTime = Math.max(this.stunTime, seconds);
     this.cast = null;
     this.vel.multiplyScalar(0.2);

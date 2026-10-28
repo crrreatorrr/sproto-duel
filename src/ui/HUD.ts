@@ -199,7 +199,7 @@ export class HUD {
       <div class="plate plate-${side}${partner ? ' plate-partner' : ''}">
         <div class="plate-head"><span class="plate-id"><span class="plate-name">Rival</span><small class="plate-title"></small></span><span class="hp-text">150</span></div>
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
-        <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden ticket: bigger mana pool, double regen"><i>✦</i><b></b></span></div>
+        <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden ticket: +50% mana pool, refilled, for 15 s"><i>✦</i><b></b></span></div>
         <div class="bar ult"><div class="ult-fill"></div><span>ULT</span></div>
         ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div>' : ''}
       </div>`;
