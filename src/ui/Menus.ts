@@ -81,10 +81,23 @@ export interface ResultData {
   /** Campaign boss for the portrait and colours. */
   boss?: BossDef;
   /** Main button; defaults to "Rematch" (MenuHandlers.restart). */
-  primary?: { label: string; action(): void };
+  primary?: MenuAction;
   /** A reward spell this win taught for the first time (its name): a chip, then the reveal screen. */
   learned?: string;
 }
+
+/** A button: its label, an optional second line (e.g. the next boss's name), and what it does. */
+export interface MenuAction {
+  label: string;
+  sub?: string;
+  action(): void;
+}
+
+/**
+ * Why beating the boss on the card would save nothing: 'god', god mode is on; 'skipped', earlier
+ * fights of this run were won in god mode (App.rewardNote).
+ */
+export type UnsavedReason = 'god' | 'skipped';
 
 /** What the boss intro card shows. */
 export interface BossIntro {
@@ -94,6 +107,10 @@ export interface BossIntro {
   total: number;
   /** The player already knows this boss's reward spell. */
   rewardLearned?: boolean;
+  /** A win here would not be saved (the reward line says so instead of "Defeat to learn"). */
+  rewardNote?: UnsavedReason | null;
+  /** A line under Begin, e.g. that it replaces the saved run (New Gauntlet). */
+  beginNote?: string;
 }
 
 /** A boss's current stage, for the pause screen. */
@@ -196,6 +213,8 @@ export class Menus {
   private readonly toastEl: HTMLElement;
   private settings: Settings;
   private screen: HTMLElement | null = null;
+  /** The boss card on screen (its reward line follows god mode: setBossRewardNote). */
+  private bossIntro: BossIntro | null = null;
 
   constructor(parent: HTMLElement, initial: Settings, private readonly h: MenuHandlers) {
     this.settings = { ...initial };
@@ -256,6 +275,7 @@ export class Menus {
   }
 
   private mount(html: string, cls: string): HTMLElement {
+    this.bossIntro = null;
     this.root.innerHTML = `<div class="menu-screen ${cls}">${html}</div>`;
     this.root.classList.add('open');
     // The HUD steps aside behind every menu (pause, its settings...), except the click-to-resume hint.
@@ -275,12 +295,13 @@ export class Menus {
            <b>Continue</b><small>Fight ${g.nextIndex + 1} of ${BOSSES.length} · ${bossDisplayName(g.next)}</small>
          </button>`
       : '';
+    // A heading only labels the Continue / New Gauntlet pair: it never repeats a button's own title.
     const s = this.mount(`
       <div class="menu-panel main">
         <h1 class="title">Arcane<span>Duel</span></h1>
         <p class="tagline">Wands up. One life against each boss.</p>
         <div class="mode-block gauntlet-block">
-          <h3>Boss Gauntlet</h3>
+          ${g.canContinue ? '<h3>Boss Gauntlet</h3>' : ''}
           <div class="row">
             ${cont}
             <button class="gauntlet-btn" data-act="gauntlet">
@@ -289,7 +310,6 @@ export class Menus {
           </div>
         </div>
         <div class="mode-block">
-          <h3>Quick Duel</h3>
           <button class="primary quick-duel" data-act="start">Quick Duel<small>One best-of-three against the Rival</small></button>
         </div>
         <div class="row">
@@ -415,8 +435,11 @@ export class Menus {
     this.on(s, '[data-act="back"]', back);
   }
 
-  /** `subtitle`: e.g. the boss being fought in the gauntlet; `stages`: each boss's current stage (two in a double fight). */
-  showPause(subtitle = '', stages: StageInfo[] = []): void {
+  /**
+   * `subtitle`: e.g. the boss being fought in the gauntlet; `stages`: each boss's current stage (two
+   * in a double fight); `restartLabel`: "Restart Fight" in a boss fight.
+   */
+  showPause(subtitle = '', stages: StageInfo[] = [], restartLabel = 'Restart Match'): void {
     const line = (st: StageInfo) => {
       const pips = Array.from({ length: STAGE_COUNT }, (_, i) => `<i class="${i < st.index ? 'done' : i === st.index ? 'on' : ''}"></i>`).join('');
       const who = st.who ? `${st.who}: ` : '';
@@ -428,15 +451,15 @@ export class Menus {
         ${subtitle ? `<p class="note pause-sub">${subtitle}</p>` : ''}
         ${stages.map(line).join('')}
         <button class="primary" data-act="resume">Resume</button>
-        <button data-act="restart">Restart Match</button>
+        <button data-act="restart">${restartLabel}</button>
         <button data-act="howto">How to Play</button>
         <button data-act="settings">Settings</button>
         <button class="ghost" data-act="quit">Quit to Menu</button>
       </div>`, 'pause');
     this.on(s, '[data-act="resume"]', () => this.h.resume());
     this.on(s, '[data-act="restart"]', () => this.h.restart());
-    this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stages)));
-    this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stages)));
+    this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stages, restartLabel)));
+    this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stages, restartLabel)));
     this.on(s, '[data-act="quit"]', () => this.h.quit());
   }
 
@@ -491,27 +514,51 @@ export class Menus {
           </div>
         </div>
         ${stages}
-        ${this.rewardLine(b.reward, !!info.rewardLearned)}
-        <div class="menu-actions row"><button class="primary" data-act="begin">Begin</button>
+        ${this.rewardLine(info)}
+        <div class="menu-actions row"><button class="primary" data-act="begin">${this.label({ label: 'Begin', sub: info.beginNote })}</button>
         <button class="ghost" data-act="menu">Main Menu</button></div>
       </div>`, 'boss');
+    this.bossIntro = { ...info };
     this.on(s, '[data-act="begin"]', () => actions.begin());
     this.on(s, '[data-act="menu"]', () => actions.back());
   }
 
-  /** The boss card's reward line: "Defeat to learn: <icon> Magic Carpet" (or that you know it). */
-  private rewardLine(id: RewardSpellId, learned: boolean): string {
+  /** God mode was toggled on the boss card: its reward line says whether a win would be saved. */
+  setBossRewardNote(note: UnsavedReason | null): void {
+    const info = this.bossIntro;
+    const line = this.screen?.querySelector('.boss-reward');
+    if (!info || !line) return;
+    info.rewardNote = note;
+    line.outerHTML = this.rewardLine(info);
+  }
+
+  /**
+   * The boss card's reward line: "Defeat to learn: <icon> Magic Carpet", that you know it already,
+   * or that a win would not be saved (god mode on, or earlier wins of this run used it).
+   */
+  private rewardLine(intro: BossIntro): string {
+    const id = intro.boss.reward;
     const info = REWARD_SPELL_INFO[id];
-    return `<div class="boss-reward${learned ? ' learned' : ''}" style="--accent:${info.color}">
+    const note = intro.rewardNote;
+    const head = note === 'god' ? 'God mode: progress not saved'
+      : note === 'skipped' ? 'Not saved · earlier wins used god mode'
+        : intro.rewardLearned ? 'Reward · already learned' : 'Defeat to learn';
+    const cls = note ? ' unsaved' : intro.rewardLearned ? ' learned' : '';
+    return `<div class="boss-reward${cls}" style="--accent:${info.color}">
       <span class="reward-icon">${rewardIcon(id)}</span>
-      <span class="reward-text"><small>${learned ? 'Reward · already learned' : 'Defeat to learn'}</small><b>${info.name}</b><i>${info.short}</i></span></div>`;
+      <span class="reward-text"><small>${head}</small><b>${info.name}</b><i>${info.short}</i></span></div>`;
+  }
+
+  /** A button's inner HTML: its label and, if any, a second line. */
+  private label(a: { label: string; sub?: string }): string {
+    return a.sub ? `${a.label}<small>${a.sub}</small>` : a.label;
   }
 
   /**
    * "NEW SPELL LEARNED": the reward spell a gauntlet win just taught (after the results). `next` is
    * where the results were heading (the next boss card, or the completion screen).
    */
-  showSpellReveal(id: RewardSpellId, actions: { next: { label: string; action(): void }; menu(): void }): void {
+  showSpellReveal(id: RewardSpellId, actions: { next: MenuAction; menu(): void }): void {
     const info = REWARD_SPELL_INFO[id];
     const b = teacher(id);
     const key = CONFIG.controls[id][0].replace(/^Key|^Digit/, '');
@@ -528,15 +575,15 @@ export class Menus {
         <p class="reveal-desc">${info.description}</p>
         <p class="reveal-keys">${keys}</p>
         <p class="note">Yours for good: in every fight from now on, and in Quick Duel.</p>
-        <div class="menu-actions"><button class="primary" data-act="continue" data-autofocus>${actions.next.label}</button>
+        <div class="menu-actions"><button class="primary" data-act="continue" data-autofocus>${this.label(actions.next)}</button>
         <button class="ghost" data-act="menu">Main Menu</button></div>
       </div>`, 'reveal');
     this.on(s, '[data-act="continue"]', () => actions.next.action());
     this.on(s, '[data-act="menu"]', () => actions.menu());
   }
 
-  /** Shown after the final boss falls. */
-  showCampaignComplete(info: { clears: number; god?: boolean }, actions: { again(): void; menu(): void }): void {
+  /** Shown after the final boss falls. `unsaved`: why this clear is not counted (god mode now, or earlier in the run). */
+  showCampaignComplete(info: { clears: number; unsaved?: UnsavedReason | null }, actions: { again(): void; menu(): void }): void {
     const s = this.mount(`
       <div class="menu-panel complete">
         <p class="boss-fight">Boss Gauntlet</p>
@@ -545,7 +592,7 @@ export class Menus {
         <ol class="complete-roll">
           ${BOSSES.map((b) => `<li style="${bossStyleVars(b)}">${bossPortraitHtml(b, 'small')}<b>${bossDisplayName(b)}</b><small>${b.title}</small></li>`).join('')}
         </ol>
-        <p class="note">${info.god ? 'God mode was on: this clear is not counted.' : info.clears > 1 ? `Gauntlet cleared ${info.clears} times.` : 'First clear. Well duelled.'}</p>
+        <p class="note">${info.unsaved === 'god' ? 'God mode was on: this clear is not counted.' : info.unsaved === 'skipped' ? 'Earlier wins used god mode: this clear is not counted.' : info.clears > 1 ? `Gauntlet cleared ${info.clears} times.` : 'First clear. Well duelled.'}</p>
         <button class="primary" data-act="again">Run It Again</button>
         <button class="ghost" data-act="menu">Main Menu</button>
       </div>`, 'complete');
@@ -574,7 +621,7 @@ export class Menus {
           ${row('Perfect reflects', r.player.perfects, r.enemy.perfects)}
           ${row('Dodges', r.player.dodges, r.enemy.dodges)}
         </div>
-        <div class="menu-actions row"><button class="primary" data-act="rematch">${primary.label}</button>
+        <div class="menu-actions row"><button class="primary" data-act="rematch">${this.label(primary)}</button>
         <button class="ghost" data-act="quit">Main Menu</button></div>
       </div>`, 'results');
     this.on(s, '[data-act="rematch"]', () => primary.action());

@@ -99,6 +99,8 @@ after it is a clear step up; Tinubu is close to impossible. This ladder is the g
 difficulty setting (Quick Duel is one fixed rival, best of three). A card introduces each fight;
 win to unlock the next, lose and you retry the same one. Progress is saved in the browser, so
 **Continue** on the main menu resumes at the next fight. Beating Tinubu clears the gauntlet.
+**New Gauntlet** only replaces a saved run once you press **Begin** on fight 1's card (the button
+says so); backing out to the main menu keeps Continue.
 
 **One life.** A boss fight is a single round and you have one life: if you fall, it's a defeat and
 **Retry** starts that boss again from stage 1 at full health. There is no round timer; the HUD's
@@ -138,7 +140,13 @@ sim time instead. Tuning: `CONFIG.campaign.cinematic`; code: `src/campaign/BossC
 so a stalemate always ends. Golden tickets come less often in boss fights
 (`CONFIG.tickets.bossSpawnInterval`). Tuning: `CONFIG.campaign.fight`.
 
-**God mode** wins don't save progress or count clears; the results say so.
+**God mode** wins don't save progress or count clears; the results say so. They still move you on
+in that session, but the save never skips a fight: a win is saved only if every earlier fight of
+the run is (`Campaign.continuesSave`), so a fair win after god-mode wins saves nothing either, and
+teaches no spell, until you start over (New Gauntlet) or pick your saved run back up (Continue).
+While god mode is on, the boss card's reward line reads "God mode: progress not saved" (or "Not
+saved" after god-mode wins). A fight's result is settled the moment it ends: toggling god mode
+before the results show changes nothing.
 
 **The double fight.** In fight 2 you face Bitcoin Obama (tall) and The Midget (short, quick and
 jumpy) at the same time. Each has his own stage bars, AI and palette (both throw phones and pigs),
@@ -181,9 +189,9 @@ never cast these.
 |---|---|---|---|---|
 | Sahil | **Magic Carpet** | Z | D-pad ← | 2.5 s on a flying carpet: 2.2× speed, hovering 0.45 m up (no lava or fire-ring burn; it glides up over low cover like rug piles, car hoods and carts). No casting while you ride; press again to hop off. 12 s cooldown, 20 mana |
 | Bitcoin Obama & The Midget | **Pump It** | X | D-pad ↑ | 6 s surge: +50% spell damage and 1.5× Ultimate charge. Phones orbit you and a green chart arrow climbs over your head. 20 s cooldown, 25 mana |
-| Broccoli Head | **Vape Cloud** | V | D-pad → | A 5 m smoke screen at your feet for 6 s. Enemies inside it or looking through it lose track of you and fire at your last known spot (the arena vape-cloud perception, `Arena.obscured`). You heal 3 HP/s inside. 22 s cooldown |
+| Broccoli Head | **Vape Cloud** | V | D-pad → | A 5 m smoke screen at your feet for 6 s. Enemies inside it or looking through it lose track of you and fire at your last known spot (the arena vape-cloud perception, `Arena.obscured`). You heal 2 HP/s inside. Attacking from inside gives you away: the AI sees you for 0.5 s after each attack (`CONFIG.ai.castRevealTime`), and the healing pauses for 1 s. 22 s cooldown |
 | Glowie | **Lock-On** | G | D-pad ↓ | 6 s of homing bolts: each bolt turns gently (2.4 rad/s) toward the nearest enemy in a 70° cone in front of you; a green reticle marks it. Rolls still slip them; shields, reflects and clashes work as usual. 20 s cooldown |
-| Tinubu | **Hellfire Breath** | T | X / □ | Channel a 6 m, 35° cone of fire from your staff for 2 s: 16 damage/s in the cone and a 4 s burn (5/s) after; you move at 35% speed. Shields block it, a roll dodges it. 18 s cooldown, 30 mana |
+| Tinubu | **Hellfire Breath** | T | X / □ | Channel a 6 m, 35° cone of fire from your staff for 2 s: 16 damage/s in the cone and a 4 s burn (5/s) after; you move at 35% speed. Shields block it, a roll dodges it, and cover stops it, office glass included (the flames crack a pane; three licks shatter it, like three bolts). 18 s cooldown, 30 mana |
 
 - **Unlocking:** a win saves the spell with the progress (`unlockedSpells` in the campaign save;
   a double fight teaches its spell once both bosses are down). Saves from before the spells are
@@ -231,7 +239,9 @@ never runs dry), no spell cooldowns (Blast, Shield and Stun are ready again at o
 Ultimate is always charged; bolts keep their normal fire rate), all five boss spells (with no
 cooldowns either), 5× damage and 5× clash power. Toggle it any time by typing **9 9** quickly, with
 **F9**, or in Settings; start with it on via `?god` in the URL. A **GOD MODE** badge shows on the
-HUD. It is never saved: a reload turns it off. Tuning: `CONFIG.debug`.
+HUD. It is never saved: a reload turns it off. Standing in lava or the fire ring doesn't flash you
+white (zero-damage hazard ticks skip the hit flash). The menus' background duel ignores it (stock
+stats until a match starts). Tuning: `CONFIG.debug`.
 
 ## Balancing
 

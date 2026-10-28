@@ -336,10 +336,33 @@ export class Game {
     this.partnerLook = '';
   }
 
-  /** God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash power. */
+  /** God mode's stats are held off the player (App: the menus' background duel); see holdGodMode. */
+  get godHeld(): boolean {
+    return this.godHold;
+  }
+  private godHold = false;
+
+  /**
+   * God mode for the player (CONFIG.debug): no damage taken, unlimited mana, extra damage and clash
+   * power. While held (holdGodMode) the flag changes but the player keeps stock stats.
+   */
   setGodMode(on: boolean): void {
+    CONFIG.debug.godMode = on;
+    this.applyGodStats();
+  }
+
+  /**
+   * Hold god mode's stats off the player (true: stock stats whatever CONFIG.debug.godMode says, for
+   * the menus' background duel) or give them back (false: a match starts).
+   */
+  holdGodMode(held: boolean): void {
+    this.godHold = held;
+    this.applyGodStats();
+  }
+
+  private applyGodStats(): void {
     const D = CONFIG.debug;
-    D.godMode = on;
+    const on = D.godMode && !this.godHold;
     const p = this.player;
     p.immune = on;
     p.infiniteMana = on;

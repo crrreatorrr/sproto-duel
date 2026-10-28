@@ -132,6 +132,9 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
   qa.add('rewards.duo_teaches_once_both_are_down', (c) => {
     withStashedSave(app, () => {
       app.campaign.reset();
+      // Fight 1 won (saved), so a win at fight 2 saves.
+      app.campaign.index = 0;
+      app.campaign.recordWin();
       app.campaign.index = 1;
       app.startBossFight();
       const m = app.match, p = game.player;
@@ -149,7 +152,7 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
         game.spells.dealDamage(game.partner, p, 1e6, game.partner.chest(tmp), 'blast');
         c.step(CONFIG.match.roundEndTime + 0.2);
       });
-      c.expect((m.phase as string) === 'matchEnd' && app.campaign.hasLearned('pump') && app.campaign.lastLearned === 'pump', `both down: phase ${m.phase}, learned ${app.campaign.unlocked.join()}`);
+      c.expect((m.phase as string) === 'matchEnd' && app.campaign.hasLearned('pump') && app.campaign.lastLearned === 'pump' && app.campaign.saved.next === 2, `both down: phase ${m.phase}, learned ${app.campaign.unlocked.join()}, next ${app.campaign.saved.next}`);
       c.expect(p.learned.has('pump'), 'the player cannot cast the new spell yet');
     });
   });
@@ -310,7 +313,7 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       c.step(0.5, () => ai.update(DT));
       c.expect(Math.hypot(p.pos.x - s.x, p.pos.z - s.z) < s.radius, 'walked out of the cloud');
       c.expect(Math.abs(e.aimPoint.x - seenAt) < 0.35 && Math.abs(e.aimPoint.x - p.pos.x) > 1, `the AI still tracks you (aim x ${e.aimPoint.x.toFixed(2)}, you ${p.pos.x.toFixed(2)}, last seen ${seenAt.toFixed(2)})`);
-      // Healing inside: 3 HP/s (the AI's blind fire is ignored for the measurement).
+      // Healing inside: 2 HP/s (the AI's blind fire is ignored for the measurement).
       const heals = record('rewardHeal');
       p.immune = true;
       const hp = p.health;
@@ -325,6 +328,96 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       c.expect(p.health === out, 'healed outside the cloud');
       c.step(V.duration);
       c.expect(arena.smokes.length === 0 && !arena.obscured(e.chest(new THREE.Vector3()), new THREE.Vector3(s.x, 1.2, s.z)), 'the cloud never cleared');
+    } finally {
+      ai.dispose();
+    }
+  });
+
+  qa.add('rewards.vape_camper_still_takes_fire', (c) => {
+    // The QA trial: a player standing still and shooting for 6 s against a boss AI (Glowie's
+    // profile), in the open and from inside its own vape cloud (4 seeded runs each). Each attack
+    // gives it away for a moment (CONFIG.ai.castRevealTime) and pauses the healing
+    // (vape.castHealPause), and the AI keeps firing at the cloud (lostTrackTime): the camper still
+    // takes at least half the damage it takes in the open, draws at least half the casts, and comes
+    // out behind on health. (Before: the casts fell to a fifth and the cloud out-healed the damage.)
+    const p = game.player, e = game.enemy;
+    const V = RS.vape;
+    const run = (vape: boolean, seed: number) => withSeededRandom(seed, () => {
+      c.setup({ player: [0, -6], enemy: [0, 7] });
+      learn(p, ['vape']);
+      p.health = 150;
+      const ai = new AIController(e, p, game.spells, game.physics, arena, 'normal');
+      ai.setProfile(BOSSES[3].ai);
+      try {
+        if (vape) c.expect(cast(c, p, 'vape') && arena.smokes.length === 1, 'no vape cloud');
+        const spot = p.pos.clone();
+        const hp = p.health, casts = e.stats.casts;
+        const hits = record('damage');
+        c.step(V.duration - 0.3, () => {
+          // Rooted to the spot (knockback never carries it out of the cloud), shooting at the AI.
+          p.pos.set(spot.x, p.pos.y, spot.z);
+          p.placeBody();
+          c.aimAt(p, e);
+          p.intent.holdBolt = true;
+          e.health = e.maxHealth;
+          ai.update(DT);
+        });
+        p.intent.holdBolt = false;
+        const taken = hits().filter((d) => d.target === p).reduce((a, d) => a + d.amount, 0);
+        return { taken, healed: p.health - hp + taken, aiCasts: e.stats.casts - casts, shots: p.stats.casts };
+      } finally {
+        ai.dispose();
+      }
+    });
+    const trial = (vape: boolean) => [4242, 4243, 4244, 4245].map((seed) => run(vape, seed)).reduce((a, r) => ({
+      taken: a.taken + r.taken, healed: a.healed + r.healed, aiCasts: a.aiCasts + r.aiCasts, shots: a.shots + r.shots,
+    }));
+    const open = trial(false), hidden = trial(true);
+    c.note(`open: took ${open.taken.toFixed(0)} from ${open.aiCasts} casts (${open.shots} shots) | in the cloud: took ${hidden.taken.toFixed(0)} from ${hidden.aiCasts} casts, healed ${hidden.healed.toFixed(1)} (${hidden.shots} shots)`);
+    c.expect(open.taken > 0 && open.aiCasts > 0, 'test setup: the AI never hurt the player in the open');
+    c.expect(hidden.taken >= open.taken * 0.5, `hiding in the cloud while shooting halved the damage taken (${hidden.taken.toFixed(0)} vs ${open.taken.toFixed(0)})`);
+    c.expect(hidden.aiCasts >= open.aiCasts * 0.5, `the AI stopped firing at the cloud (${hidden.aiCasts} casts vs ${open.aiCasts})`);
+    c.expect(hidden.healed <= V.healPerSecond * 4 && hidden.healed < hidden.taken, `the camper healed ${hidden.healed.toFixed(1)} HP in 4 runs while shooting (took ${hidden.taken.toFixed(0)})`);
+
+    // The healing pauses for castHealPause after an attack, then picks up again.
+    c.setup({ player: [0, -6], enemy: [0, 12] });
+    learn(p, ['vape']);
+    p.health = 100;
+    c.expect(cast(c, p, 'vape'), 'no vape cloud');
+    let hp = p.health;
+    c.step(0.5);
+    c.expect(p.health > hp, 'no healing inside the cloud');
+    c.aimAt(p, e);
+    p.intent.press('bolt');
+    c.step(DT * 2);
+    c.expect(p.sinceAttack < 0.1, 'a bolt did not count as an attack');
+    hp = p.health;
+    c.step(V.castHealPause - 0.1);
+    c.near(p.health - hp, 0, 1e-9, 'HP healed right after a bolt');
+    c.step(0.6);
+    c.expect(p.health > hp, 'the healing never resumed after the bolt');
+
+    // Firing from inside gives you away: the AI's aim leaves the last known spot for you.
+    const sharp: AIProfile = { ...CONFIG.ai.difficulty.normal, aimError: 0, leadFactor: 0, dodgeChance: 0, burst: [0, 0], blastChance: 0, stunChance: 0 };
+    const ai = new AIController(e, p, game.spells, game.physics, arena, 'normal');
+    ai.setProfile(sharp);
+    try {
+      c.setup({ player: [0, -5], enemy: [0, 6] });
+      learn(p, ['vape']);
+      c.step(0.6, () => ai.update(DT));
+      c.expect(cast(c, p, 'vape'), 'no vape cloud');
+      const seenAt = p.pos.x;
+      c.step(0.25, () => {
+        ai.update(DT);
+        p.intent.move.set(1, 0, 0);
+      });
+      p.intent.move.set(0, 0, 0);
+      c.step(0.5, () => ai.update(DT));
+      c.expect(Math.abs(e.aimPoint.x - seenAt) < 0.35 && Math.abs(e.aimPoint.x - p.pos.x) > 1, `test setup: the AI still sees you in the cloud (aim x ${e.aimPoint.x.toFixed(2)}, you ${p.pos.x.toFixed(2)})`);
+      c.aimAt(p, e);
+      p.intent.press('bolt');
+      c.step(0.35, () => ai.update(DT));
+      c.expect(Math.abs(e.aimPoint.x - p.pos.x) < 0.35, `a bolt from the cloud did not give you away (aim x ${e.aimPoint.x.toFixed(2)}, you ${p.pos.x.toFixed(2)})`);
     } finally {
       ai.dispose();
     }
@@ -440,6 +533,45 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       e.chest(p.aimPoint);
     });
     c.expect(e.health === hp, 'the breath went through a shield');
+  });
+
+  qa.add('rewards.breath_blocked_by_glass', (c) => {
+    // Office glass lets sight through but stops spells, Hellfire Breath included: nothing burns
+    // through an intact pane. The flames crack it (as many licks as bolts shatter it) and only then
+    // reach past it.
+    const p = game.player, e = game.enemy;
+    const Br = RS.breath;
+    inTheme('office', () => {
+      const glass = arena.pillars.find((x) => x.active && x.shape.seeThrough && Math.abs(x.shape.yaw) < 0.1 && x.position.x > 0 && x.position.z > 0);
+      c.expect(!!glass, 'no glass partition');
+      const pane = glass!;
+      const g = pane.position;
+      c.setup({ player: [g.x, g.z - 2.5], enemy: [g.x, g.z + 2.5] });
+      learn(p, ['breath']);
+      c.expect(game.physics.lineOfSight(p.chest(tmp), e.chest(new THREE.Vector3())), 'test setup: the glass hides the enemy (it is see-through)');
+      c.expect(!game.physics.clearPath(p.chest(tmp), e.chest(new THREE.Vector3())), 'clearPath ignores glass');
+      const paneHp = pane.hp;
+      let throughGlass = 0, past = 0, shatteredAt = -1, t = 0;
+      const off = events.on('damage', (d) => {
+        if (d.target !== e || d.kind !== 'breath') return;
+        if (pane.alive) throughGlass++;
+        else past++;
+      });
+      try {
+        c.expect(cast(c, p, 'breath'), 'the breath did not start');
+        c.step(Br.duration, () => {
+          t += DT;
+          e.chest(p.aimPoint);
+          if (!pane.alive && shatteredAt < 0) shatteredAt = t;
+        });
+      } finally {
+        off();
+      }
+      c.note(`pane shattered after ${shatteredAt.toFixed(2)} s; ${past} licks reached past it`);
+      c.expect(throughGlass === 0, `the breath burned through intact glass (${throughGlass} licks)`);
+      c.expect(pane.hp < paneHp, 'the flames did not crack the glass');
+      c.expect(!pane.alive && past > 0, `the breath never got past the glass (pane hp ${pane.hp})`);
+    });
   });
 
   qa.add('rewards.cooldowns_and_mana', (c) => {
@@ -746,16 +878,22 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
         ['settings', () => app.menus.showSettings(() => {})],
         ['pause', () => app.menus.showPause('Fight 2 of 5 · Bitcoin Obama & The Midget, the Pump & Dump Duo', [
           { index: 2, name: 'Dump', who: 'Bitcoin Obama' }, { index: 1, name: 'To the Moon', who: 'The Midget', down: true }])],
-        ...BOSSES.map((b, i) => [`boss card ${i + 1}`, () => app.menus.showBossIntro({ boss: b, index: i, total: BOSSES.length }, { begin() {}, back() {} })] as [string, () => void]),
+        ...BOSSES.map((b, i) => [`boss card ${i + 1}`, () => app.menus.showBossIntro({ boss: b, index: i, total: BOSSES.length, rewardNote: i % 2 ? 'skipped' : null, beginNote: i === 0 ? 'Replaces your save at fight 4' : undefined }, { begin() {}, back() {} })] as [string, () => void]),
         ['results (boss win)', () => app.menus.showResults({
           title: 'Victory', subtitle: 'Bitcoin Obama & The Midget, the Pump & Dump Duo, fall.', victory: true, names: ['You', 'Bitcoin Obama & The Midget'], rounds: [],
           eyebrow: 'Fight 2 of 5 cleared', boss: BOSSES[1], tag: 'God mode · progress not saved', learned: 'Pump It',
           facts: [{ label: 'Fight time', value: '17:42' }, { label: 'Stages reached', value: 'Bitcoin Obama III · The Midget III' }, { label: 'Life packs', value: '3 of 3' }, { label: 'Health left', value: '12%' }],
           primary: { label: 'Continue', action() {} }, player: stats, enemy: stats,
         })],
+        ['results (unsaved win, next fight)', () => app.menus.showResults({
+          title: 'Victory', subtitle: 'Broccoli Head, the Floret Lord, falls.', victory: true, names: ['You', 'Broccoli Head'], rounds: [],
+          eyebrow: 'Fight 3 of 5 · not saved', boss: BOSSES[2], tag: 'Not saved · earlier wins used god mode',
+          facts: [{ label: 'Fight time', value: '17:42' }, { label: 'Stage reached', value: '3 of 3' }, { label: 'Life packs', value: '3 of 3' }, { label: 'Health left', value: '12%' }],
+          primary: { label: 'Next Fight', sub: bossDisplayName(BOSSES[3]), action() {} }, player: stats, enemy: stats,
+        })],
         ['results (quick duel)', () => app.menus.showResults({ title: 'Defeat', subtitle: 'The Rival wins this time.', victory: false, names: ['You', 'Rival'], rounds: ['win', 'lose', 'lose'], player: stats, enemy: stats })],
         ['complete', () => app.menus.showCampaignComplete({ clears: 2 }, { again() {}, menu() {} })],
-        ...REWARD_SPELLS.map((id) => [`reveal ${id}`, () => app.menus.showSpellReveal(id, { next: { label: 'Next: Bitcoin Obama & The Midget', action() {} }, menu() {} })] as [string, () => void]),
+        ...REWARD_SPELLS.map((id) => [`reveal ${id}`, () => app.menus.showSpellReveal(id, { next: { label: 'Next Fight', sub: 'Bitcoin Obama & The Midget', action() {} }, menu() {} })] as [string, () => void]),
       ];
       for (const [name, show] of screens) {
         show();

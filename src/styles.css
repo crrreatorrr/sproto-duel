@@ -77,7 +77,8 @@ html, body {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 6px 18px rgba(0, 0, 0, 0.22);
 }
 .plate-right { text-align: right; }
-.plate-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.plate-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.plate-head .hp-text { flex: none; }
 .plate-right .plate-head { flex-direction: row-reverse; }
 .plate-name { font-family: var(--display); font-size: 17px; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8); }
 .hp-text { font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink-dim); }
@@ -325,6 +326,10 @@ html, body {
 .plate-id { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .plate-right .plate-id { flex-direction: row-reverse; }
 .plate-title { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: none; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Short of room, the epithet gives way first (to an ellipsis, then nothing); the name only truncates
+   once the epithet is gone and it alone is wider than the plate. */
+.plate-id .plate-name { flex: none; max-width: 100%; }
+.plate-id .plate-title { flex: 0 1 auto; min-width: 0; }
 .plate-title:empty { display: none; }
 
 .god-badge {
@@ -338,7 +343,8 @@ html, body {
 .menu-screen.main .menu-panel.main { gap: 10px; max-height: 100cqh; overflow-y: auto; padding: 16px 4px; }
 .mode-block { display: grid; gap: 8px; }
 .mode-block h3 { margin: 4px 0 0; font-size: 15px; letter-spacing: 0.18em; color: var(--ink-dim); }
-.menus button.primary.quick-duel small { color: rgba(29, 18, 6, 0.75); font-size: 13px; letter-spacing: 0.04em; text-transform: none; font-weight: 600; }
+/* A second line on a gold button (Quick Duel's blurb, Next Fight's boss, Begin's save note). */
+.menus button.primary small { color: rgba(29, 18, 6, 0.75); font-size: 13px; letter-spacing: 0.04em; text-transform: none; font-weight: 600; }
 
 /* Toast (god mode on/off), shown over menus and the HUD. */
 .toast {
@@ -517,7 +523,8 @@ html, body {
 .plate.down { opacity: 0.45; filter: grayscale(0.7); }
 .enemy-tag.partner { width: 54px; }
 .banner.enrage .banner-main { font-size: clamp(30px, 6.5vw, 64px); }
-.boss-name.duo { font-size: clamp(32px, 4.4cqw, 50px); }
+/* Each name on one line (two lines in all), so the duo's card fits 1280x800 and 1366x768 like the others. */
+.boss-name.duo { font-size: clamp(28px, 3.2cqw, 42px); }
 .boss-name.duo span { display: block; }
 .boss-stages-who { margin: 0 0 -6px; font: 700 12px/1 var(--hud); letter-spacing: 0.2em; text-transform: uppercase; color: var(--boss-spell, var(--gold)); }
 .pause-stage.down { opacity: 0.5; }
@@ -656,6 +663,8 @@ html, body {
 /* ------------------------------------------------------------------ boss reward spells */
 /* The HUD steps aside behind menus (pause and its settings, how to play). */
 #ui.menu-open .hud { opacity: 0; visibility: hidden; }
+/* World popups (damage numbers, callouts) never draw over a menu: the menus' background duel, a paused fight. */
+#ui.menu-open .popups { visibility: hidden; }
 
 /* Second spell row: one slot per learned reward spell, on its own blurred backing. */
 .reward-slots {
@@ -721,6 +730,8 @@ html, body {
 .boss-reward b { font-family: var(--display); font-size: 19px; letter-spacing: 0.05em; color: #fff; }
 .boss-reward i { font-style: normal; font-size: 13px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .boss-reward.learned { opacity: 0.8; }
+/* A win here would not be saved (god mode). */
+.boss-reward.unsaved small { color: var(--gold); }
 
 /* How to Play: the five boss spells. */
 .reward-head { margin-top: 2px; }

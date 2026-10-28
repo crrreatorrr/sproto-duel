@@ -242,13 +242,16 @@ export class AIController implements TickController {
     if (this.volleyCd > 0) this.volleyCd -= dt;
 
     // Line of sight is a raycast, so only refresh it a few times per second. Soft cover (vape
-    // clouds) hides the target too: the AI then goes for where it last saw it.
+    // clouds) hides the target too: the AI then goes for where it last saw it. Attacking from
+    // inside gives the target away for a moment (CONFIG.ai.castRevealTime): it is seen again, so
+    // `lastSeen` follows it and the AI aims at it instead of firing blind.
     this.losTimer -= dt;
     if (this.losTimer <= 0) {
       this.losTimer = 0.15;
       const a = w.chest(tmpB), b = this.target.chest(tmpC);
       const solid = this.physics.lineOfSight(a, b);
-      this.lost = this.arena.obscured(a, b);
+      const revealed = this.target.sinceAttack < AI.castRevealTime;
+      this.lost = !revealed && this.arena.obscured(a, b);
       this.hasLos = solid && !this.lost;
       if (this.hasLos) {
         this.lastSeen.copy(this.target.pos);

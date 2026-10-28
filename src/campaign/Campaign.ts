@@ -35,8 +35,12 @@ export function migratedSpells(next: number, clears: number): RewardSpellId[] {
 /**
  * Boss Gauntlet progress: five single-life boss fights in a row. Beating a boss saves the next one,
  * so "Continue" resumes there; losing keeps you on the same boss. Beating a boss also teaches its
- * reward spell for good (`unlockedSpells`). Saved in localStorage (if allowed). A win with god mode
- * on is never saved (App skips recordWin).
+ * reward spell for good (`unlockedSpells`). Saved in localStorage (if allowed).
+ *
+ * The save never claims a fight that wasn't won fairly. A win with god mode on is never saved (App
+ * skips recordWin) but still moves the run on in this session; from then on the run is ahead of the
+ * save (`continuesSave` is false) and no later win of it saves anything either, nor teaches a spell,
+ * until the player starts over (New Gauntlet) or picks the saved run back up (Continue).
  */
 export class Campaign {
   /** The boss being fought (or about to be). */
@@ -79,12 +83,23 @@ export class Campaign {
     return this.save.unlockedSpells.includes(id);
   }
 
+  /**
+   * Every fight before the current one is in the save: a win here can be saved. False once the
+   * run went past the save through god-mode wins (which are never saved).
+   */
+  get continuesSave(): boolean {
+    return this.index <= this.save.next;
+  }
+
   /** A run is in progress past fight 1, so the menu offers "Continue". */
   get canContinue(): boolean {
     return this.save.next > 0 && this.save.next < BOSSES.length;
   }
 
-  /** Start over at fight 1 (keeps the clear count and the learned spells: they are permanent). */
+  /**
+   * Start over at fight 1 (keeps the clear count and the learned spells: they are permanent). App
+   * calls it when Begin is pressed on fight 1's card, so backing out of New Gauntlet keeps the save.
+   */
   startNew(): BossDef {
     this.index = 0;
     this.write({ ...this.save, next: 0 });
@@ -101,8 +116,14 @@ export class Campaign {
    * The current boss was beaten: save progress and learn its reward spell (`lastLearned` says
    * whether it is new). Returns 'complete' after the final boss (the run resets to fight 1 and the
    * clear count goes up), otherwise 'next'. `index` still points at the beaten boss until `advance()`.
+   * A run that went past the save (`continuesSave` false: earlier fights won in god mode) saves and
+   * teaches nothing: 'unsaved'. Progress never moves backwards.
    */
-  recordWin(): 'next' | 'complete' {
+  recordWin(): 'next' | 'complete' | 'unsaved' {
+    if (!this.continuesSave) {
+      this.lastLearned = null;
+      return 'unsaved';
+    }
     const reward = this.boss.reward;
     const learned = this.hasLearned(reward);
     this.lastLearned = learned ? null : reward;
@@ -111,7 +132,7 @@ export class Campaign {
       this.write({ ...this.save, next: 0, clears: this.save.clears + 1, unlockedSpells });
       return 'complete';
     }
-    this.write({ ...this.save, next: this.index + 1, unlockedSpells });
+    this.write({ ...this.save, next: Math.max(this.save.next, this.index + 1), unlockedSpells });
     return 'next';
   }
 

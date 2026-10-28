@@ -5,7 +5,7 @@ import { clamp } from '../core/math';
 import type { Arena } from '../arena/Arena';
 import type { Effects } from '../fx/Effects';
 import { RewardFx } from '../fx/RewardFx';
-import type { Physics } from '../physics/Physics';
+import { GROUP, type Physics } from '../physics/Physics';
 import type { Wizard } from '../wizard/Wizard';
 import type { Projectile } from './Projectile';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './rewardCatalog';
@@ -134,8 +134,10 @@ export class RewardSpells {
   update(dt: number): void {
     this.time += dt;
     for (const w of this.wizards) {
-      if (w.breathing && w.alive) this.breathe(w, dt);
-      else if (this.breathTick.has(w)) {
+      if (w.breathing && w.alive) {
+        w.sinceAttack = 0; // the flames give a vape-cloud hider away
+        this.breathe(w, dt);
+      } else if (this.breathTick.has(w)) {
         this.breathTick.delete(w);
         events.emit('rewardEnd', { wizard: w, spell: 'breath' });
       }
@@ -176,11 +178,15 @@ export class RewardSpells {
       o.scorchTime = B.burnTime;
       o.scorchBy = w;
     }
+    // Glass stops the flames (inCone) and they crack it: a pane takes as many licks as bolts to shatter.
+    const hit = this.physics.raycast(origin, dir, B.range, GROUP.WORLD);
+    if (hit?.tag.kind === 'pillar' && hit.tag.pillar.shape.seeThrough) hit.tag.pillar.damage(B.dps * B.tick, hit.point);
   }
 
   /**
    * The point of `o`'s body (feet, chest or head height) inside the breath's cone from `origin`
-   * along unit `dir`, in range and in sight, or null. Its body width widens the cone a little.
+   * along unit `dir`, in range and with nothing in between (glass partitions included), or null.
+   * Its body width widens the cone a little.
    */
   inCone(origin: THREE.Vector3, dir: THREE.Vector3, o: Wizard, out: THREE.Vector3): THREE.Vector3 | null {
     const B = RS.breath;
@@ -194,7 +200,7 @@ export class RewardSpells {
         const angle = Math.acos(clamp(v.dot(dir) / d, -1, 1));
         if (angle > half + Math.atan2(o.radius, Math.max(0.3, d))) continue;
       }
-      if (!this.physics.lineOfSight(origin, out)) continue;
+      if (!this.physics.clearPath(origin, out)) continue;
       return out;
     }
     return null;
@@ -215,12 +221,12 @@ export class RewardSpells {
     }
   }
 
-  /** Each dropped smoke screen heals its owner while it stands inside. */
+  /** Each dropped smoke screen heals its owner while it stands inside, except just after it attacked. */
   private healInSmoke(dt: number): void {
     const V = RS.vape;
     for (const s of this.arena.smokes) {
       const w = s.owner;
-      if (!w.alive || !w.active || w.pos.y > s.height) continue;
+      if (!w.alive || !w.active || w.pos.y > s.height || w.sinceAttack < V.castHealPause) continue;
       if (Math.hypot(w.pos.x - s.x, w.pos.z - s.z) >= s.radius) continue;
       const before = w.health;
       w.health = Math.min(w.maxHealth, w.health + V.healPerSecond * dt);

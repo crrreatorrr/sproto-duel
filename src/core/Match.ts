@@ -173,6 +173,12 @@ export class Match {
     return this.phase === 'intro' || this.phase === 'fight' || this.phase === 'roundEnd';
   }
 
+  /** The winner is known (the deciding round has ended): nothing done from now on changes it. */
+  get decided(): boolean {
+    if (this.phase === 'matchEnd') return true;
+    return this.phase === 'roundEnd' && (this.wins[0] >= this.roundsToWin || this.wins[1] >= this.roundsToWin);
+  }
+
   /** `boss`: the campaign fight being played (one round, one life), or null for a Quick Duel. */
   startMatch(boss: BossDef | null = null): void {
     this.boss = boss;
