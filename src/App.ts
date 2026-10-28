@@ -70,6 +70,7 @@ export class App {
     this.partnerAi = new AIController(game.partner, game.player, game.spells, game.physics, game.arena, 'normal');
     // Both bosses of a double fight keep apart and flank; alone, the rival has nobody to space from.
     this.ai.allies = this.partnerAi.allies = game.enemies;
+    this.ai.tickets = this.partnerAi.tickets = game.tickets;
     const ai = this.ai, partnerAi = this.partnerAi;
     game.enemyController = {
       update(dt) {

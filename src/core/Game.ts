@@ -6,6 +6,7 @@ import type { BossDef, BossPartner } from '../campaign/levels';
 import { BossStages } from '../campaign/BossStages';
 import { Arena } from '../arena/Arena';
 import { FireRing } from '../arena/FireRing';
+import { GoldenTickets } from '../arena/GoldenTickets';
 import { CameraRig } from '../camera/CameraRig';
 import { Effects } from '../fx/Effects';
 import { Physics } from '../physics/Physics';
@@ -67,6 +68,8 @@ export class Game {
   readonly enemies: Wizard[];
   readonly playerController: PlayerController;
   readonly popups: DamageNumbers;
+  /** Golden-ticket pickups (mana boost). Match enables spawning during the fight phase. */
+  readonly tickets: GoldenTickets;
   /** Drives the enemies inside the fixed tick (App: the rival's AI, and the partner's in a double fight). */
   enemyController: TickController | null = null;
   /** The campaign boss the rival is dressed as, or null for the default rival. */
@@ -136,6 +139,7 @@ export class Game {
     feel.local = this.player;
 
     this.spells = new SpellSystem(scene, physics, this.fx, this.wizards, this.arena);
+    this.tickets = new GoldenTickets(scene, physics, this.fx, this.wizards, this.arena, assets);
     this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemies);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
     this.stages = new BossStages(this, this.enemy, this.player);
@@ -174,6 +178,7 @@ export class Game {
       this.popups.spawn(e.target.chest(tmp), String(Math.round(e.amount)), style);
     });
     events.on('callout', (e) => this.popups.spawn(e.pos, e.text, e.style));
+    events.on('ticketPickup', (e) => this.popups.spawn(e.wizard.chest(tmp), '+MANA', e.wizard === this.player ? 'mana' : 'manaFoe'));
   }
 
   private readonly fireDamage = (w: Wizard, amount: number, point: THREE.Vector3) => {
@@ -183,6 +188,7 @@ export class Game {
   /** Clear every spell, effect and popup and restore pillars and the fire ring. */
   resetArena(): void {
     this.spells.clear();
+    this.tickets.clear();
     this.arena.reset();
     this.fx.clear();
     this.popups.clear();
@@ -412,6 +418,7 @@ export class Game {
     this.physics.step();
     this.arena.update(dt);
     this.fire.updateDamage(dt, this.arena.fireRadius, this.wizards, this.fireDamage);
+    this.tickets.update(dt);
     if (!this.qaMode) for (const fn of this.tickHooks) fn(dt);
   }
 
@@ -421,6 +428,7 @@ export class Game {
     this.spells.sync(alpha, this.renderTime, simDt);
     this.fire.updateVisual(simDt, this.arena.fireRadius);
     this.arena.updateVisual(simDt, this.renderer.camera.position);
+    this.tickets.updateVisual(simDt, this.renderer.camera.position);
     this.dustTimer -= simDt;
     if (this.dustTimer <= 0) {
       this.dustTimer = 0.06;

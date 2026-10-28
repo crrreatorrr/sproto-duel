@@ -7,6 +7,7 @@ import type { Physics } from '../physics/Physics';
 import type { Arena } from '../arena/Arena';
 import { stageProfile } from '../campaign/BossStages';
 import type { StageAttacks } from '../campaign/levels';
+import type { GoldenTicket, GoldenTickets } from '../arena/GoldenTickets';
 import type { SpellSystem } from '../spells/SpellSystem';
 import type { Wizard } from '../wizard/Wizard';
 
@@ -22,6 +23,7 @@ const AI = CONFIG.ai;
 const SP = CONFIG.spells;
 const VOLLEY = CONFIG.campaign.volley;
 const DUO = CONFIG.campaign.duo;
+const TK = CONFIG.tickets;
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -69,6 +71,14 @@ export class AIController implements TickController {
    * them and circle away from them around the target (CONFIG.campaign.duo). Empty: fights alone.
    */
   allies: readonly Wizard[] = [];
+  /** Golden tickets on the field (src/arena/GoldenTickets.ts); null = ignore them. */
+  tickets: GoldenTickets | null = null;
+  /** The ticket this AI is detouring to, if any (checked by id: tickets are pooled). */
+  private ticketGoal: GoldenTicket | null = null;
+  private ticketGoalId = 0;
+  private ticketGoalTime = 0;
+  private ticketCheck = 0;
+  private lastHurtAt = -1e9;
 
   constructor(
     private readonly self: Wizard,
@@ -122,11 +132,18 @@ export class AIController implements TickController {
     this.desiredMove.set(0, 0, 0);
     this.aimNoise.set(0, 0, 0);
     this.resetVolley();
+    this.ticketGoal = null;
+    this.lastHurtAt = -1e9;
   }
 
   /** First volley of a stage comes a little after it begins. */
   private resetVolley(): void {
     this.volleyCd = (this.attacks?.volley?.cooldown ?? 0) * VOLLEY.firstDelay;
+  }
+
+  /** True while detouring to a golden ticket. */
+  get seekingTicket(): boolean {
+    return this.ticketGoal !== null;
   }
 
   /** Punish windows come from game events: a whiffed Blast, a stunned or empty opponent. */
@@ -150,6 +167,9 @@ export class AIController implements TickController {
         this.attacks = e.boss ? e.boss.stages[e.stage].attacks : null;
         if (e.boss) this.setProfile(stageProfile(e.boss, e.stage));
         this.resetVolley();
+      }),
+      events.on('damage', (e) => {
+        if (e.target === this.self) this.lastHurtAt = this.time;
       }),
     );
   }
@@ -200,6 +220,7 @@ export class AIController implements TickController {
     this.perceiveThreats();
     this.runReactions();
     this.chooseState(dist);
+    this.thinkTickets(dt);
     this.steer(dt, toTarget, dist);
     this.aimAndAttack(dt, dist);
   }
@@ -349,6 +370,48 @@ export class AIController implements TickController {
     else this.setState('attack');
   }
 
+  /**
+   * Golden tickets: now and then, when nothing is coming at it, detour to a ticket that is near and
+   * closer to it than to the opponent (any near one when mana is low). Gives up if it takes too long.
+   */
+  private thinkTickets(dt: number): void {
+    const w = this.self;
+    const goal = this.ticketGoal;
+    if (goal && (!goal.active || goal.id !== this.ticketGoalId || w.stunned || (this.ticketGoalTime += dt) > TK.aiGiveUpTime)) {
+      this.ticketGoal = null;
+    }
+    if (this.ticketGoal || !this.tickets || this.tickets.activeCount === 0) return;
+    this.ticketCheck -= dt;
+    if (this.ticketCheck > 0) return;
+    this.ticketCheck = TK.aiCheckInterval;
+    if (this.state === 'evade' || this.punishTimer > 0 || w.manaBoost > TK.boostDuration / 3 || this.underFire()) return;
+    if (!chance(TK.aiSeekChance)) return;
+    const lowMana = w.mana < CONFIG.wizard.maxMana * TK.aiLowMana;
+    const t = this.tickets.bestFor(w, this.target, TK.aiSeekRange, lowMana);
+    if (!t) return;
+    this.ticketGoal = t;
+    this.ticketGoalId = t.id;
+    this.ticketGoalTime = 0;
+  }
+
+  /** Hit recently, a spell on course to hit it, a big windup from the opponent, or already reacting. */
+  private underFire(): boolean {
+    const w = this.self;
+    if (this.time - this.lastHurtAt < TK.aiHurtMemory || this.reactions.length > 0 || w.stunned) return true;
+    if (this.target.cast) return true;
+    const chest = w.chest(tmpC);
+    for (const proj of this.spells.pool.active) {
+      if (proj.owner === w) continue;
+      const rx = chest.x - proj.pos.x, ry = chest.y - proj.pos.y, rz = chest.z - proj.pos.z;
+      const v2 = proj.vel.lengthSq();
+      if (v2 < 1e-4) continue;
+      const t = (rx * proj.vel.x + ry * proj.vel.y + rz * proj.vel.z) / v2;
+      if (t < 0 || t > 1.2) continue;
+      if (Math.hypot(rx - proj.vel.x * t, ry - proj.vel.y * t, rz - proj.vel.z * t) < 2) return true;
+    }
+    return false;
+  }
+
   private findCover(): void {
     let best = Infinity;
     this.hasCover = false;
@@ -410,6 +473,14 @@ export class AIController implements TickController {
       case 'evade':
         move.copy(this.desiredMove);
         break;
+    }
+    // Detour to a golden ticket, still strafing a little (and still shooting: aiming is separate).
+    const goal = this.ticketGoal;
+    if (goal && this.state !== 'evade') {
+      move.subVectors(goal.pos, w.pos).setY(0);
+      const d = move.length();
+      move.divideScalar(d || 1).addScaledVector(strafe, d > 3 ? 0.25 : 0);
+      sprint = d > 5 && w.mana > CONFIG.wizard.sprintRecoverMana;
     }
     if (this.state !== 'evade') this.keepFormation(move);
 

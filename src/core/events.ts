@@ -56,6 +56,14 @@ export interface GameEvents {
   volley: { wizard: Wizard; name: string; count: number; pos: Vector3 };
   /** Text popup without damage, e.g. "PERFECT!" or "DODGE". */
   callout: { pos: Vector3; text: string; style: 'perfect' | 'info' | 'stun' | 'block' | 'boss' };
+  /** Golden tickets (src/arena/GoldenTickets.ts). `pos` is the ticket's centre; `id` is unique per ticket. */
+  ticketSpawn: { id: number; pos: Vector3 };
+  /** A wizard collected a ticket: its mana boost starts (or refreshes). */
+  ticketPickup: { id: number; pos: Vector3; wizard: Wizard; refreshed: boolean };
+  /** An uncollected ticket vanished: its lifetime ran out, or the closing fire ring reached it. */
+  ticketExpire: { id: number; pos: Vector3; reason: 'timeout' | 'fire' };
+  /** A wizard's golden-ticket mana boost ran out (mana is back to the normal max). */
+  manaBoostEnd: { wizard: Wizard };
 }
 
 type Handler<T> = (payload: T) => void;

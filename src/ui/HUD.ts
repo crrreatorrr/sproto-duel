@@ -14,6 +14,7 @@ import { spellIcon } from './icons';
 
 const W = CONFIG.wizard;
 const S = CONFIG.spells;
+const TK = CONFIG.tickets;
 
 interface Plate {
   root: HTMLElement;
@@ -21,6 +22,9 @@ interface Plate {
   chip: HTMLElement;
   hpText: HTMLElement;
   mana: HTMLElement;
+  /** Golden-ticket boost countdown chip next to the mana bar. */
+  buff: HTMLElement;
+  buffTime: HTMLElement;
   ult: HTMLElement;
   chipValue: number;
   chipDelay: number;
@@ -140,6 +144,8 @@ export class HUD {
         chip: q('.hp-chip', root),
         hpText: q('.hp-text', root),
         mana: q('.mana-fill', root),
+        buff: q('.mana-buff', root),
+        buffTime: q('.mana-buff b', root),
         ult: q('.ult-fill', root),
         chipValue: 1,
         chipDelay: 0,
@@ -193,7 +199,7 @@ export class HUD {
       <div class="plate plate-${side}${partner ? ' plate-partner' : ''}">
         <div class="plate-head"><span class="plate-id"><span class="plate-name">Rival</span><small class="plate-title"></small></span><span class="hp-text">150</span></div>
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
-        <div class="bar mana"><div class="mana-fill"></div></div>
+        <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden ticket: bigger mana pool, double regen"><i>✦</i><b></b></span></div>
         <div class="bar ult"><div class="ult-fill"></div><span>ULT</span></div>
         ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div>' : ''}
       </div>`;
@@ -293,6 +299,12 @@ export class HUD {
     events.on('volley', (e) => {
       if (e.wizard.side === 1) g.popups.spawn(tmp.copy(e.pos).setY(e.pos.y + 0.6), `${e.name}!`, 'boss');
     });
+    events.on('ticketPickup', (e) => {
+      if (e.wizard !== g.player) return;
+      const regen = TK.regenMultiplier > 1 ? ` · ${TK.regenMultiplier}× regen` : '';
+      const sub = e.refreshed ? 'Mana boost refreshed' : `+${Math.round((TK.maxManaMultiplier - 1) * 100)}% mana for ${TK.boostDuration} s${regen}`;
+      this.showBanner('Golden Ticket!', sub, 'ticket', 1.3);
+    });
     events.on('noMana', (e) => {
       if (e.wizard !== g.player) return;
       const bar = this.plates[0].mana.parentElement!;
@@ -378,12 +390,16 @@ export class HUD {
     this.set(`hp${i}`, plate.hp, 'transform', `scaleX(${hp.toFixed(4)})`);
     this.set(`chip${i}`, plate.chip, 'transform', `scaleX(${plate.chipValue.toFixed(4)})`);
     this.set(`hpt${i}`, plate.hpText, 'text', String(Math.ceil(w.health)));
-    this.set(`mana${i}`, plate.mana, 'transform', `scaleX(${(w.mana / W.maxMana).toFixed(4)})`);
+    // A golden-ticket boost turns the bar gold and stretches it to the bigger max (styles.css).
+    const boost = w.manaBoost;
+    this.set(`mana${i}`, plate.mana, 'transform', `scaleX(${(w.mana / w.maxMana).toFixed(4)})`);
+    this.set(`buft${i}`, plate.buffTime, 'text', boost > 0 ? String(Math.ceil(boost)) : '');
+    this.set(`buf${i}`, plate.buff, 'class', `mana-buff${boost > 0 ? ' on' : ''}${boost > 0 && boost < 3 ? ' ending' : ''}`);
     const ult = w.ult / S.ultimate.chargeMax;
     this.set(`ult${i}`, plate.ult, 'transform', `scaleX(${ult.toFixed(4)})`);
     const staged = i > 0 && this.updateStages(i, w);
     const side = i === 0 ? 'left' : i === 1 ? 'right' : 'right plate-partner';
-    const cls = `plate plate-${side}${hp < 0.3 ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${w.alive ? '' : ' down'}`;
+    const cls = `plate plate-${side}${hp < 0.3 ? ' low' : ''}${ult >= 1 ? ' ult-ready' : ''}${w.hitFlash > 0 ? ' hit' : ''}${staged ? ' staged' : ''}${boost > 0 ? ' boosted' : ''}${w.alive ? '' : ' down'}`;
     this.set(`plate${i}`, plate.root, 'class', cls);
   }
 

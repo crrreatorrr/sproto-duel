@@ -52,6 +52,7 @@ export class WizardIntent {
 
 const W = CONFIG.wizard;
 const J = W.jump;
+const T = CONFIG.tickets;
 const tmpMove = new Vector3();
 const tmpTarget = new Vector3();
 /** Below this the wizard counts as standing on the floor (y = 0). */
@@ -86,6 +87,8 @@ export class Wizard {
   mana = W.maxMana;
   ult = 0;
   private manaDelay = 0;
+  /** Golden-ticket mana boost: seconds left (0 = none). Raises max mana and regen (src/arena/GoldenTickets.ts). */
+  manaBoost = 0;
 
   readonly cd: Record<CooldownKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, dodge: 0 };
   dodgeTime = 0;
@@ -177,6 +180,10 @@ export class Wizard {
   }
   get shielded(): boolean {
     return this.shieldTime > 0;
+  }
+  /** Mana cap: the normal max, raised while a golden-ticket boost lasts. */
+  get maxMana(): number {
+    return this.manaBoost > 0 ? W.maxMana * T.maxManaMultiplier : W.maxMana;
   }
   /** Feet height above whatever is underneath (0 when grounded). */
   get airHeight(): number {
@@ -281,7 +288,7 @@ export class Wizard {
     this.mana = W.maxMana;
     if (!keepUlt) this.ult = 0;
     this.ultAnnounced = this.ult >= CONFIG.spells.ultimate.chargeMax;
-    this.manaDelay = 0;
+    this.manaDelay = this.manaBoost = 0;
     for (const k in this.cd) this.cd[k as CooldownKey] = 0;
     this.dodgeTime = this.iframes = this.stunTime = this.evolveTime = this.shieldTime = this.shieldAge = 0;
     this.cast = null;
@@ -363,9 +370,19 @@ export class Wizard {
     if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
     if (this.castPulse > 0) this.castPulse = Math.max(0, this.castPulse - dt * 5);
 
+    // Golden-ticket boost: faster regen with no delay; when it ends, mana clamps to the normal max.
+    if (this.manaBoost > 0) {
+      this.manaBoost = Math.max(0, this.manaBoost - dt);
+      this.manaDelay = Math.min(this.manaDelay, T.regenDelay);
+      if (this.manaBoost === 0) {
+        this.mana = Math.min(this.mana, W.maxMana);
+        events.emit('manaBoostEnd', { wizard: this });
+      }
+    }
+    const regen = this.manaBoost > 0 ? W.manaRegen * T.regenMultiplier : W.manaRegen;
     if (this.manaDelay > 0) this.manaDelay -= dt;
-    else if (!this.sprinting) this.mana = Math.min(W.maxMana, this.mana + W.manaRegen * dt);
-    if (this.infiniteMana) this.mana = W.maxMana;
+    else if (!this.sprinting) this.mana = Math.min(this.maxMana, this.mana + regen * dt);
+    if (this.infiniteMana) this.mana = this.maxMana;
     if (this.noCooldowns) {
       this.cd.blast = this.cd.shield = this.cd.stun = 0;
       this.addUlt(CONFIG.spells.ultimate.chargeMax);

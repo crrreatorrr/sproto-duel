@@ -29,6 +29,8 @@ export interface SoakReport {
   avgDamageTaken: number;
   /** Average seconds per round each AI spent in each state. */
   stateSeconds: Record<string, number>;
+  /** Golden tickets per round: spawned, collected by each side (wizard 0 / wizard 1), expired. */
+  tickets: { spawned: number; side0: number; side1: number; expired: number };
   errors: string[];
 }
 
@@ -44,6 +46,9 @@ function playRound(
   const p = game.player;
   const brains = [player, ...enemies];
   let t = 0;
+  // Golden tickets spawn during the fight, and every AI knows about them.
+  game.tickets.enabled = true;
+  for (const b of brains) b.tickets = game.tickets;
   while (t < M.roundTime && p.alive && game.enemies.some((w) => w.alive)) {
     const foe = nearestStanding(p, game.enemies);
     if (foe) player.setTarget(foe);
@@ -61,6 +66,7 @@ function playRound(
       break;
     }
   }
+  game.tickets.enabled = false;
   return t;
 }
 
@@ -225,11 +231,15 @@ export async function soak(qa: QAHarness, game: Game, difficulty: Difficulty, ro
   let ko = 0, timeout = 0, clashes = 0, pillars = 0, perfects = 0, dodges = 0, hpLost = 0;
   const states: Record<string, number> = {};
   const errors: string[] = [];
+  const tickets = { spawned: 0, side0: 0, side1: 0, expired: 0 };
   const offs = [
     events.on('damage', (e) => (dmg[e.kind] = (dmg[e.kind] ?? 0) + e.amount)),
     events.on('cast', (e) => (casts[e.spell] = (casts[e.spell] ?? 0) + 1)),
     events.on('clash', () => clashes++),
     events.on('pillarBreak', () => pillars++),
+    events.on('ticketSpawn', () => tickets.spawned++),
+    events.on('ticketPickup', (e) => (e.wizard.index === 0 ? tickets.side0++ : tickets.side1++)),
+    events.on('ticketExpire', () => tickets.expired++),
   ];
 
   await qa.sandbox(() => {
@@ -278,6 +288,12 @@ export async function soak(qa: QAHarness, game: Game, difficulty: Difficulty, ro
     pillarsBroken: pillars,
     avgDamageTaken: +(hpLost / Math.max(1, durations.length) / 2).toFixed(1),
     stateSeconds: Object.fromEntries(Object.entries(states).map(([k, v]) => [k, +(v / Math.max(1, durations.length) / 2).toFixed(1)])),
+    tickets: {
+      spawned: +(tickets.spawned / Math.max(1, durations.length)).toFixed(1),
+      side0: +(tickets.side0 / Math.max(1, durations.length)).toFixed(1),
+      side1: +(tickets.side1 / Math.max(1, durations.length)).toFixed(1),
+      expired: +(tickets.expired / Math.max(1, durations.length)).toFixed(1),
+    },
     errors,
   };
 }

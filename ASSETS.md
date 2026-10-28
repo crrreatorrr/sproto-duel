@@ -164,6 +164,7 @@ assets in the next sections.
 | `floorNormal` | `textures/arena_floor_normal.jpg` | 2048² | Optional normal map matching the floor. |
 | `pillar` | `textures/pillar_stone.jpg` | 1024² | Tileable stone for placeholder pillars (only used if there is no pillar GLB). |
 | `sky` | `textures/sky_night.jpg` | 4096×2048 | Equirectangular (2:1) 360° night sky panorama. Replaces the procedural sky. |
+| `goldenTicket` | `textures/golden_ticket.png` | 1024×512 | Golden ticket pickup face, 2:1, transparent background around the ticket. Replaces the canvas-drawn face. |
 
 **arena_floor**
 > Top-down orthographic view of a circular ancient duelling arena floor, concentric rings of
@@ -177,6 +178,11 @@ NormalMap-Online) rather than a prompt.
 **pillar_stone**
 > Seamless tileable texture of weathered grey-violet stone blocks with thin mortar lines, subtle
 > moss, hand-painted stylized game texture, flat lighting
+
+**golden_ticket** (generated 16:9 on a dark background, then cut out and cropped to 2:1)
+> An ornate shiny golden ticket filling almost the whole frame, wide horizontal ticket with notched
+> corners, art-deco gold filigree border, the words GOLDEN TICKET in bold elegant engraved lettering
+> centered, small stars, polished embossed gold foil, plain dark background, flat front view
 
 **sky_night**
 > 360 degree equirectangular panorama of a fantasy night sky, deep violet and indigo gradient, dense
@@ -240,6 +246,9 @@ distance falloff and stereo panning. Loops must start and end seamlessly.
 | `pigOink` | `audio/pig_oink.mp3` | 0.4 s | Cartoon pig oink rising into a short squeal |
 | `veggieCrunch` | `audio/veggie_crunch.mp3` | 0.35 s | Squelchy crunch of fresh broccoli being torn, wet and crisp |
 | `fireRoar` | `audio/fire_roar.mp3` | 0.7 s | Fireball whoomp, roaring flame burst with crackles (hellfire, burning skulls) |
+| `ticketSpawn` | `audio/ticket_spawn.mp3` | 0.8 s | A golden ticket appearing, soft single bell ding with a short sparkle |
+| `ticketPickup` | `audio/ticket_pickup.mp3` | 1.3 s | Golden ticket collected, bright rising magical chime arpeggio with a shimmering tail |
+| `ticketExpire` | `audio/ticket_expire.mp3` | 0.7 s | Magic fading away, soft falling tone (a ticket vanishing, or your mana boost running out) |
 | `musicMenu` | `audio/music_menu.mp3` | 30-90 s, loop | Mysterious fantasy menu music, slow ethereal pads, distant choir, harp, A minor, seamless loop |
 | `musicBattle` | `audio/music_battle.mp3` | 60-120 s, loop | Intense fantasy duel battle music, driving percussion, staccato strings, 120 BPM, D minor, seamless loop |
 

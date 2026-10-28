@@ -277,6 +277,69 @@ export const CONFIG = {
     muzzleFlash: { size: 1.5, light: 16, duration: 0.06 },
   },
 
+  /**
+   * Golden tickets (src/arena/GoldenTickets.ts): floating pickups that appear during the fight phase
+   * of every round. Any wizard touching one gets a mana boost: a bigger mana pool, refilled at once,
+   * and faster regen with no regen delay, for `boostDuration` seconds.
+   */
+  tickets: {
+    /** Most tickets on the floor at once. */
+    maxActive: 3,
+    /** Seconds into the fight before the first ticket of a round [min, max]. */
+    firstSpawnDelay: [8, 12] as [number, number],
+    /** Seconds until the next ticket appears while fewer than `maxActive` exist [min, max]. */
+    spawnInterval: [6, 12] as [number, number],
+    /** Retry delay when no valid spot was found. */
+    retryDelay: 0.5,
+    /** Seconds an uncollected ticket stays; it blinks for the last `blinkTime` of them. */
+    lifetime: 20,
+    blinkTime: 3,
+    /** Spawn spots: this far inside the fire ring, with this much free floor around them (physics query). */
+    fireMargin: 3,
+    obstacleClearance: 1.4,
+    /** Spawn spots keep at least this far from every wizard and from other tickets. */
+    minWizardDistance: 4,
+    minTicketDistance: 4,
+    /** Random spots tried per spawn. */
+    spawnAttempts: 24,
+    /** A ticket the fire ring reaches (sudden death) burns up once this close to its inner edge. */
+    fireBurnMargin: 0.6,
+    /** Pickup reach: horizontal distance (m), and the highest feet height that still collects (a jump off a stump). */
+    pickupRadius: 1.2,
+    pickupMaxHeight: 2.4,
+    /** Look: card size (m), hover height of its centre, bob and spin. */
+    width: 0.9,
+    height: 0.45,
+    hoverHeight: 1.3,
+    bobAmplitude: 0.12,
+    bobSpeed: 2.2,
+    /** Radians per second. */
+    spinSpeed: 1.7,
+    /** Light beam above each ticket, so it reads from across the arena. */
+    beamHeight: 11,
+    /** Sparkles per second around a ticket and around a boosted wizard. */
+    sparkleRate: 26,
+    auraSparkleRate: 22,
+    /** The mana boost. */
+    boostDuration: 15,
+    /** Max mana multiplier while boosted (100 -> 150). */
+    maxManaMultiplier: 1.5,
+    /** Regen multiplier while boosted. 1 keeps rounds in the 60-90 s target (2 shortened them to ~59 s). */
+    regenMultiplier: 1,
+    /** Seconds after spending mana before regen resumes while boosted (normally `wizard.manaRegenDelay`). */
+    regenDelay: 0.3,
+    /** AI: goes for a ticket within this range when safe and it is closer than the opponent is (or its mana is low). */
+    aiSeekRange: 13,
+    /** AI: mana fraction (of the normal max) below which any ticket in range is worth it. */
+    aiLowMana: 0.45,
+    /** AI: chance per check (every `aiCheckInterval` s) to commit to an eligible ticket. */
+    aiSeekChance: 0.3,
+    aiCheckInterval: 0.5,
+    /** AI: seconds without reaching it before giving up; seconds after being hit that count as under fire. */
+    aiGiveUpTime: 6,
+    aiHurtMemory: 1.2,
+  },
+
   camera: {
     fov: 64,
     sprintFovBoost: 7,

@@ -116,6 +116,7 @@ export class Match {
   private update(dt: number): void {
     const g = this.game;
     g.actionsLocked = this.phase !== 'fight';
+    g.tickets.enabled = this.phase === 'fight';
     switch (this.phase) {
       case 'intro': {
         this.phaseTime -= dt;

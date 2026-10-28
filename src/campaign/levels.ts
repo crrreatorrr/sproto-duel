@@ -182,10 +182,10 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.65,
       preferredRange: [10, 15],
     },
-    // As a pair: Obama is the glass cannon (84 HP, hits hardest), The Midget the tank (132 HP, closes
+    // As a pair: Obama is the glass cannon (88 HP, hits hardest), The Midget the tank (123 HP, closes
     // in). Knock out the nearest first and you face an enraged Obama; a sharp player drops Obama first.
-    healthMultiplier: 0.38,
-    damageMultiplier: 0.72,
+    healthMultiplier: 0.4,
+    damageMultiplier: 0.66,
     partner: {
       // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
       id: 'midget',
@@ -218,8 +218,8 @@ export const BOSSES: BossDef[] = [
         preferredRange: [7, 12],
         hopRate: 0.45,
       },
-      healthMultiplier: 0.6,
-      damageMultiplier: 0.55,
+      healthMultiplier: 0.56,
+      damageMultiplier: 0.52,
       hitbox: { radius: 0.32, height: 1.25 },
     },
   }),
