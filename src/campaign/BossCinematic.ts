@@ -39,16 +39,26 @@ const easeOut3 = (t: number) => 1 - Math.pow(1 - sat(t), 3);
 
 // ------------------------------------------------------------------ shaders
 
-/** Additive shell over the boss's meshes: a fresnel glow and Voronoi cracks of light, in his own frame. */
+/**
+ * Additive shell over the boss's meshes: a fresnel glow and Voronoi cracks of light, in his own
+ * frame. Skinning-aware, so it follows a rigged model's pose too.
+ */
 const SHELL_VERT = /* glsl */ `
+  #include <common>
+  #include <skinning_pars_vertex>
   uniform float uInflate;
   uniform mat4 uInvRoot;
   varying vec3 vLocal;
   varying vec3 vN;
   varying vec3 vV;
   void main() {
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vec3 wn = normalize(mat3(modelMatrix) * normal);
+    #include <beginnormal_vertex>
+    #include <skinbase_vertex>
+    #include <skinnormal_vertex>
+    #include <begin_vertex>
+    #include <skinning_vertex>
+    vec4 wp = modelMatrix * vec4(transformed, 1.0);
+    vec3 wn = normalize(mat3(modelMatrix) * objectNormal);
     wp.xyz += wn * uInflate;
     vLocal = (uInvRoot * wp).xyz;
     vN = wn;
@@ -870,14 +880,24 @@ export class BossCinematic {
     const meshes: THREE.Mesh[] = [];
     s.w.visual.root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (!m.isMesh || (m as THREE.SkinnedMesh).isSkinnedMesh || m.userData.cineShell) return;
+      if (!m.isMesh || m.userData.cineShell) return;
       const mm = m.material as THREE.Material;
       if (!mm || Array.isArray(mm) || mm.transparent || (mm as THREE.ShaderMaterial).isShaderMaterial || !m.visible) return;
       if (!m.geometry.attributes.normal) return;
       meshes.push(m);
     });
     for (const m of meshes) {
-      const shell = new THREE.Mesh(m.geometry, mat);
+      // A rigged mesh gets a skinned shell bound to the same skeleton (it follows the pose).
+      const sk = m as THREE.SkinnedMesh;
+      let shell: THREE.Mesh;
+      if (sk.isSkinnedMesh) {
+        const sh = new THREE.SkinnedMesh(sk.geometry, mat);
+        sh.bind(sk.skeleton, sk.bindMatrix);
+        sh.bindMode = sk.bindMode;
+        shell = sh;
+      } else {
+        shell = new THREE.Mesh(m.geometry, mat);
+      }
       shell.userData.cineShell = true;
       shell.renderOrder = 13;
       shell.frustumCulled = false;
