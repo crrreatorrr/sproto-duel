@@ -841,8 +841,8 @@ export const CONFIG = {
       cameraDistance: 2.1,
       fov: 52,
       /** Sky and fog tint toward the boss palette at the peak (0..1), bloom added at the burst. */
-      tint: [0, 0.4, 0.6] as [number, number, number],
-      bloom: [0, 0.8, 1.4] as [number, number, number],
+      tint: [0, 0.45, 0.65] as [number, number, number],
+      bloom: [0, 0.35, 0.55] as [number, number, number],
       /** Debris chunks thrown up by the landing. */
       debris: [0, 18, 34] as [number, number, number],
       /** Hold Space / Enter / click (or the pad's A) after `skipAfter` s to play the rest at `skipSpeed`x. */

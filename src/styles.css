@@ -602,7 +602,7 @@ html, body {
 /* ------------------------------------------------------------------ transformation cinematic */
 /* Combat chrome steps aside while a cinematic plays (BossCinematic toggles #ui.cinematic). */
 #ui.cinematic .crosshair, #ui.cinematic .hud-bottom, #ui.cinematic .enemy-tag, #ui.cinematic .offscreen-arrow,
-#ui.cinematic .popups, #ui.cinematic .banner, #ui.cinematic .vignette, #ui.cinematic .ult-dim { opacity: 0 !important; transition: opacity 0.2s; }
+#ui.cinematic .popups, #ui.cinematic .banner, #ui.cinematic .vignette, #ui.cinematic .ult-dim { visibility: hidden; }
 .cine { position: absolute; inset: 0; pointer-events: none; display: none; }
 .cine.on { display: block; }
 .cine-bar { position: absolute; left: 0; right: 0; height: 12vh; background: #000; transform: scaleY(0); }

@@ -88,10 +88,11 @@ const SHELL_FRAG = /* glsl */ `
     float reach = uCrack * 2.2;
     float mask = 1.0 - smoothstep(reach * 0.7, reach, abs(vLocal.y - 1.1) + length(vLocal.xz) * 0.6);
     float e = edges(vLocal * 3.4);
-    float line = (1.0 - smoothstep(0.0, 0.025 + 0.12 * uCrack, e)) * mask * step(0.001, uCrack);
+    float line = (1.0 - smoothstep(0.0, 0.018 + 0.045 * uCrack, e)) * mask * step(0.001, uCrack);
     float flick = 0.8 + 0.2 * sin(uTime * 31.0 + vLocal.y * 11.0);
-    vec3 col = uColor * uGlow * (0.3 + 1.7 * rim) + uHot * line * (1.4 + 2.6 * uCrack) * flick;
-    float a = clamp(uGlow * (0.22 + 0.9 * rim) + line, 0.0, 1.0);
+    // A rim glow that leaves the form's own colours readable, and hot cracks over it.
+    vec3 col = uColor * uGlow * (0.12 + 1.3 * rim) + uHot * line * (0.9 + 1.4 * uCrack) * flick;
+    float a = clamp(uGlow * (0.08 + 0.75 * rim) + line, 0.0, 1.0);
     gl_FragColor = vec4(col * a, a);
   }
 `;
@@ -149,7 +150,7 @@ const CRACK_FRAG = /* glsl */ `
   }
 `;
 
-/** Faint palette wash over the sky, behind everything in the arena. */
+/** A palette tint over the sky, behind everything in the arena (it tints, it doesn't brighten). */
 const DOME_VERT = /* glsl */ `
   varying float vY;
   void main() {
@@ -163,10 +164,34 @@ const DOME_FRAG = /* glsl */ `
   varying float vY;
   void main() {
     float horizon = 1.0 - smoothstep(-0.05, 0.75, vY);
-    float a = (0.35 + 0.65 * horizon) * uOpacity;
-    gl_FragColor = vec4(uColor * a, a);
+    float a = (0.55 + 0.45 * horizon) * uOpacity;
+    gl_FragColor = vec4(uColor, a);
   }
 `;
+
+/** An expanding shockwave: a band of fixed width in metres (it never floods the floor near its centre). */
+const WAVE_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uRadius;
+  uniform float uWidth;
+  uniform float uOpacity;
+  varying vec2 vUv;
+  void main() {
+    float r = length(vUv - 0.5) * 2.0;
+    float d = (1.0 - r) * uRadius;
+    float band = (1.0 - smoothstep(0.0, uWidth, abs(d))) * step(r, 1.0);
+    float trail = d > 0.0 ? exp(-d / (uWidth * 3.0)) * 0.35 : 0.0;
+    float a = (band + trail) * uOpacity * step(r, 1.0);
+    gl_FragColor = vec4(uColor * (1.0 + band) * a, a);
+  }
+`;
+
+interface Wave {
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  t: number;
+  duration: number;
+  radius: number;
+}
 
 // ------------------------------------------------------------------ the shot
 
@@ -254,6 +279,8 @@ export class BossCinematic {
   private readonly vortex: THREE.Mesh<THREE.CylinderGeometry, THREE.ShaderMaterial>;
   private readonly crack: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private readonly dome: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
+  /** Shockwave rings (pooled), animated on real time. */
+  private readonly waves: Wave[] = [];
   private readonly debris: Debris;
   private readonly eye = new THREE.PerspectiveCamera();
   private readonly invRoot = new THREE.Matrix4();
@@ -301,7 +328,7 @@ export class BossCinematic {
     this.shellNew = shell();
 
     this.vortex = new THREE.Mesh(
-      new THREE.CylinderGeometry(4.2, 0.35, 6, 48, 1, true),
+      new THREE.CylinderGeometry(2.1, 0.3, 4.6, 48, 1, true),
       new THREE.ShaderMaterial({
         vertexShader: VORTEX_VERT, fragmentShader: VORTEX_FRAG,
         uniforms: { uColor: { value: new THREE.Color() }, uOpacity: { value: 0 }, uTime: { value: 0 } },
@@ -332,7 +359,7 @@ export class BossCinematic {
       new THREE.ShaderMaterial({
         vertexShader: DOME_VERT, fragmentShader: DOME_FRAG,
         uniforms: { uColor: { value: new THREE.Color() }, uOpacity: { value: 0 } },
-        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false, toneMapped: false,
+        transparent: true, depthWrite: false, side: THREE.BackSide, fog: false, toneMapped: false,
       }),
     );
     this.dome.visible = false;
@@ -342,6 +369,21 @@ export class BossCinematic {
 
     // Real-time debris (the arena's own chunks freeze with the world), in the arena's look.
     this.debris = new Debris(scene, 48, game.arena.debris.material, game.arena.debris.geometry);
+    const waveGeo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+    for (let i = 0; i < 4; i++) {
+      const mesh = new THREE.Mesh(waveGeo, new THREE.ShaderMaterial({
+        vertexShader: VORTEX_VERT, fragmentShader: WAVE_FRAG,
+        uniforms: { uColor: { value: new THREE.Color() }, uRadius: { value: 1 }, uWidth: { value: 0.6 }, uOpacity: { value: 0 } },
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+        polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+      }));
+      mesh.position.y = 0.06;
+      mesh.renderOrder = 8;
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+      this.waves.push({ mesh, t: 0, duration: 0, radius: 1 });
+    }
 
     events.on('bossEvolve', (e) => {
       if (!this.live) return;
@@ -378,6 +420,7 @@ export class BossCinematic {
     this.restoreWorld();
     this.crackFade = 0;
     this.crack.visible = false;
+    for (const w of this.waves) w.mesh.visible = false;
   }
 
   // ------------------------------------------------------------------ timeline
@@ -437,7 +480,8 @@ export class BossCinematic {
     this.vortex.material.uniforms.uColor.value.setHex(pal.spell).lerp(WHITE, 0.2);
     this.crack.material.uniforms.uColor.value.setHex(color).multiplyScalar(1.5);
     this.crack.material.uniforms.uSeed.value = Math.random() * 10;
-    this.dome.material.uniforms.uColor.value.setHex(enraged ? color : pal.spell);
+    // A deep shade of the palette: it darkens and tints bright skies instead of washing them out.
+    this.dome.material.uniforms.uColor.value.setHex(enraged ? color : pal.spell).multiplyScalar(0.35);
     this.attachShells(this.shellOld);
     const fog = g.renderer.scene.fog as THREE.Fog | null;
     if (fog && !this.fogSaved) {
@@ -460,6 +504,7 @@ export class BossCinematic {
       u.uTime.value = this.time;
       this.crack.visible = this.crackFade > 0;
     }
+    this.updateWaves(run);
     if (!this.shot) {
       this.debris.update(run);
       return;
@@ -575,7 +620,7 @@ export class BossCinematic {
       // The final form fights its way out: a false burst first.
       s.prePulse = true;
       g.fx.flash(tmpA.set(base.x, base.y + y + s.height * 0.6, base.z), s.color, 5, 0.2);
-      g.fx.ring(base, s.color, 7, 0.45);
+      this.wave(base, s.color, 7, 0.45, 0.5);
       feel.shake(0.25 * I);
     }
     if (burstNow) this.onBurst(s, base);
@@ -588,9 +633,9 @@ export class BossCinematic {
     const time = this.time;
     for (const m of [this.shellOld, this.shellNew]) m.uniforms.uTime.value = time;
     const ramp = charge * charge;
-    this.shellOld.uniforms.uGlow.value = s.burst ? 0 : ramp * (0.75 + 0.25 * Math.sin(t * (8 + 22 * charge))) * (0.8 + 0.25 * I);
+    this.shellOld.uniforms.uGlow.value = s.burst ? 0 : ramp * (0.75 + 0.25 * Math.sin(t * (8 + 22 * charge))) * (0.6 + 0.15 * I);
     this.shellOld.uniforms.uCrack.value = s.burst ? 0 : smooth(tBurst * 0.28, tBurst, t);
-    this.shellNew.uniforms.uGlow.value = s.burst ? Math.max(0, 1.3 - (t - tBurst) / (0.55 * s.speed)) : 0;
+    this.shellNew.uniforms.uGlow.value = s.burst ? Math.max(0, 1 - (t - tBurst) / (0.6 * s.speed)) : 0;
     this.shellNew.uniforms.uCrack.value = 0;
 
     // ---- the vortex and its sparks
@@ -598,11 +643,11 @@ export class BossCinematic {
     this.vortex.visible = vortexOn > 0.01;
     if (this.vortex.visible) {
       const vu = this.vortex.material.uniforms;
-      vu.uOpacity.value = vortexOn * (0.45 + 0.25 * I) * (0.8 + 0.2 * charge);
+      vu.uOpacity.value = vortexOn * (0.22 + 0.1 * I) * (0.7 + 0.3 * charge);
       vu.uTime.value = time * (1 + 2.5 * charge);
-      const k = (s.burst ? vortexOn : 1) * (0.8 + 0.25 * I) * (s.height / 2.2);
+      const k = (s.burst ? vortexOn : 1) * (0.9 + 0.1 * I) * (s.height / 2.2);
       this.vortex.position.set(base.x, base.y + y + s.height * 0.5, base.z);
-      this.vortex.scale.set(k * (1.1 - 0.35 * charge), k, k * (1.1 - 0.35 * charge));
+      this.vortex.scale.set(k * (1.05 - 0.3 * charge), k, k * (1.05 - 0.3 * charge));
       this.vortex.rotation.y = -time * (2 + 6 * charge);
     }
     if (!s.burst && run > 0) this.spiralSparks(s, base, y, charge, run);
@@ -622,7 +667,7 @@ export class BossCinematic {
     const flash = s.burst ? Math.exp(-(t - tBurst) * 4) : 0;
     const tint = K.tint[tier] * (smooth(0, tBurst, t) * (1 - smooth(tReturn, D, t))) + 0.5 * flash + 0.4 * peak;
     this.tintWorld(s, tint);
-    g.renderer.bloomBoost = K.bloom[tier] * (flash + 0.6 * peak + 0.25 * ramp * (s.burst ? 0 : 1));
+    g.renderer.bloomBoost = K.bloom[tier] * (flash + 0.5 * peak + 0.15 * ramp * (s.burst ? 0 : 1));
 
     // ---- letterbox and title card (driven here so pausing freezes them)
     const bar = smooth(0, 0.3, t) * (1 - smooth(tReturn, D, t));
@@ -639,16 +684,18 @@ export class BossCinematic {
   /** The old form bursts into light; the new one is about to grow out of it. */
   private onBurst(s: Shot, base: THREE.Vector3): void {
     const g = this.game;
-    const I = K.intensity[s.tier];
+    // Light scales with the boss (a short one is framed closer): never a white-out.
+    const I = K.intensity[s.tier] * Math.min(1, s.height / 2.2);
     const at = tmpA.set(base.x, base.y + s.rise + s.height * 0.55, base.z);
     tmpColor.setHex(s.color);
     tmpColor2.setHex(s.colorHi);
-    g.fx.sparks.burst(at, Math.round(150 * I), tmpColor, 3.2, 6, 18 * Math.sqrt(I), 0.26, 0.9, { gravity: 2, drag: 1.6 });
-    g.fx.sparks.burst(at, Math.round(70 * I), tmpColor2, 3.6, 2, 7, 0.38, 0.6, { drag: 3 });
-    g.fx.sparks.burst(at, Math.round(40 * I), WHITE, 4, 10, 24, 0.12, 0.35, { drag: 2 });
-    g.fx.flash(at, s.color, 9 * I, 0.45);
-    g.fx.flash(at, 0xffffff, 4.5 * I, 0.22);
-    g.fx.ring(base, s.color, 9 * I, 0.6);
+    const n = K.intensity[s.tier];
+    g.fx.sparks.burst(at, Math.round(150 * n), tmpColor, 3.2, 6, 18 * Math.sqrt(n), 0.26, 0.9, { gravity: 2, drag: 1.6 });
+    g.fx.sparks.burst(at, Math.round(70 * n), tmpColor2, 3.6, 2, 7, 0.38, 0.6, { drag: 3 });
+    g.fx.sparks.burst(at, Math.round(40 * n), WHITE, 4, 10, 24, 0.12, 0.35, { drag: 2 });
+    g.fx.flash(at, s.color, 4.5 * I, 0.4);
+    g.fx.flash(at, 0xffffff, 2.2 * I, 0.18);
+    this.wave(base, s.color, 10 * K.intensity[s.tier], 0.6, 0.7);
     g.fx.light(at, s.color, 45 * I, 0.8);
     feel.shake(0.55 * I);
     feel.screenFlash(s.color, C.evolveFlash);
@@ -663,10 +710,11 @@ export class BossCinematic {
     const g = this.game;
     const I = K.intensity[s.tier];
     tmpB.set(base.x, 0, base.z);
-    g.fx.ring(tmpB, s.color, CONFIG.arena.fireRadius + 4, 0.9 + 0.2 * s.tier);
-    g.fx.ring(tmpB, 0xffffff, 12 * I, 0.45);
-    g.fx.ring(tmpB, s.colorHi, 5 * I, 0.3);
-    g.fx.flash(tmpA.set(base.x, 0.4, base.z), s.color, 6 * I, 0.3);
+    // The arena-wide shockwave, a fast white one inside it, and a bright ring at his feet.
+    this.wave(tmpB, s.color, CONFIG.arena.fireRadius + 4, 0.9 + 0.2 * s.tier, 1.4);
+    this.wave(tmpB, 0xffffff, 12 * I, 0.45, 0.6);
+    this.wave(tmpB, s.colorHi, 4 * I, 0.3, 0.4);
+    g.fx.flash(tmpA.set(base.x, 0.4, base.z), s.color, 3.5 * I * Math.min(1, s.height / 2.2), 0.3);
     g.fx.light(tmpA, s.color, 30 * I, 0.6);
     tmpColor.setHex(s.color);
     for (let i = 0; i < 40 * I; i++) {
@@ -675,13 +723,13 @@ export class BossCinematic {
       g.fx.sparks.emit(base.x + Math.sin(a) * 0.6, 0.15, base.z + Math.cos(a) * 0.6,
         Math.sin(a) * sp, 0.6 + Math.random() * 2, Math.cos(a) * sp, tmpColor, 2.8, 0.18, 0.5 + Math.random() * 0.4, { drag: 2.4 });
     }
-    g.fx.dust(tmpA.set(base.x, 0.2, base.z), Math.round(8 * I), 2.2);
+    g.fx.dust(tmpA.set(base.x, 0.2, base.z), Math.round(4 * I), 1.6);
     this.debris.setMaterial(g.arena.debris.material);
     this.debris.setGeometry(g.arena.debris.geometry);
     const n = K.debris[s.tier];
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
-      this.debris.spawn(tmpA.set(base.x + Math.sin(a) * 1.2, 0.3, base.z + Math.cos(a) * 1.2), Math.ceil(n / 6), 1.4 + 0.3 * s.tier);
+      this.debris.spawn(tmpA.set(base.x + Math.sin(a) * 1.2, 0.3, base.z + Math.cos(a) * 1.2), Math.ceil(n / 6), 0.8 + 0.2 * s.tier);
     }
     feel.shake(0.7 * I);
     events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'slam', enraged: s.enraged });
@@ -731,7 +779,7 @@ export class BossCinematic {
     const orbit = THREE.MathUtils.degToRad(K.orbit[tier]);
     const theta = s.orbitStart + orbit * smoother(t / tReturn);
     const punch = s.burst ? 0.32 * Math.exp(-(t - tBurst) * 3.5) : 0;
-    let dist = Math.max(3.4, H * K.cameraDistance) * (lerp(1.18, 0.88, smooth(0, tBurst, t)) + punch + (tier === 2 ? 0.1 : 0));
+    let dist = Math.max(3.4, H * K.cameraDistance) * (lerp(1.18, 0.88, smooth(0, tBurst, t)) + punch + (tier === 2 ? 0.25 : 0));
     let y = base.y + H * 0.38 + rise * 0.55;
 
     // The cut in, then the return: polar blends around the boss, so the camera never passes through him.
@@ -782,6 +830,34 @@ export class BossCinematic {
 
   // ------------------------------------------------------------------ helpers
 
+  /** Start a shockwave ring at `at` (floor) growing to `radius` m over `duration` s, `width` m thick. */
+  private wave(at: THREE.Vector3, color: number, radius: number, duration: number, width: number): void {
+    const w = this.waves.find((x) => !x.mesh.visible) ?? this.waves[0];
+    w.t = 0;
+    w.duration = duration;
+    w.radius = radius;
+    w.mesh.position.set(at.x, 0.06, at.z);
+    w.mesh.material.uniforms.uColor.value.setHex(color).multiplyScalar(1.6);
+    w.mesh.material.uniforms.uWidth.value = width;
+    w.mesh.visible = true;
+  }
+
+  private updateWaves(dt: number): void {
+    for (const w of this.waves) {
+      if (!w.mesh.visible) continue;
+      w.t += dt;
+      const p = w.t / w.duration;
+      if (p >= 1) {
+        w.mesh.visible = false;
+        continue;
+      }
+      const r = Math.max(0.2, w.radius * (1 - (1 - p) * (1 - p)));
+      w.mesh.scale.set(r, 1, r);
+      w.mesh.material.uniforms.uRadius.value = r;
+      w.mesh.material.uniforms.uOpacity.value = 1 - p * p;
+    }
+  }
+
   private skipPressed(): boolean {
     const inp = this.game.input;
     return inp.wasPressed(K.skipKeys.filter((k) => !CONFIG.controls.pause.includes(k))) || inp.wasMousePressed(0) || inp.pad.wasPressed(['a']);
@@ -820,7 +896,7 @@ export class BossCinematic {
     const fog = this.game.renderer.scene.fog as THREE.Fog | null;
     if (fog && this.fogSaved) fog.color.copy(this.fogBase).lerp(tmpColor.setHex(s.boss.palette.spell).multiplyScalar(0.55), sat(k) * 0.8);
     this.dome.visible = k > 0.005;
-    this.dome.material.uniforms.uOpacity.value = 0.55 * k;
+    this.dome.material.uniforms.uOpacity.value = Math.min(0.6, 0.7 * k);
     this.dome.position.copy(this.game.renderer.camera.position);
   }
 
