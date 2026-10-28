@@ -69,5 +69,9 @@ export default defineConfig({
       },
     },
   },
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    // Agent worktrees and QA snapshots live inside the project folder; don't watch them.
+    watch: { ignored: ['**/.claude/**', '**/.qa-build/**'] },
+  },
 });
