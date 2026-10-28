@@ -1,4 +1,6 @@
 import { CONFIG, type Difficulty } from '../config';
+import { padGlyph, type PadStyle } from '../core/Gamepad';
+import { MenuNav } from './MenuNav';
 
 export interface Settings {
   /** Multiplier on CONFIG.camera.sensitivity. */
@@ -10,6 +12,12 @@ export interface Settings {
   bloom: boolean;
   shadows: boolean;
   difficulty: Difficulty;
+  /** Controller: multiplier on CONFIG.gamepad.sensitivity. */
+  padSensitivity: number;
+  padInvertY: boolean;
+  /** Controller aim assist strength (0 = off, 1 = default). */
+  aimAssist: number;
+  rumble: boolean;
 }
 
 const STORAGE_KEY = 'arcane-duel-settings';
@@ -24,6 +32,10 @@ export function loadSettings(): Settings {
     bloom: CONFIG.render.bloom,
     shadows: CONFIG.render.shadows,
     difficulty: 'normal',
+    padSensitivity: 1,
+    padInvertY: false,
+    aimAssist: CONFIG.gamepad.aimAssist.strength,
+    rumble: CONFIG.gamepad.rumble.enabled,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -81,9 +93,33 @@ const CONTROLS: [string, string][] = [
   ['Esc / P', 'Pause'],
 ];
 
+/** Controller rows for How to Play, from CONFIG.gamepad.bindings, in the pad's own glyphs. */
+function padControls(style: PadStyle): [string, string][] {
+  const b = CONFIG.gamepad.bindings;
+  const g = (x: readonly string[]) => x.map((n) => padGlyph(n, style)).join(' / ');
+  return [
+    ['Left stick', 'Move (analog)'],
+    ['Right stick', 'Camera'],
+    [`${g(b.sprint)} (hold)`, 'Sprint'],
+    [`${g(b.dodge)}`, 'Dodge roll'],
+    [`${g(b.jump)}`, 'Jump'],
+    [`${g(b.bolt)} (hold)`, 'Bolt'],
+    [g(b.blast), 'Blast'],
+    [g(b.shield), 'Shield (perfect timing reflects)'],
+    [g(b.stun), 'Stun beam'],
+    [g(b.ultimate), 'Ultimate'],
+    [g(b.pause), 'Pause'],
+    [`D-pad, ${padGlyph('a', style)} / ${padGlyph('b', style)}`, 'Menus: move, select, back'],
+  ];
+}
+
 /** Main menu, pause, settings and results screens (DOM overlays). */
 export class Menus {
   readonly root: HTMLElement;
+  /** Gamepad navigation over whichever screen is open (App drives it each frame). */
+  readonly nav: MenuNav;
+  /** Glyph set for controller prompts; App keeps it in sync with the connected pad. */
+  padStyle: PadStyle = 'xbox';
   private settings: Settings;
   private screen: HTMLElement | null = null;
 
@@ -92,6 +128,7 @@ export class Menus {
     this.root = document.createElement('div');
     this.root.className = 'menus';
     parent.appendChild(this.root);
+    this.nav = new MenuNav(this.root, () => this.h.uiSound('hover'));
     // UI sounds for every button.
     this.root.addEventListener('pointerover', (e) => {
       const btn = (e.target as HTMLElement).closest('button');
@@ -104,6 +141,11 @@ export class Menus {
 
   get visible(): boolean {
     return this.screen !== null;
+  }
+
+  /** The "Click to resume" overlay is up (waiting for pointer lock). */
+  get awaitingClick(): boolean {
+    return !!this.screen?.classList.contains('click');
   }
 
   hide(): void {
@@ -156,7 +198,10 @@ export class Menus {
     const s = this.mount(`
       <div class="menu-panel howto">
         <h2>How to Play</h2>
-        <div class="controls">${CONTROLS.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
+        <div class="control-cols">
+          <div><h3>Keyboard &amp; Mouse</h3><div class="controls">${CONTROLS.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div></div>
+          <div><h3>Controller</h3><div class="controls">${padControls(this.padStyle).map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div></div>
+        </div>
 
         <ul class="tips">
           <li>Spells that collide mid-air clash. The bigger spell survives, weakened.</li>
@@ -188,6 +233,11 @@ export class Menus {
         ${slider('sfx', 'Effects', 0, 1, 0.05)}
         ${toggle('bloom', 'Bloom (glow)')}
         ${toggle('shadows', 'Shadows')}
+        <h3>Controller</h3>
+        ${slider('padSensitivity', 'Look sensitivity', 0.3, 2.5, 0.05)}
+        ${toggle('padInvertY', 'Invert Y (controller)')}
+        ${slider('aimAssist', 'Aim assist', 0, 1.5, 0.05)}
+        ${toggle('rumble', 'Vibration')}
         <button class="primary" data-act="back">Back</button>
       </div>`, 'settings');
     s.querySelectorAll('input').forEach((input) => {
