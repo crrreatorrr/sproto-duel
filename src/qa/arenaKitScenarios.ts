@@ -7,6 +7,7 @@ import type { ColliderPart, Pillar } from '../arena/Pillar';
 import type { ArenaThemeId } from '../arena/themes';
 import type { Wizard } from '../wizard/Wizard';
 import type { QAHarness } from './QAHarness';
+import { withSeededRandom } from './campaignScenarios';
 
 const DT = CONFIG.sim.fixedDt;
 const A = CONFIG.arena;
@@ -473,8 +474,9 @@ export function registerArenaKitScenarios(qa: QAHarness, game: Game): void {
 
   qa.add('arenas.ai_duels_in_every_boss_arena', (c) => {
     const notes: string[] = [];
-    for (const id of BOSS_ARENAS) {
-      inTheme(id, () => {
+    // Seeded so the duel replays identically (unseeded, the void's sliding blocks made it flaky).
+    for (const [i, id] of BOSS_ARENAS.entries()) {
+      withSeededRandom(4100 + i, () => inTheme(id, () => {
         c.setup();
         game.spawnWizards();
         const a = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');
@@ -500,7 +502,7 @@ export function registerArenaKitScenarios(qa: QAHarness, game: Game): void {
         notes.push(`${id} ${t.toFixed(0)}s ${lost.map((v) => v.toFixed(0)).join('/')}`);
         c.expect(!bad, `${id}: ${bad}`);
         c.expect(lost[0] + lost[1] > 100, `${id}: the AIs barely hurt each other in a full round`);
-      });
+      }));
     }
     c.note(`one-round AI duels (length, damage taken): ${notes.join(', ')}`);
   });
