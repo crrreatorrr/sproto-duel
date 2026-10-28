@@ -455,12 +455,12 @@ export function registerGamepadScenarios(qa: QAHarness, game: Game, app: App): v
           const appNav = () => r.frame(false, () => app.menus.nav.update(r.gp, DT));
           appNav();
           const primary = app.menus.root.querySelector('button.primary');
-          c.expect(document.activeElement === primary, 'main menu did not focus Begin Duel');
+          c.expect(document.activeElement === primary, 'main menu did not focus Quick Duel');
           r.pad.set('up', 1);
           appNav();
           r.pad.set('up', 0);
           appNav();
-          c.expect(!!(document.activeElement as HTMLElement | null)?.matches('.diff'), 'up from Begin Duel did not reach a difficulty');
+          c.expect(!!(document.activeElement as HTMLElement | null)?.matches('.gauntlet-btn'), 'up from Quick Duel did not reach the Boss Gauntlet');
           (document.activeElement as HTMLElement | null)?.blur();
         } else c.note(`main menu check skipped (app state ${app.state})`);
       });

@@ -228,7 +228,7 @@ export const CONFIG = {
       castTime: 0.3,
       damage: 38,
       waveSpeed: 30,
-      maxRadius: 30,
+      maxRadius: 40,
       /** Damage multiplier if the target is shielding when the wave hits. */
       shieldMultiplier: 0.35,
       pillarDamage: 45,
@@ -291,6 +291,11 @@ export const CONFIG = {
     punishTime: 1.6,
     /** Minimum seconds between retreats. */
     retreatCooldown: 5,
+    /**
+     * AI profiles. The game has one difficulty: Quick Duel always uses `normal` (the Rival), and the
+     * Boss Gauntlet's bosses (src/campaign/levels.ts) are the difficulty ladder. `easy` and `hard`
+     * are not selectable; they are reference opponents for QA soaks and balance probes.
+     */
     difficulty: {
       easy: {
         label: 'Apprentice',
@@ -348,7 +353,7 @@ export const CONFIG = {
     sfx: 1.0,
     music: 0.4,
     /** Sounds beyond this distance from the camera are silent. */
-    maxDistance: 45,
+    maxDistance: 65,
     /** Random pitch variation (+/-) applied to repeated sounds. */
     pitchVariance: 0.07,
   },
