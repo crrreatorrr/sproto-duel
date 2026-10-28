@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { CONFIG, type TeamPalette } from '../config';
 import type { ModelInstance } from '../assets/AssetLoader';
 import type { WizardClip, ModelAsset } from '../assets/manifest';
+import { muzzleSetFor } from '../campaign/muzzleIndex';
 import { glowTexture } from '../fx/textures';
 import { damp, lerp, saturate, wrapAngle } from '../core/math';
+import { PLACEHOLDER_MUZZLES, resolveMuzzles, type CastKind, type MuzzleType, type ResolvedMuzzles } from './muzzles';
 import type { Wizard } from './Wizard';
 
 const SHIELD_VERT = /* glsl */ `
@@ -67,12 +69,106 @@ const SKIN_TONES: Record<PlaceholderVariant, number> = {
   tinubu: 0x6b4630,
 };
 
+/** Placeholder robe hem radius (the widest thing at floor level). */
+const SKIRT: Partial<Record<PlaceholderVariant, number>> = { sahil: 0.6, obama: 0.42, agent: 0.42 };
+
+/** Most muzzle points one look has (Tinubu's hand and mouth, a phone in each hand). */
+const MAX_MUZZLES = 3;
+
+/**
+ * How each muzzle type glows (meters at a 2 m look, times the point's size): tip glow colour
+ * (0 = the team's spell colour) and idle level, glow and cast-flash sizes, the flash colour (0 = the
+ * glow's), how far the glow is pulled toward the camera so the prop doesn't hide it, flash decay
+ * per second, and how bright a muzzle light it asks for when flashing.
+ */
+const MUZZLE_LOOK: Record<MuzzleType, { color: number; idle: number; glow: number; flash: number; flashColor: number; pull: number; decay: number; light: number }> = {
+  staff: { color: 0, idle: 0.55, glow: 0.42, flash: 1.15, flashColor: 0, pull: 0.11, decay: 7, light: 1 },
+  phone: { color: 0xcfe8ff, idle: 0.32, glow: 0.24, flash: 0.8, flashColor: 0xf4f9ff, pull: 0.03, decay: 9, light: 0.8 },
+  vape: { color: 0, idle: 0.45, glow: 0.1, flash: 0.4, flashColor: 0xf6eaff, pull: 0.03, decay: 6, light: 0.35 },
+  gun: { color: 0xffd27a, idle: 0, glow: 0.18, flash: 0.95, flashColor: 0xfff2c8, pull: 0.05, decay: 24, light: 1.6 },
+  hand: { color: 0xff7a1a, idle: 0.4, glow: 0.42, flash: 1.0, flashColor: 0xffb347, pull: 0.06, decay: 6, light: 1.1 },
+  mouth: { color: 0xff5a10, idle: 0.18, glow: 0.34, flash: 0.95, flashColor: 0xffa040, pull: 0.09, decay: 6, light: 1.1 },
+};
+
+/** One muzzle point of the current look: its anchor in the feet frame, tip glow, cast flash and optional prop. */
+interface MuzzleSlot {
+  readonly anchor: THREE.Group;
+  readonly glow: THREE.Sprite;
+  readonly flash: THREE.Sprite;
+  /** A code-built phone for an empty fist (MuzzlePoint.prop). */
+  readonly phone: THREE.Group;
+  readonly color: THREE.Color;
+  readonly flashColor: THREE.Color;
+  type: MuzzleType;
+  size: number;
+  /** 1 on a cast, decays: the flash. */
+  flare: number;
+  /** Smoothed windup glow, 0..1. */
+  charge: number;
+}
+
+/**
+ * Screen-door fade for a look's materials: below uFade 1 an ordered 4x4 dither discards that share
+ * of the pixels (0 discards all), so a boss in front of the camera can be seen through with no
+ * transparency sorting. Opaque materials stay opaque and keep writing depth.
+ */
+function addDitherFade(mat: THREE.Material, uniform: { value: number }): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uFade = uniform;
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uFade;
+        float wizBayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
+        float wizBayer4(vec2 a) { return wizBayer2(0.5 * a) * 0.25 + wizBayer2(a); }`,
+      )
+      .replace('void main() {', 'void main() {\n  if (uFade < 0.999 && uFade <= wizBayer4(gl_FragCoord.xy) + 0.03125) discard;');
+  };
+  mat.customProgramCacheKey = () => 'wizardFade';
+}
+
+/** Shared geometry for the code-built phone prop: a 1 m tall body (scaled per look) and its screen. */
+let phoneGeo: { body: THREE.BoxGeometry; screen: THREE.PlaneGeometry } | null = null;
+
 const tmpColor = new THREE.Color();
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
 const tmpAxis = new THREE.Vector3();
+const tmpCam = new THREE.Vector3();
+const tmpDir = new THREE.Vector3();
+const tmpV = new THREE.Vector3();
+const tmpInv = new THREE.Matrix4();
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
+
+/**
+ * Lowest points of a look toward one horizontal direction, as (reach, height) pairs: only those no
+ * other point beats on both (further out and lower). A lean toward that side lifts the look by the
+ * worst of them (see `leanLift`).
+ */
+function footFront(points: [number, number][]): Float32Array {
+  points.sort((a, b) => b[0] - a[0]);
+  const keep: number[] = [];
+  let lowest = Infinity;
+  for (const [u, h] of points) {
+    if (h >= lowest || u <= 0) continue;
+    lowest = h;
+    keep.push(u, h);
+  }
+  return new Float32Array(keep);
+}
+
+/**
+ * How far a lean of `angle` (radians, about the hip pivot at 0.9 m) would push the lowest points
+ * on its side below the floor, given the pivot's thin/squash scale. 0 when nothing dips.
+ */
+function leanDip(feet: Float32Array, angle: number, thin: number, squash: number): number {
+  const s = Math.abs(Math.sin(angle)), c = Math.cos(angle);
+  let dip = 0;
+  for (let i = 0; i < feet.length; i += 2) dip = Math.max(dip, feet[i] * thin * s - feet[i + 1] * squash * c);
+  return Math.max(0, dip - 0.9 * squash * (1 - c));
+}
 
 export class WizardVisual {
   /** World transform: interpolated position + facing. */
@@ -86,6 +182,30 @@ export class WizardVisual {
   /** GPU resources created for the current look, released on the next swap. */
   private readonly owned: { dispose(): void }[] = [];
   private readonly chargeGlow: THREE.Sprite;
+  /** Muzzle anchors and their glows, in the look's feet frame (follows the lean, bob and squash). */
+  private readonly muzzleRoot = new THREE.Group();
+  private readonly slots: MuzzleSlot[] = [];
+  /** The current look's muzzles (null: the generic wand offset, Wizard.castPoint). */
+  muzzles: ResolvedMuzzles | null = null;
+  /** Effect scale of the current look: 1 for a 2 m model, a short boss's placeholder its scale-down. */
+  fxScale = 1;
+  /** Muzzle light wanted this frame (MuzzleFx lights the brightest): level, colour and world position. */
+  lightLevel = 0;
+  readonly lightColor = new THREE.Color();
+  readonly lightPos = new THREE.Vector3();
+  /**
+   * Visibility, 1 = solid: below 1 the look is dithered away (Game fades a boss near the camera or in
+   * front of the player). Shared by every material of the look.
+   */
+  private readonly fadeUniform = { value: 1 };
+  /** Horizontal radius of the look, meters before the root scale (camera fade bounds). */
+  boundsRadius = 0.75;
+  /** Lowest points toward +Z, -Z, +X and -X (see footFront), for the lean lift. */
+  private feet: Float32Array[] = [];
+  /** Lift added under a lean this frame so wide looks don't dip into the floor (QA). */
+  leanLift = 0;
+  /** Camera position for the frame, set by Game before visuals update (muzzle glows face it). */
+  static readonly viewer = new THREE.Vector3(0, 3, 12);
   private readonly shield: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private readonly ice: THREE.Mesh;
   private readonly ring: THREE.Mesh;
@@ -116,15 +236,19 @@ export class WizardVisual {
     this.root.add(this.pivot);
     this.pivot.position.y = 0.9;
     this.pivot.add(this.body);
+    // The feet frame of the look, like a GLB's root: muzzle anchors sit at their measured points.
+    this.muzzleRoot.position.y = -0.9;
+    this.pivot.add(this.muzzleRoot);
+    for (let i = 0; i < MAX_MUZZLES; i++) this.slots.push(this.makeSlot());
 
-    this.build(model, modelSpec, 'wizard');
-
-    // Wand charge glow (shown during spell windups).
+    // Spell charge glow (shown during windups), at the muzzle the spell will leave from.
     this.chargeGlow = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: glowTexture(), color: team.spell, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }),
     );
     this.chargeGlow.visible = false;
-    this.root.add(this.chargeGlow);
+    this.muzzleRoot.add(this.chargeGlow);
+
+    this.build(model, modelSpec, 'wizard');
 
     // Shield bubble.
     this.shield = new THREE.Mesh(
@@ -188,23 +312,178 @@ export class WizardVisual {
   private build(model: ModelInstance | null, modelSpec: ModelAsset, variant: PlaceholderVariant): void {
     if (model) {
       this.usesModel = true;
-      this.topHeight = modelSpec.fitHeight ?? CONFIG.wizard.height;
+      const height = modelSpec.fitHeight ?? CONFIG.wizard.height;
+      this.topHeight = height;
+      this.measureLook(model.root);
       model.root.position.y = -0.9;
       this.body.add(model.root);
       model.root.traverse((o) => {
         const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
         if (m && 'emissive' in m) {
           const clone = m.clone();
+          addDitherFade(clone, this.fadeUniform);
           (o as THREE.Mesh).material = clone;
           this.tintMaterials.push(clone);
           this.owned.push(clone);
         }
       });
       if (model.animations.length) this.setupClips(model, modelSpec);
+      const set = muzzleSetFor(modelSpec);
+      this.fxScale = height / 2;
+      this.applyMuzzles(set ? resolveMuzzles(set, height) : null);
     } else {
       this.usesModel = false;
       this.buildPlaceholder(variant);
+      const k = PLACEHOLDER_SCALE[variant] ?? 1;
+      this.fxScale = k;
+      this.applyMuzzles(resolveMuzzles(PLACEHOLDER_MUZZLES[variant], 1, k));
     }
+  }
+
+  /** Lean-lift footprint and camera-fade radius of a GLB look, from its vertices (once per swap). */
+  private measureLook(root: THREE.Object3D): void {
+    root.updateMatrixWorld(true);
+    const bands: [number, number][][] = [[], [], [], []];
+    let r2 = 0;
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const pos = mesh.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        tmpV.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        r2 = Math.max(r2, tmpV.x * tmpV.x + tmpV.z * tmpV.z);
+        if (tmpV.y > 0.3) continue;
+        bands[0].push([tmpV.z, tmpV.y]);
+        bands[1].push([-tmpV.z, tmpV.y]);
+        bands[2].push([tmpV.x, tmpV.y]);
+        bands[3].push([-tmpV.x, tmpV.y]);
+      }
+    });
+    this.boundsRadius = Math.sqrt(r2);
+    this.feet = bands.map(footFront);
+  }
+
+  /** Put the look's muzzle points on the anchors (null: none, the generic wand). */
+  private applyMuzzles(resolved: ResolvedMuzzles | null): void {
+    this.muzzles = resolved;
+    for (let i = 0; i < MAX_MUZZLES; i++) {
+      const slot = this.slots[i];
+      const m = resolved?.points[i];
+      slot.anchor.visible = !!m;
+      slot.flare = slot.charge = 0;
+      slot.flash.visible = false;
+      if (!m) continue;
+      slot.anchor.position.copy(m.local);
+      slot.type = m.type;
+      slot.size = m.size;
+      const look = MUZZLE_LOOK[m.type];
+      slot.color.setHex(look.color || this.team.spell);
+      slot.flashColor.setHex(look.flashColor || look.color || this.team.spell);
+      slot.phone.visible = m.prop;
+      // A phone about 7.5 % of the model's height, poking up out of the fist, screen forward.
+      const h = this.topHeight * 0.075;
+      slot.phone.scale.setScalar(h);
+      slot.phone.position.set(0, h * 0.3, 0);
+    }
+  }
+
+  private makeSlot(): MuzzleSlot {
+    const sprite = () => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false,
+      }));
+      s.renderOrder = 12;
+      s.visible = false;
+      return s;
+    };
+    const anchor = new THREE.Group();
+    anchor.visible = false;
+    const glow = sprite();
+    const flash = sprite();
+    phoneGeo ??= { body: new THREE.BoxGeometry(0.5, 1, 0.09), screen: new THREE.PlaneGeometry(0.43, 0.86) };
+    const phone = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x15161b, roughness: 0.35, metalness: 0.4 });
+    const screenMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x9fd0ff).multiplyScalar(1.6), toneMapped: false });
+    addDitherFade(bodyMat, this.fadeUniform);
+    addDitherFade(screenMat, this.fadeUniform);
+    const body = new THREE.Mesh(phoneGeo.body, bodyMat);
+    body.castShadow = true;
+    const screen = new THREE.Mesh(phoneGeo.screen, screenMat);
+    screen.position.z = 0.046;
+    phone.add(body, screen);
+    phone.visible = false;
+    anchor.add(glow, flash, phone);
+    this.muzzleRoot.add(anchor);
+    return { anchor, glow, flash, phone, color: new THREE.Color(), flashColor: new THREE.Color(), type: 'staff', size: 1, flare: 0, charge: 0 };
+  }
+
+  // ------------------------------------------------------------------ muzzles
+
+  /** Which muzzle point `kind` leaves from on shot number `turn` (alternating lists), or -1 (generic wand). */
+  muzzleIndex(kind: CastKind, turn: number): number {
+    const list = this.muzzles?.use[kind];
+    return list ? list[turn % list.length] : -1;
+  }
+
+  /** Muzzle `index`'s point in the look's feet frame (meters, before the root's scale and yaw). */
+  muzzlePoint(index: number, out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(this.muzzles!.points[index].local);
+  }
+
+  /** The type of muzzle `index` ('staff' for the generic wand). */
+  muzzleType(index: number): MuzzleType {
+    return this.muzzles?.points[index]?.type ?? 'staff';
+  }
+
+  /** Effect size of muzzle `index`: the point's size times the look's scale. */
+  muzzleSize(index: number): number {
+    return (this.muzzles?.points[index]?.size ?? 1) * this.fxScale;
+  }
+
+  /** A spell just left muzzle `index`: its flash (gunfire strobes, a staff flares). */
+  flare(index: number, strength = 1): void {
+    const slot = this.slots[index];
+    if (!slot || !slot.anchor.visible) return;
+    slot.flare = Math.max(slot.flare, strength);
+    // Every gunshot's star is turned a little differently.
+    slot.flash.material.rotation = slot.type === 'gun' ? Math.random() * Math.PI : 0;
+  }
+
+  /** Current flash of muzzle `index` (QA). */
+  muzzleFlare(index: number): number {
+    return this.slots[index]?.flare ?? 0;
+  }
+
+  /** Muzzle `index`'s code-built phone is showing (QA). */
+  muzzleProp(index: number): boolean {
+    const slot = this.slots[index];
+    return !!slot && slot.anchor.visible && slot.phone.visible;
+  }
+
+  /** World position of muzzle `index` as last rendered (QA and effects). */
+  muzzleWorld(index: number, out: THREE.Vector3): THREE.Vector3 {
+    const slot = this.slots[index];
+    return slot ? slot.anchor.getWorldPosition(out) : out.set(NaN, NaN, NaN);
+  }
+
+  /** Muzzle objects owned by this visual (QA: the count never changes). */
+  get muzzleObjects(): number {
+    let n = 1; // chargeGlow
+    for (const s of this.slots) n += s.anchor.children.length + 1;
+    return n;
+  }
+
+  // ------------------------------------------------------------- camera fade
+
+  /** Visibility 0..1 (1 = solid). */
+  get fade(): number {
+    return this.fadeUniform.value;
+  }
+
+  /** Ease the look's visibility toward `target`; 0 applies at once, so nothing ever renders inside the camera. */
+  setFade(target: number, dt: number): void {
+    const f = target <= 0 ? 0 : damp(this.fadeUniform.value, target, 14, dt);
+    this.fadeUniform.value = f > 0.995 ? 1 : f;
   }
 
   /** Remove the current look and free what it created (GLB geometry stays shared with its template). */
@@ -226,6 +505,7 @@ export class WizardVisual {
     const t = this.team;
     const own = <T extends { dispose(): void }>(r: T): T => {
       this.owned.push(r);
+      if (r instanceof THREE.Material) addDitherFade(r, this.fadeUniform);
       return r;
     };
     const standard = (color: number, roughness: number) => own(new THREE.MeshStandardMaterial({ color, roughness }));
@@ -257,16 +537,13 @@ export class WizardVisual {
     add(new THREE.SphereGeometry(0.035, 6, 6), eye, -0.075, 1.63, 0.19);
     this.topHeight = this.buildHeadgear(variant, add, robe, trim, standard, glowing);
 
-    // Right arm + wand. Pivot at the shoulder so casting can thrust it forward.
+    // Right arm and what it casts with. Pivot at the shoulder so casting can thrust it forward.
     this.armPivot.position.set(-0.3, 1.36 - 0.9, 0);
     this.body.add(this.armPivot);
     // armPivot children are placed relative to the shoulder (add() subtracts 0.9 from y).
     const arm = add(new THREE.CapsuleGeometry(0.075, 0.36, 3, 8), robe, -0.02, 0.88, 0.2, this.armPivot);
     arm.rotation.x = Math.PI / 2;
-    const wand = add(new THREE.CylinderGeometry(0.018, 0.028, 0.42, 6), wood, -0.04, 0.9, 0.56, this.armPivot);
-    wand.rotation.x = Math.PI / 2;
-    wand.castShadow = false;
-    add(new THREE.SphereGeometry(0.04, 8, 6), tip, -0.04, 0.9, 0.77, this.armPivot).castShadow = false;
+    this.buildProp(variant, add, wood, tip, trim, skin, standard);
 
     // A short boss: the same build, scaled down about the feet.
     const k = PLACEHOLDER_SCALE[variant] ?? 1;
@@ -274,6 +551,62 @@ export class WizardVisual {
       this.body.scale.setScalar(k);
       this.body.position.y = -0.9 * (1 - k);
       this.topHeight *= k;
+    }
+    // The robe hem is the lowest, widest thing: what a lean could tip into the floor.
+    const hem = new Float32Array([(SKIRT[variant] ?? 0.52) * k, 0]);
+    this.feet = [hem, hem, hem, hem];
+    this.boundsRadius = 0.75 * k;
+  }
+
+  /**
+   * The placeholder's prop in its right hand, matching PLACEHOLDER_MUZZLES: a staff with a glowing
+   * orb (the wizards, Sahil), a phone (Obama, The Midget), a vape pen (Broccoli Head), a pistol
+   * (Glowie), or an open palm (Tinubu, who also gets a mouth).
+   */
+  private buildProp(
+    variant: PlaceholderVariant,
+    add: AddMesh,
+    wood: THREE.MeshStandardMaterial,
+    tip: THREE.MeshBasicMaterial,
+    trim: THREE.MeshStandardMaterial,
+    skin: THREE.MeshStandardMaterial,
+    standard: (color: number, roughness: number) => THREE.MeshStandardMaterial,
+  ): void {
+    // Shoulder-relative: the hand is at about (-0.04, 0, 0.45); add() wants y + 0.9.
+    const hand = this.armPivot;
+    const metal = () => standard(0x24262c, 0.4);
+    switch (variant) {
+      case 'obama':
+      case 'midget': {
+        add(new THREE.BoxGeometry(0.075, 0.145, 0.014), metal(), -0.04, 0.97, 0.475, hand);
+        add(new THREE.PlaneGeometry(0.064, 0.125), tip, -0.04, 0.97, 0.4825, hand).castShadow = false;
+        return;
+      }
+      case 'broccoli': {
+        add(new THREE.CylinderGeometry(0.014, 0.014, 0.15, 8), metal(), -0.04, 0.96, 0.46, hand);
+        add(new THREE.CylinderGeometry(0.008, 0.012, 0.03, 8), standard(0xd8d8e0, 0.3), -0.04, 1.05, 0.46, hand);
+        add(new THREE.TorusGeometry(0.015, 0.004, 4, 12), tip, -0.04, 0.9, 0.46, hand).rotation.x = Math.PI / 2;
+        return;
+      }
+      case 'agent': {
+        const gun = metal();
+        add(new THREE.BoxGeometry(0.035, 0.045, 0.2), gun, -0.04, 0.93, 0.6, hand);
+        add(new THREE.BoxGeometry(0.03, 0.09, 0.04), gun, -0.04, 0.87, 0.52, hand).rotation.x = 0.25;
+        return;
+      }
+      case 'tinubu': {
+        // An open palm raised to the front, and a mouth for the fire breath.
+        add(new THREE.SphereGeometry(0.065, 10, 8), skin, -0.04, 0.92, 0.47, hand).scale.set(1, 1.3, 0.45);
+        add(new THREE.BoxGeometry(0.09, 0.022, 0.012), standard(0x3a0806, 0.6), 0, 1.53, 0.205);
+        return;
+      }
+      default: {
+        // A staff held upright, a glowing orb on top in a trim collar.
+        const shaft = add(new THREE.CylinderGeometry(0.02, 0.028, 1.33, 6), wood, -0.04, 0.615, 0.44, hand);
+        shaft.castShadow = false;
+        add(new THREE.TorusGeometry(0.05, 0.012, 5, 12), trim, -0.04, 1.29, 0.44, hand).rotation.x = Math.PI / 2;
+        add(new THREE.SphereGeometry(0.065, 12, 10), tip, -0.04, 1.34, 0.44, hand).castShadow = false;
+      }
     }
   }
 
@@ -433,6 +766,90 @@ export class WizardVisual {
     this.shieldHit = perfect ? 1.5 : 1;
   }
 
+  /**
+   * Muzzles each frame: the tip glow (staff orb, phone screen, vape LED, an ember in Tinubu's palm
+   * and jaw), its windup glow when a spell will leave from it, and the cast flash; the spell's own
+   * charge glow sits at that muzzle. Records the brightest as the light MuzzleFx should give.
+   */
+  private updateMuzzles(w: Wizard, dt: number, winding: number): void {
+    const cast = w.cast;
+    const m = this.muzzles;
+    const fade = this.fadeUniform.value;
+    // The camera in the feet frame, so glows sit on the camera's side of their prop.
+    this.muzzleRoot.updateWorldMatrix(true, false);
+    tmpCam.copy(WizardVisual.viewer).applyMatrix4(tmpInv.copy(this.muzzleRoot.matrixWorld).invert());
+    this.lightLevel = 0;
+    let first = -1;
+    for (let i = 0; i < MAX_MUZZLES; i++) {
+      const slot = this.slots[i];
+      if (!slot.anchor.visible) continue;
+      const look = MUZZLE_LOOK[slot.type];
+      let target = 0;
+      if (cast && m) {
+        const list = m.use[cast.spell];
+        if (cast.spell === 'ultimate' ? list.includes(i) : list[w.muzzleTurn % list.length] === i) target = winding;
+      }
+      if (target > 0 && first < 0) first = i;
+      slot.charge = damp(slot.charge, target, 20, dt);
+      slot.flare = Math.max(0, slot.flare - dt * look.decay);
+      const s = this.fxScale * slot.size;
+      tmpDir.subVectors(tmpCam, slot.anchor.position);
+      const dist = tmpDir.length();
+      tmpDir.multiplyScalar(dist > 1e-4 ? 1 / dist : 0);
+      // Idle: embers flicker in the palm and jaw, the staff throbs slowly, a phone screen shows from the front.
+      let idle = look.idle;
+      if (slot.type === 'hand' || slot.type === 'mouth') idle *= 0.75 + 0.25 * Math.sin(this.time * 13 + i * 2.1) * Math.sin(this.time * 7.3 + i);
+      else if (slot.type === 'staff') idle *= 0.85 + 0.15 * Math.sin(this.time * 2.6);
+      const pulse = 1 + slot.charge * (slot.type === 'staff' ? 0.25 * Math.sin(this.time * 18) : 0.1 * Math.sin(this.time * 40));
+      let level = (idle + slot.charge * 1.4 + slot.flare * 0.9) * pulse;
+      if (slot.type === 'phone') level *= saturate(tmpDir.z * 1.6 + 0.35);
+      if (!w.alive) level *= 0.3;
+      slot.glow.visible = level * fade > 0.01;
+      if (slot.glow.visible) {
+        slot.glow.position.copy(tmpDir).multiplyScalar(look.pull * s);
+        slot.glow.material.color.copy(slot.color).multiplyScalar(level * 2);
+        slot.glow.material.opacity = fade;
+        slot.glow.scale.setScalar(look.glow * s * (1 + slot.charge * 0.9 + slot.flare * 0.5) * pulse);
+      }
+      const f = slot.flare;
+      slot.flash.visible = f > 0.01 && fade > 0.02;
+      if (slot.flash.visible) {
+        slot.flash.position.copy(tmpDir).multiplyScalar(look.pull * s * 1.5);
+        slot.flash.material.color.copy(slot.flashColor).multiplyScalar(2.5 * f);
+        slot.flash.material.opacity = fade * f;
+        // Gunfire: a hard star that shrinks away; the rest bloom outward as they fade.
+        slot.flash.scale.setScalar(look.flash * s * (slot.type === 'gun' ? 0.7 + 0.4 * f : 1.25 - 0.55 * f));
+      }
+      const light = (slot.charge * 0.9 + f * look.light) * fade;
+      if (light > this.lightLevel) {
+        this.lightLevel = light;
+        this.lightColor.copy(f > slot.charge ? slot.flashColor : slot.color);
+        slot.anchor.getWorldPosition(this.lightPos);
+      }
+    }
+
+    // The spell's own windup glow (blast, stun or Ultimate colour), at the muzzle it leaves from.
+    const glow = this.chargeGlow;
+    if (!cast) {
+      glow.visible = false;
+      return;
+    }
+    glow.visible = fade > 0.02;
+    if (first >= 0) {
+      const slot = this.slots[first];
+      glow.position.copy(slot.anchor.position).add(slot.glow.position);
+    } else {
+      // The generic wand (a look without muzzle data): in front of the right hand, scaled with the body.
+      const k = w.sizeScale;
+      glow.position.set(-0.34 * k, (1.36 + winding * 0.1) * k, (0.72 + this.armPivot.position.z) * k);
+    }
+    const spellColor = cast.spell === 'stun' ? w.team.stun : cast.spell === 'ultimate' ? w.team.ultimate : w.team.blast;
+    glow.material.color.setHex(spellColor).multiplyScalar(2.5);
+    glow.material.opacity = fade;
+    const size = (cast.spell === 'ultimate' ? 2.6 : 1.1) * (0.4 + winding) * (1 + Math.sin(this.time * 40) * 0.08);
+    glow.scale.setScalar(size * Math.max(0.6, this.fxScale));
+  }
+
   /** Per render frame. `alpha` interpolates between the last two physics ticks. */
   update(w: Wizard, dt: number, alpha: number): void {
     this.time += dt;
@@ -521,31 +938,27 @@ export class WizardVisual {
     else if (this.celebrate) bob = Math.abs(Math.sin(this.time * 7)) * 0.25;
     else if (moving) bob = Math.abs(Math.sin(this.time * (w.sprinting ? 15 : 12))) * 0.06;
     else bob = Math.sin(this.time * 2.2) * 0.012;
-    this.pivot.position.y = 0.9 * squash + bob - (w.alive ? 0 : this.deathT * 0.55);
+    // A lean about the hip tips a wide look's hem into the floor: lift it by whatever would dip
+    // (nothing when standing straight). +X lean tips the front down, +Z lean the right side (-X).
+    this.leanLift = 0;
+    if (w.alive && !w.dodging && this.feet.length === 4) {
+      const ax = this.leanX - w.castPulse * 0.12, az = this.leanZ;
+      this.leanLift = leanDip(this.feet[ax >= 0 ? 0 : 1], ax, thin, squash) + leanDip(this.feet[az >= 0 ? 3 : 2], az, thin, squash);
+    }
+    this.pivot.position.y = 0.9 * squash + bob + this.leanLift - (w.alive ? 0 : this.deathT * 0.55);
     this.pivot.scale.set(thin, squash, thin);
 
     // Stun jitter.
     if (frozen) this.pivot.position.x = (Math.random() - 0.5) * 0.03;
     else this.pivot.position.x = 0;
 
-    // Arm thrust on release, raised during windup.
+    // Arm thrust on release, raised a little during windup (the placeholder's prop stays near its muzzle).
     const winding = w.cast ? saturate(w.cast.elapsed / w.cast.duration) : 0;
     this.armPivot.position.z = w.castPulse * 0.16 + winding * 0.05;
-    this.armPivot.rotation.x = -winding * 0.5 - w.castPulse * 0.15;
+    this.armPivot.rotation.x = -winding * 0.25 - w.castPulse * 0.15;
 
-    // Charge glow at the wand tip during windups.
-    if (w.cast) {
-      this.chargeGlow.visible = true;
-      // Root is already rotated by facing, so the wand tip offset is constant in local space.
-      const k = w.sizeScale;
-      this.chargeGlow.position.set(-0.34 * k, (1.36 + winding * 0.1) * k, (0.72 + this.armPivot.position.z) * k);
-      const spellColor = w.cast.spell === 'stun' ? w.team.stun : w.cast.spell === 'ultimate' ? w.team.ultimate : w.team.blast;
-      this.chargeGlow.material.color.setHex(spellColor).multiplyScalar(2.5);
-      const size = (w.cast.spell === 'ultimate' ? 2.6 : 1.1) * (0.4 + winding) * (1 + Math.sin(this.time * 40) * 0.08);
-      this.chargeGlow.scale.setScalar(size);
-    } else {
-      this.chargeGlow.visible = false;
-    }
+    // Muzzle glows, the windup glow at the muzzle and cast flashes.
+    this.updateMuzzles(w, dt, winding);
 
     // Hit flash / stun tint.
     const flash = saturate(w.hitFlash / CONFIG.wizard.hitFlashTime);

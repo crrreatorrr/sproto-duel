@@ -7,6 +7,7 @@ import type { Physics } from '../physics/Physics';
 import type { PendingCast } from '../spells/types';
 import type { ProjectileSkin } from '../campaign/levels';
 import type { WizardVisual } from './WizardVisual';
+import type { CastKind } from './muzzles';
 
 export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump';
 export type CooldownKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'dodge';
@@ -111,6 +112,8 @@ export class Wizard {
   hitFlash = 0;
   /** 1 on release of a spell, decays to 0. Drives the cast animation. */
   castPulse = 0;
+  /** Projectiles fired so far: picks the muzzle when a look alternates between several (castPoint). */
+  muzzleTurn = 0;
   burnTimer = 0;
   burning = false;
   alive = true;
@@ -263,12 +266,40 @@ export class Wizard {
     return out.set(Math.sin(this.facing), 0, Math.cos(this.facing));
   }
 
-  /** Wand tip in world space (right hand, in front of the chest), scaled with the body. */
-  wandTip(out: Vector3): Vector3 {
-    const k = this.sizeScale;
-    const lx = -0.34 * k, ly = 1.36 * k, lz = 0.72 * k;
+  /** Which of the look's muzzles the next `kind` leaves from (WizardVisual muzzles), or -1 for the generic wand. */
+  muzzleIndex(kind: CastKind): number {
+    return this.visual.muzzleIndex(kind, this.muzzleTurn);
+  }
+
+  /**
+   * Where `kind` leaves this wizard, in world space: the current look's muzzle (the staff orb, a
+   * phone, the vape, a gun barrel, Tinubu's palm or mouth), turned by the facing, scaled by the
+   * look's stage scale (BossStages' `visual.root.scale`) and lifted with the feet (jumps, stumps).
+   * Looks without muzzle data fall back to the generic wand offset in front of the right hand,
+   * scaled with the body. `index` picks a muzzle (default: the one `kind` uses next).
+   * Pure simulation state: the procedural lean/bob/squash of the render pose is not included.
+   */
+  castPoint(kind: CastKind, out: Vector3, index = this.muzzleIndex(kind)): Vector3 {
+    const v = this.visual;
+    if (index >= 0 && v.muzzles && index < v.muzzles.points.length) v.muzzlePoint(index, out);
+    else {
+      const k = this.sizeScale;
+      out.set(-0.34 * k, 1.36 * k, 0.72 * k);
+    }
+    const scale = v.root.scale.x;
+    const lx = out.x * scale, ly = out.y * scale, lz = out.z * scale;
     const s = Math.sin(this.facing), c = Math.cos(this.facing);
     return out.set(this.pos.x + lx * c + lz * s, this.pos.y + ly, this.pos.z - lx * s + lz * c);
+  }
+
+  /** A projectile left the current muzzle: the next one alternates (a phone in each hand). */
+  advanceMuzzle(): void {
+    this.muzzleTurn++;
+  }
+
+  /** The bolt's cast point (older name for `castPoint('bolt', out)`). */
+  wandTip(out: Vector3): Vector3 {
+    return this.castPoint('bolt', out);
   }
 
   spawn(x: number, z: number, facing: number): void {

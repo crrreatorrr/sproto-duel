@@ -200,8 +200,8 @@ export function registerSpellScenarios(qa: QAHarness, game: Game): void {
 
   qa.add('clash.bolts_destroy_each_other', (c) => {
     c.setup();
-    c.player.aimPoint.copy(c.enemy.wandTip(c.enemy.aimPoint.clone()));
-    c.enemy.aimPoint.copy(c.player.wandTip(c.player.aimPoint.clone()));
+    c.player.aimPoint.copy(c.enemy.castPoint('bolt', c.enemy.aimPoint.clone()));
+    c.enemy.aimPoint.copy(c.player.castPoint('bolt', c.player.aimPoint.clone()));
     c.player.intent.press('bolt');
     c.enemy.intent.press('bolt');
     c.step(0.6);
