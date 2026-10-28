@@ -109,33 +109,42 @@ export class Physics {
   }
 
   /**
-   * Full collider (a cylinder, or a box turned by `shape.yaw`) plus a short stump collider that
-   * takes over once the pillar crumbles.
+   * An obstacle's colliders: one per part (boxes and cylinders, turned by `shape.yaw` and their own
+   * yaw), plus short stump colliders for the floor parts that take over once it crumbles (none if
+   * `stumpHeight` is 0). `moving` obstacles get a kinematic body (Pillar.moveTo slides it).
    */
-  addPillar(x: number, z: number, shape: ObstacleShape, pillar: Pillar) {
+  addPillar(x: number, z: number, shape: ObstacleShape, pillar: Pillar, moving = false) {
     const half = shape.yaw / 2;
-    const body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed().setTranslation(x, 0, z).setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) }),
+    const desc = moving ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
+    const body = this.world.createRigidBody(desc.setTranslation(x, 0, z).setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) }));
+    const make = (p: ObstacleShape['parts'][number], top: number, scale: number, enabled: boolean) => {
+      const h = top - p.y0;
+      const d = p.shape === 'box'
+        ? RAPIER.ColliderDesc.cuboid(p.halfX * scale, h / 2, p.halfZ * scale)
+        : RAPIER.ColliderDesc.cylinder(h / 2, p.radius * scale);
+      d.setTranslation(p.x, p.y0 + h / 2, p.z)
+        .setRotation({ x: 0, y: Math.sin(p.yaw / 2), z: 0, w: Math.cos(p.yaw / 2) })
+        .setCollisionGroups(groups(GROUP.WORLD, 0xffff))
+        .setEnabled(enabled);
+      const c = this.world.createCollider(d, body);
+      this.tags.set(c.handle, { kind: 'pillar', pillar });
+      return c;
+    };
+    const full = shape.parts.map((p) => make(p, p.height, 1, true));
+    const stump = shape.stumpHeight > 0
+      ? shape.parts.filter((p) => p.y0 === 0).map((p) => make(p, Math.min(p.height, shape.stumpHeight), shape.stumpScale, false))
+      : [];
+    return { body, full, stump };
+  }
+
+  /** True if a wizard's capsule overlaps a box (half extents, turned by `yaw`) centred at (x, y, z). */
+  boxTouchesWizard(x: number, y: number, z: number, hx: number, hy: number, hz: number, yaw: number): boolean {
+    const box = new RAPIER.Cuboid(hx, hy, hz);
+    const hit = this.world.intersectionWithShape(
+      { x, y, z }, { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, box,
+      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WIZARD),
     );
-    const box = shape.collider === 'box';
-    const s = shape.stumpScale;
-    const fullDesc = box
-      ? RAPIER.ColliderDesc.cuboid(shape.halfX, shape.height / 2, shape.halfZ)
-      : RAPIER.ColliderDesc.cylinder(shape.height / 2, shape.radius);
-    const stumpDesc = box
-      ? RAPIER.ColliderDesc.cuboid(shape.halfX * s, shape.stumpHeight / 2, shape.halfZ * s)
-      : RAPIER.ColliderDesc.cylinder(shape.stumpHeight / 2, shape.radius * s);
-    const full = this.world.createCollider(
-      fullDesc.setTranslation(0, shape.height / 2, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
-      body,
-    );
-    const stump = this.world.createCollider(
-      stumpDesc.setTranslation(0, shape.stumpHeight / 2, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)).setEnabled(false),
-      body,
-    );
-    this.tags.set(full.handle, { kind: 'pillar', pillar });
-    this.tags.set(stump.handle, { kind: 'pillar', pillar });
-    return { full, stump };
+    return hit !== null;
   }
 
   /** Kinematic capsule whose bottom sits on y = 0 when the body is at `capsuleCenterY`. */
@@ -274,14 +283,17 @@ export class Physics {
     };
   }
 
-  /** True if nothing in the WORLD group (pillars/walls) blocks the line a -> b. */
+  /** True if nothing in the WORLD group (pillars/walls) blocks the line a -> b. Glass doesn't. */
   lineOfSight(a: Vector3, b: Vector3): boolean {
     const dir = this.losDir.subVectors(b, a);
     const len = dir.length();
     if (len < 1e-4) return true;
     dir.divideScalar(len);
-    return this.raycast(a, dir, len, GROUP.WORLD) === null;
+    return this.raycast(a, dir, len, GROUP.WORLD, undefined, this.seeThrough) === null;
   }
+
+  /** Skip transparent cover (glass partitions) in sight checks. */
+  private readonly seeThrough = (tag: ColliderTag) => tag.kind === 'pillar' && tag.pillar.shape.seeThrough;
 
   step(): void {
     this.world.step();

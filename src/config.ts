@@ -35,6 +35,86 @@ export interface AIProfile {
   preferredRange: [number, number];
 }
 
+/** One solid piece of an obstacle's collider, in the obstacle's own (unturned) frame. */
+export interface ColliderPartDef {
+  shape: 'box' | 'cylinder';
+  /** Centre offset (m). */
+  x?: number;
+  z?: number;
+  /** Box half extents, or cylinder radius. */
+  halfX?: number;
+  halfZ?: number;
+  radius?: number;
+  /** Extra yaw of a box part (radians). */
+  yaw?: number;
+  /** Bottom (default 0, the floor) and top of the part (m). A part with y0 > 0 is a roof you can walk under. */
+  y0?: number;
+  height: number;
+}
+
+/**
+ * An obstacle type: its collider, toughness and behaviour. Low cover (height under ~1.3 m) can be
+ * jumped onto (apex 1.40 m); chest-height bolts fly over anything below ~1.05 m.
+ */
+export interface ObstacleDef {
+  parts: ColliderPartDef[];
+  /** Health; 0 = indestructible (spells chip it, it never breaks). */
+  hp: number;
+  /** Collider left after a crumble (0 = nothing, e.g. shattered glass). */
+  stumpHeight: number;
+  /** Tall and wide enough to hide behind: the AI picks cover among these. */
+  cover: boolean;
+  /** Transparent: blocks spells but not sight (glass). */
+  seeThrough?: boolean;
+  /** Casts shadows (off for small, low pieces to save draw calls). */
+  shadow?: boolean;
+}
+
+/** Where a layout puts one obstacle. */
+export interface LayoutEntry {
+  kind: string;
+  x: number;
+  z: number;
+  /** Yaw in quarter turns (or `yaw` in radians). */
+  turn?: number;
+  yaw?: number;
+  /** Override the type's height (candlestick bars). */
+  height?: number;
+  /**
+   * 'quad' (default): mirrored into all four quadrants; 'point': also at (-x, -z); 'none': once.
+   * Both spawns sit on the z axis, so mirrored layouts are fair.
+   */
+  mirror?: 'quad' | 'point' | 'none';
+  /** Moving cover: slides back and forth along `axis` over `span` metres (centred on x/z) at `speed` m/s. */
+  move?: { axis: 'x' | 'z'; span: number; speed: number; /** Start position along the rail, -1..1. */ start: number };
+}
+
+/** Soft cover: a drifting volume that hides wizards from the AI but stops nothing. */
+export interface SoftZoneDef {
+  x: number;
+  z: number;
+  radius: number;
+  height: number;
+  /** Drift: a slow circle of this radius, one lap per `period` seconds. */
+  drift: number;
+  period: number;
+  mirror?: 'point' | 'none';
+}
+
+/** A floor hazard (lava pool) that burns anyone standing in it. */
+export interface HazardDef {
+  x: number;
+  z: number;
+  radius: number;
+  mirror?: 'quad' | 'point' | 'x' | 'z' | 'none';
+}
+
+export interface LayoutDef {
+  entries: LayoutEntry[];
+  soft?: SoftZoneDef[];
+  hazards?: HazardDef[];
+}
+
 export const CONFIG = {
   render: {
     maxPixelRatio: 1.5,
@@ -128,7 +208,11 @@ export const CONFIG = {
         { kind: 'cabinet', x: 18.4, z: 10.0, turn: 1 },
         { kind: 'copier', x: 11.6, z: 17.8, turn: 0 },
         { kind: 'cooler', x: 0, z: 12.5, turn: 0 },
-      ] as { kind: 'cabinet' | 'copier' | 'cooler'; x: number; z: number; turn: number }[],
+        // Glass office partitions: see-through, stop spells, shatter after a few hits.
+        { kind: 'glass', x: 10.6, z: 4.6, turn: 0 },
+      ] as { kind: 'cabinet' | 'copier' | 'cooler' | 'glass'; x: number; z: number; turn: number }[],
+      /** A glass partition: 2.4 m wide, 2.1 m tall. Breaks after `hp` damage (3 bolts). */
+      glass: { halfX: 1.2, halfZ: 0.06, height: 2.1, stumpHeight: 0, hp: 12, cover: false },
       /** A bank of three lateral filing cabinets. */
       cabinet: { halfX: 1.05, halfZ: 0.32, height: 1.25, stumpHeight: 0.45, hp: 55, cover: true },
       copier: { halfX: 0.55, halfZ: 0.4, height: 1.1, stumpHeight: 0.5, hp: 40, cover: false },
@@ -137,6 +221,132 @@ export const CONFIG = {
       /** Height of the office ceiling (well above the menu orbit and any jump camera). */
       ceilingHeight: 12,
     },
+    /** Lava pools (volcano): burn per second while standing in one (feet on the floor). */
+    lavaDps: 22,
+    /** The AI keeps this far from the edge of a lava pool. */
+    lavaMargin: 1.2,
+    /** Golden tickets keep this far from hazards, vape clouds and mover rails. */
+    pickupZoneMargin: 1.0,
+
+    /**
+     * Obstacle types for the boss arenas (layouts below). Every type: collider parts, hp
+     * (0 = indestructible), stump left behind, cover (the AI hides behind it), see-through, shadow.
+     */
+    obstacles: {
+      // ---- The Grand Bazaar (Sahil)
+      /** Market stall: wooden frame, striped awning, counter. Full cover. */
+      stall: { parts: [{ shape: 'box', halfX: 1.3, halfZ: 0.9, height: 2.4 }], hp: 90, stumpHeight: 0.9, cover: true, shadow: true },
+      /** A pile of rugs: low cover you can hop onto; soft, so it never breaks. */
+      rugs: { parts: [{ shape: 'box', halfX: 0.95, halfZ: 0.8, height: 1.0 }], hp: 0, stumpHeight: 0, cover: false },
+      /** Wooden hand cart with goods. */
+      cart: { parts: [{ shape: 'box', halfX: 0.85, halfZ: 0.55, height: 1.1 }], hp: 40, stumpHeight: 0.45, cover: false, shadow: true },
+      /** Cluster of clay pots (shatters easily). */
+      pots: { parts: [{ shape: 'cylinder', radius: 0.62, height: 0.85 }], hp: 15, stumpHeight: 0.25, cover: false },
+      // ---- The Blockchain Void (Bitcoin Obama)
+      /** Candlestick-chart bar (height set per placement, 1-4.5 m; low ones are jumpable). */
+      candle: { parts: [{ shape: 'box', halfX: 0.45, halfZ: 0.45, height: 3 }], hp: 60, stumpHeight: 0.6, cover: true, shadow: true },
+      /** A "block": an obsidian cube. Some are chained together, some slide on rails. */
+      block: { parts: [{ shape: 'box', halfX: 0.9, halfZ: 0.9, height: 1.8 }], hp: 0, stumpHeight: 0, cover: true, shadow: true },
+      // ---- Los Angeles (Broccoli Head)
+      /** Parked car: hood/trunk 0.95 m, cabin 1.4 m (hop onto the hood, then the roof). */
+      car: {
+        parts: [{ shape: 'box', halfX: 2.1, halfZ: 0.9, height: 0.95 }, { shape: 'box', x: -0.2, halfX: 1.1, halfZ: 0.85, height: 1.4 }],
+        hp: 110, stumpHeight: 0.6, cover: true, shadow: true,
+      },
+      /** Food truck: big cover. */
+      truck: { parts: [{ shape: 'box', halfX: 2.8, halfZ: 1.3, height: 3.0 }], hp: 160, stumpHeight: 1.0, cover: true, shadow: true },
+      dumpster: { parts: [{ shape: 'box', halfX: 0.95, halfZ: 0.6, height: 1.3 }], hp: 70, stumpHeight: 0.55, cover: true, shadow: true },
+      /** Bus-stop shelter: ad panel and side panel, a roof you can stand under, a bench. */
+      shelter: {
+        parts: [
+          { shape: 'box', z: -0.62, halfX: 1.6, halfZ: 0.08, height: 2.3 },
+          { shape: 'box', x: 1.52, z: -0.1, halfX: 0.08, halfZ: 0.6, height: 2.3 },
+          { shape: 'box', halfX: 1.7, halfZ: 0.75, y0: 2.3, height: 2.45 },
+        ],
+        hp: 60, stumpHeight: 0.45, cover: true, shadow: true,
+      },
+      /** Round concrete planter with a palm (the trunk is solid too). */
+      planter: {
+        parts: [{ shape: 'cylinder', radius: 1.0, height: 0.8 }, { shape: 'cylinder', radius: 0.22, height: 7 }],
+        hp: 0, stumpHeight: 0, cover: false, shadow: true,
+      },
+      // ---- Hellfire Caldera (Tinubu)
+      /** Basalt outcrops: irregular compound rock, big permanent cover. */
+      rockA: {
+        parts: [{ shape: 'cylinder', radius: 1.7, height: 3.0 }, { shape: 'cylinder', x: 1.6, z: 0.7, radius: 1.1, height: 2.0 }],
+        hp: 0, stumpHeight: 0, cover: true, shadow: true,
+      },
+      rockB: {
+        parts: [{ shape: 'box', halfX: 1.5, halfZ: 1.0, yaw: 0.4, height: 2.6 }, { shape: 'cylinder', x: -1.2, z: 0.4, radius: 1.0, height: 3.6 }],
+        hp: 0, stumpHeight: 0, cover: true, shadow: true,
+      },
+      /** A broken basalt column. */
+      ruin: { parts: [{ shape: 'cylinder', radius: 0.85, height: 3.0 }], hp: 70, stumpHeight: 0.9, cover: true, shadow: true },
+    } satisfies Record<string, ObstacleDef>,
+
+    /**
+     * Boss-arena layouts (themes pick one with `layout`). Spawns are at (0, +-spawnDistance/2):
+     * every layout keeps that line clear and the ring between 24.8 m and the fire free.
+     * The first entry of each layout is tall, destructible cover (QA relies on it).
+     */
+    layouts: {
+      /** Sahil's Grand Bazaar: two rows of stalls each side of a central street, rug piles in the alleys. */
+      bazaar: {
+        entries: [
+          { kind: 'stall', x: 6.2, z: 2.4, turn: 3 },
+          { kind: 'stall', x: 6.2, z: 8.2, turn: 3 },
+          { kind: 'stall', x: 12.6, z: 4.8, turn: 3 },
+          { kind: 'stall', x: 12.6, z: 11.0, turn: 3 },
+          { kind: 'rugs', x: 9.4, z: 0, turn: 1 },
+          { kind: 'rugs', x: 3.2, z: 13.0, turn: 0 },
+          { kind: 'rugs', x: 18.5, z: 5.5, turn: 1 },
+          { kind: 'cart', x: 9.4, z: 14.8, turn: 0 },
+          { kind: 'pots', x: 2.8, z: 4.6 },
+        ],
+      },
+      /** Bitcoin Obama's Blockchain Void: candlestick bars, chained blocks, blocks sliding on rails. */
+      exchange: {
+        entries: [
+          { kind: 'candle', x: 5.2, z: 1.3, height: 4.5 },
+          { kind: 'candle', x: 9.6, z: 6.6, height: 1.05 },
+          { kind: 'candle', x: 7.4, z: 12.8, height: 3.4 },
+          { kind: 'candle', x: 14.6, z: 2.4, height: 2.2 },
+          { kind: 'block', x: 11.5, z: 13.5, turn: 0 },
+          { kind: 'block', x: 16.0, z: 9.0, turn: 0 },
+          { kind: 'block', x: 0, z: 4.2, mirror: 'point', move: { axis: 'x', span: 15, speed: 1.2, start: -1 } },
+          { kind: 'block', x: 17.5, z: 0, mirror: 'point', move: { axis: 'z', span: 12, speed: 1.0, start: -1 } },
+        ],
+      },
+      /** Broccoli Head's Los Angeles: parked cars, a food truck, dumpsters, a bus stop, palm planters, two freeway columns, vape clouds. */
+      streets: {
+        entries: [
+          { kind: 'pillar', x: 9.5, z: 9.5, mirror: 'point' },
+          { kind: 'car', x: 4.8, z: 13.5, turn: 1 },
+          { kind: 'car', x: 13.5, z: 4.6, turn: 0 },
+          { kind: 'truck', x: 15.0, z: -11.0, turn: 0, mirror: 'point' },
+          { kind: 'dumpster', x: 10.5, z: 17.5, turn: 0 },
+          { kind: 'shelter', x: 8.5, z: -4.0, turn: 1, mirror: 'point' },
+          { kind: 'planter', x: 4.8, z: 4.8 },
+        ],
+        soft: [
+          { x: 0, z: 0, radius: 2.4, height: 3.2, drift: 3.5, period: 46, mirror: 'none' },
+          { x: 12.5, z: -3.5, radius: 2.2, height: 3.0, drift: 2.5, period: 38, mirror: 'point' },
+        ],
+      },
+      /** Tinubu's Hellfire Caldera: basalt outcrops, broken columns and lava pools. */
+      caldera: {
+        entries: [
+          { kind: 'ruin', x: 3.6, z: 0, mirror: 'quad' },
+          { kind: 'ruin', x: 14.5, z: 12.0 },
+          { kind: 'rockA', x: 9.0, z: 5.5, turn: 0 },
+          { kind: 'rockB', x: 5.5, z: 14.5, turn: 0 },
+        ],
+        hazards: [
+          { x: 13.5, z: 0, radius: 2.6, mirror: 'x' },
+          { x: 0, z: 15.5, radius: 2.4, mirror: 'z' },
+        ],
+      },
+    } satisfies Record<string, LayoutDef>,
   },
 
   wizard: {
@@ -416,6 +626,8 @@ export const CONFIG = {
     lowMana: 0.22,
     /** Distance from the fire ring the AI tries to keep. */
     fireMargin: 3,
+    /** Seconds the AI keeps firing at a target's last known position after it vanishes into a vape cloud. */
+    lostTrackTime: 3,
     /** How long the AI stays aggressive after spotting a punish window. */
     punishTime: 1.6,
     /** Minimum seconds between retreats. */

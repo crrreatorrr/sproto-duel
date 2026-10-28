@@ -53,7 +53,7 @@ export interface SkyDef {
 export interface ArenaTheme {
   id: ArenaThemeId;
   label: string;
-  /** How the destructible cover is arranged (default 'rings'; the office uses 'cubicles'). */
+  /** How the cover is arranged: 'rings' of pillars (default) or a boss arena's own obstacle layout (layouts.ts). */
   layout?: ArenaLayout;
   /** Indoors: a ceiling with light panels overhead and room walls around (theme kit terrain). */
   interior?: boolean;
@@ -165,6 +165,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
   // Tinubu: basalt over lava under a red ash sky.
   volcano: {
     id: 'volcano',
+    layout: 'caldera',
     label: 'Ashen Caldera',
     background: 0x0c0302,
     sky: {
@@ -253,6 +254,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
   // Sahil: sandstone ruins at golden dusk, teal and gold.
   desert: {
     id: 'desert',
+    layout: 'bazaar',
     label: 'Sunken Sands',
     background: 0x140a06,
     sky: {
@@ -285,7 +287,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     ground: { color: 0xd8b888, texture: 'sand', repeat: 26 },
     pillar: { style: 'obelisk', color: 0xd8bc94, stump: 0xc8ae86, accent: 0x40e0d0, trim: 0xffc860 },
     props: { style: 'ruins', color: 0xc8a070, accent: 0xd8b07a },
-    debris: { color: 0xc8a070, emissive: 0 },
+    debris: { color: 0x8a6a48, emissive: 0, shape: 'panel' },
     brazier: { bowl: 0x6a5030, flame: [1.0, 0.75, 0.25] },
     fire: {
       root: [1.0, 0.92, 0.6], mid: [1.0, 0.62, 0.12], tip: [0.65, 0.25, 0.05],
@@ -297,6 +299,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
   // Bitcoin Obama: a floating arena in a cosmic void, purple and green.
   void: {
     id: 'void',
+    layout: 'exchange',
     label: 'The Void',
     background: 0x020005,
     sky: {
@@ -342,6 +345,7 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
   // Broccoli Head: a Los Angeles intersection at sunset, smog, palms and neon, hot pink and teal.
   city: {
     id: 'city',
+    layout: 'streets',
     label: 'Los Angeles',
     background: 0x24102a,
     sky: {

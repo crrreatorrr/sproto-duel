@@ -483,7 +483,7 @@ export function registerOfficeScenarios(qa: QAHarness, game: Game): void {
         arena.devTheme = id;
         void arena.applyTheme('moonlit');
         c.expect(arena.theme === id, `?theme=${id} ignored (${arena.theme})`);
-        c.expect(arena.layout === (id === 'office' ? 'cubicles' : 'rings'), `?theme=${id} has layout ${arena.layout}`);
+        c.expect(arena.layout === (id === 'office' ? 'cubicles' : 'streets'), `?theme=${id} has layout ${arena.layout}`);
       }
       arena.devTheme = null;
       void arena.applyTheme('moonlit');

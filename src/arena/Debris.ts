@@ -50,6 +50,11 @@ export class Debris {
     this.life[i] = life;
   }
 
+  /** Show or hide the whole pool (a pool unused by the current arena costs no draw call). */
+  set visible(v: boolean) {
+    this.mesh.visible = v;
+  }
+
   get material(): THREE.Material {
     return this.mesh.material as THREE.Material;
   }

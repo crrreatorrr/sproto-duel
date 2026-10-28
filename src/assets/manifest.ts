@@ -9,6 +9,7 @@
  * save `audio/bolt_cast.wav`, it is still found. See ASSETS.md for what each asset should be.
  */
 
+import type { ObstacleKind } from '../arena/Pillar';
 import type { ArenaThemeId } from '../arena/themes';
 import { CONFIG } from '../config';
 
@@ -194,6 +195,23 @@ export const THEME_ASSETS: Record<ArenaThemeId, ThemeAssets> = {
   city: themeAssets('city', 9),
   // A cubicle (fitted to the cubicle box collider) and a row of filing cabinets with a water cooler.
   office: themeAssets('office', 1.35, CONFIG.arena.cubicles.height),
+};
+
+/**
+ * Optional generated models for boss-arena obstacles. Each is fitted per axis to its obstacle's
+ * collider bounds (turned 90 degrees first if its long side runs the other way), so proportions
+ * should roughly match the collider in CONFIG.arena.obstacles. Missing files keep the code-built
+ * look. Tripo exports face +X, hence rotationY -90.
+ */
+const obstacle = (file: string, maxTriangles = 6000): ModelAsset => ({ path: `models/obstacles/${file}`, rotationY: -90, maxTriangles, doubleSided: true });
+export const OBSTACLE_MODELS: Partial<Record<ObstacleKind, ModelAsset>> = {
+  stall: obstacle('market_stall.glb'),
+  rugs: obstacle('rug_pile.glb'),
+  car: obstacle('parked_car.glb'),
+  truck: obstacle('food_truck.glb'),
+  dumpster: obstacle('dumpster.glb'),
+  rockA: obstacle('rock_outcrop.glb'),
+  rockB: obstacle('rock_outcrop.glb'),
 };
 
 /** Boss portraits for the campaign screens (square PNG/WebP). */

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config';
 import { RegenTexture, drawCeiling, drawFacade, drawOfficeWall } from '../fx/textures';
+import { at, box, brokenBox, cyl, flatUV, gnarl, hash3, jag, merge, rng, tint } from './geo';
+import { layoutHazards, layoutSpots } from './layouts';
+import { buildObstacleLook } from './obstacleKit';
 import type { ObstacleKind } from './Pillar';
 import type { ArenaTheme } from './themes';
 
@@ -11,94 +13,54 @@ const C = A.cubicles;
 /** Office room around the arena: wall radius (the ceiling reaches a little past it). */
 const ROOM_RADIUS = 58;
 
-/** Deterministic pseudo-random so placeholder layouts are identical every load. */
-function rng(seed: number) {
-  return () => {
-    seed = (seed * 16807) % 2147483647;
-    return (seed - 1) / 2147483646;
-  };
-}
-
-/** Translate (and optionally rotate) a geometry in place. */
-function at(geo: THREE.BufferGeometry, y: number, x = 0, z = 0, rotY = 0): THREE.BufferGeometry {
-  if (rotY) geo.rotateY(rotY);
-  geo.translate(x, y, z);
-  return geo;
-}
-
-/** Merge parts into one geometry (one draw call); mixes indexed and non-indexed parts. */
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const anyFlat = parts.some((g) => !g.index);
-  const list = anyFlat ? parts.map((g) => (g.index ? g.toNonIndexed() : g)) : parts;
-  const out = mergeGeometries(list, false);
-  if (!out) throw new Error('themeKit merge: parts have different attributes');
-  for (const g of parts) g.dispose();
-  if (anyFlat) for (const g of list) g.dispose();
-  return out;
-}
-
-/** Bake a flat vertex colour (glow parts share one vertex-coloured material). */
-function tint(geo: THREE.BufferGeometry, hex: number, intensity: number): THREE.BufferGeometry {
-  const c = new THREE.Color(hex).multiplyScalar(intensity);
-  const n = geo.attributes.position.count;
-  const arr = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) arr.set([c.r, c.g, c.b], i * 3);
-  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
-  return geo;
-}
-
-/** A box with a flat vertex colour (times `k`), centred at (x, y, z) and turned by `rotY`. */
-function box(w: number, h: number, d: number, x: number, y: number, z: number, hex: number, k = 1, rotY = 0): THREE.BufferGeometry {
-  return at(tint(new THREE.BoxGeometry(w, h, d), hex, k), y, x, z, rotY);
-}
-
-/** A vertex-coloured cylinder centred at (x, y, z). */
-function cyl(rt: number, rb: number, h: number, seg: number, x: number, y: number, z: number, hex: number, k = 1): THREE.BufferGeometry {
-  return at(tint(new THREE.CylinderGeometry(rt, rb, h, seg), hex, k), y, x, z);
-}
-
-/** A vertex-coloured box with a jagged broken top (stumps), its base on y = y0. */
-function brokenBox(w: number, h: number, d: number, x: number, y0: number, z: number, hex: number, seed: number, rotY = 0, jagAmount = 0.22): THREE.BufferGeometry {
-  const g = jag(new THREE.BoxGeometry(w, h, d, Math.max(1, Math.round(w * 5)), 1, Math.max(1, Math.round(d * 5))), h / 2 - 0.01, jagAmount, seed);
-  return at(tint(g, hex, 1), y0 + h / 2, x, z, rotY);
-}
-
-/** Map every UV of a geometry to one texel (a solid region of an atlas texture). */
-function flatUV(geo: THREE.BufferGeometry, u: number, v: number): THREE.BufferGeometry {
-  const uv = geo.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, u, v);
-  return geo;
-}
-
-/** Position-hashed noise in [-1, 1]: seam duplicates move together, so there are no cracks. */
-function hash3(x: number, y: number, z: number, seed: number): number {
-  const s = Math.sin(Math.round(x * 97) * 12.9898 + Math.round(y * 97) * 78.233 + Math.round(z * 97) * 37.719 + seed) * 43758.5453;
-  return (s - Math.floor(s)) * 2 - 1;
-}
-
-/** Jagged broken top for stumps. */
-function jag(geo: THREE.BufferGeometry, above: number, amount: number, seed: number): THREE.BufferGeometry {
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    if (y > above) pos.setY(i, y + (hash3(pos.getX(i), 0, pos.getZ(i), seed) * 0.5 + 0.35) * amount);
+const LAVA_VERT = /* glsl */ `
+  attribute vec3 aLocal;
+  varying vec3 vLocal;
+  void main() {
+    vLocal = aLocal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
-  geo.computeVertexNormals();
-  return geo;
-}
-
-/** Gnarled, organic profile (grove columns). */
-function gnarl(geo: THREE.BufferGeometry, amount: number): THREE.BufferGeometry {
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const a = Math.atan2(z, x);
-    const k = 1 + amount * (Math.sin(y * 2.3 + a * 3) * 0.6 + Math.sin(y * 5.1 - a * 5) * 0.4);
-    pos.setXYZ(i, x * k, y, z * k);
+`;
+/** Molten pool: churning crust and bright seams, popping bubbles, a dark rocky rim. */
+const LAVA_FRAG = /* glsl */ `
+  uniform float uTime;
+  varying vec3 vLocal;
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
   }
-  geo.computeVertexNormals();
-  return geo;
-}
+  float fbm(vec2 p) {
+    float v = 0.0, a = 0.5;
+    for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.07; a *= 0.5; }
+    return v;
+  }
+  void main() {
+    float r = length(vLocal.xy);
+    float R = vLocal.z;
+    if (r > R + 0.24) discard;
+    vec2 p = vLocal.xy * 0.9;
+    float n = fbm(p + vec2(uTime * 0.15, -uTime * 0.1));
+    float n2 = fbm(p * 2.3 - vec2(uTime * 0.2, uTime * 0.07) + n * 1.5);
+    float heat = smoothstep(0.3, 0.8, n2);
+    vec3 crust = vec3(0.22, 0.035, 0.01);
+    vec3 hot = vec3(1.7, 0.5, 0.06);
+    vec3 c = mix(crust, hot, heat);
+    c = mix(c, vec3(2.4, 1.5, 0.5), smoothstep(0.78, 0.95, n2) * 0.7);
+    vec2 q = p * 1.4;
+    vec2 cell = floor(q);
+    vec2 f = fract(q) - 0.5;
+    float h = hash(cell);
+    float t = fract(uTime * (0.25 + h * 0.4) + h * 7.0);
+    float bubble = (1.0 - smoothstep(0.02, 0.06 + 0.2 * t, length(f))) * step(0.55, h) * (1.0 - t);
+    c += hot * bubble * 1.5;
+    float rim = smoothstep(R - 0.2, R + 0.18, r);
+    c = mix(c, vec3(0.05, 0.025, 0.02) + hot * 0.12 * (1.0 - rim), rim);
+    gl_FragColor = vec4(c, 1.0);
+  }
+`;
+
 
 interface Part {
   geometry: THREE.BufferGeometry;
@@ -123,8 +85,8 @@ export class ThemeKit {
   readonly props = new THREE.Group();
   /** Terrain that stays even with a prop GLB (dunes, the floating island's underside, city blocks, the office room). */
   readonly terrain = new THREE.Group();
-  /** Standing parts per obstacle kind ('pillar' for ring layouts; cubicle, cabinet, copier, cooler in the office). */
-  private readonly wholes = new Map<ObstacleKind, Part[]>();
+  /** Standing look variants per obstacle kind, built on first use. */
+  private readonly wholes = new Map<ObstacleKind, Part[][]>();
   /** Stump variants per obstacle kind. */
   private readonly stumpSets = new Map<ObstacleKind, Part[][]>();
   /** The part list `addPart` currently fills. */
@@ -139,28 +101,48 @@ export class ThemeKit {
   private roomWalls: THREE.Object3D | null = null;
   private readonly spin: number;
 
+  /** Animated terrain shaders (lava pools). */
+  private readonly timeUniforms: { value: number }[] = [];
+
   constructor(readonly theme: ArenaTheme, private stone: THREE.Texture) {
-    if (theme.layout === 'cubicles') {
-      this.buildOfficeCover();
-    } else {
-      this.buildPillar();
-      this.buildStumps();
-    }
     this.buildProps();
+    this.buildLayoutDressing();
     this.spin = theme.props.style === 'asteroids' ? 0.012 : 0;
     this.props.name = `props:${theme.id}`;
     this.terrain.name = `terrain:${theme.id}`;
   }
 
-  /** Obstacle kinds this kit can build. */
+  /** Obstacle kinds this kit has built so far. */
   get kinds(): ObstacleKind[] {
     return [...this.wholes.keys()];
   }
 
-  /** One placeholder obstacle: shared geometry, its own copies of tintable materials. */
-  makePillar(kind: ObstacleKind = 'pillar'): THREE.Object3D {
+  /** Build an obstacle kind's look on first use. */
+  private ensure(kind: ObstacleKind): void {
+    if (this.wholes.has(kind)) return;
+    if (kind === 'pillar') {
+      this.buildPillar();
+      this.buildStumps();
+    } else if (kind === 'cubicle' || kind === 'cabinet' || kind === 'copier' || kind === 'cooler' || kind === 'glass') {
+      this.buildOfficeCover();
+    } else {
+      const look = buildObstacleLook(kind, this.theme);
+      if (!look) throw new Error(`no look for obstacle kind '${kind}'`);
+      for (const parts of look.wholes) {
+        this.beginWhole(kind);
+        for (const p of parts) this.addPart(p.geometry, p.material, p.perPillar, p.shadow);
+      }
+      for (const parts of look.stumps) this.addStump(kind, parts);
+      if (!this.stumpSets.has(kind)) this.stumpSets.set(kind, [[]]);
+    }
+  }
+
+  /** One placeholder obstacle (look variant `variant`): shared geometry, its own copies of tintable materials. */
+  makePillar(kind: ObstacleKind = 'pillar', variant = 0): THREE.Object3D {
+    this.ensure(kind);
     const g = new THREE.Group();
-    const parts = this.wholes.get(kind) ?? this.wholes.values().next().value ?? [];
+    const variants = this.wholes.get(kind)!;
+    const parts = variants[variant % variants.length];
     for (const p of parts) {
       let mat = p.material;
       if (p.perPillar) {
@@ -176,7 +158,8 @@ export class ThemeKit {
   }
 
   makeStump(index: number, kind: ObstacleKind = 'pillar'): THREE.Object3D {
-    const sets = this.stumpSets.get(kind) ?? this.stumpSets.values().next().value ?? [[]];
+    this.ensure(kind);
+    const sets = this.stumpSets.get(kind) ?? [[]];
     const parts = sets[index % sets.length];
     const g = new THREE.Group();
     for (const p of parts) {
@@ -209,6 +192,7 @@ export class ThemeKit {
 
   update(dt: number): void {
     if (this.spin) this.props.rotation.y += dt * this.spin;
+    for (const u of this.timeUniforms) u.value += dt;
   }
 
   /** Free GPU buffers while the theme is inactive. */
@@ -246,10 +230,12 @@ export class ThemeKit {
     this.building.push({ geometry, material, perPillar, shadow });
   }
 
-  /** Start filling the standing parts of `kind`. */
+  /** Start filling a new standing look variant of `kind`. */
   private beginWhole(kind: ObstacleKind): void {
     this.building = [];
-    this.wholes.set(kind, this.building);
+    let variants = this.wholes.get(kind);
+    if (!variants) this.wholes.set(kind, (variants = []));
+    variants.push(this.building);
   }
 
   /** Add one stump variant of `kind` (a single merged, shared-material part). */
@@ -614,6 +600,100 @@ export class ThemeKit {
           material: stumpMat, perPillar: false, shadow: true,
         }]);
       }
+    }
+
+    // ---- glass partition: aluminium frame around a pale green pane (see-through cover)
+    {
+      const d = C.glass;
+      const W = d.halfX * 2, H = d.height, f = 0.06;
+      const frame = merge([
+        box(W, f, 0.1, 0, f / 2, 0, trim),
+        box(W, f, 0.1, 0, H - f / 2, 0, trim),
+        box(f, H, 0.1, -W / 2 + f / 2, H / 2, 0, trim),
+        box(f, H, 0.1, W / 2 - f / 2, H / 2, 0, trim),
+        box(W - 2 * f, 0.03, 0.08, 0, 1.05, 0, trim, 0.9),
+      ]);
+      const pane = new THREE.MeshStandardMaterial({
+        color: 0xbfeedd, transparent: true, opacity: 0.2, roughness: 0.05, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide,
+        emissive: 0x0a2a18,
+      });
+      this.beginWhole('glass');
+      this.addPart(frame, this.furniture(0.3), true, false);
+      this.addPart(new THREE.BoxGeometry(W - 2 * f, H - 2 * f, 0.02).translate(0, H / 2, 0), pane, false, false);
+      // Shattered: the bottom rail and shards on the floor (no collider left).
+      const shards: THREE.BufferGeometry[] = [box(W, f, 0.1, 0, f / 2, 0, trim)];
+      for (let i = 0; i < 10; i++) shards.push(box(0.16 + (i % 3) * 0.06, 0.012, 0.1, -W / 2 + 0.2 + i * 0.22, 0.01, ((i * 37) % 7) * 0.08 - 0.25, 0xd8f4ec, 1, i * 1.3));
+      this.addStump('glass', [{ geometry: merge(shards), material: this.furniture(0.1), perPillar: false, shadow: false }]);
+    }
+  }
+
+  // ------------------------------------------------------------------ layout dressing
+
+  /**
+   * Decor that belongs to a theme's cover layout (static, so it lives in the kit's terrain): chains
+   * between the void's blocks and the glowing rails its moving blocks slide on; lava pools.
+   */
+  private buildLayoutDressing(): void {
+    const layout = this.theme.layout;
+    if (!layout || layout === 'rings' || layout === 'cubicles') return;
+    const glow: THREE.BufferGeometry[] = [];
+    const spots = layoutSpots(layout);
+    const accent = this.theme.pillar.trim ?? this.theme.pillar.accent;
+    // Rails under sliding cover.
+    for (const s of spots) {
+      const m = s.mover;
+      if (!m) continue;
+      const len = m.half * 2 + 1.8;
+      for (const o of [-0.6, 0.6]) {
+        glow.push(m.axis === 'x' ? box(len, 0.03, 0.07, m.cx, 0.015, m.cz + o, accent, 1.5) : box(0.07, 0.03, len, m.cx + o, 0.015, m.cz, accent, 1.5));
+      }
+      for (const e of [-1, 1]) {
+        const ex = m.axis === 'x' ? m.cx + e * (m.half + 0.9) : m.cx;
+        const ez = m.axis === 'z' ? m.cz + e * (m.half + 0.9) : m.cz;
+        glow.push(box(m.axis === 'x' ? 0.1 : 1.5, 0.05, m.axis === 'x' ? 1.5 : 0.1, ex, 0.025, ez, accent, 2));
+      }
+    }
+    // Chains between static blocks less than 7 m apart.
+    const blocks = spots.filter((s) => s.shape.kind === 'block' && !s.mover);
+    for (let i = 0; i < blocks.length; i++) {
+      for (let j = i + 1; j < blocks.length; j++) {
+        const a = blocks[i], b = blocks[j];
+        const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
+        if (d > 7) continue;
+        const ux = dx / d, uz = dz / d;
+        const yaw = Math.atan2(dx, dz);
+        const from = 0.95, to = d - 0.95;
+        for (let t = from, k = 0; t < to; t += 0.34, k++) {
+          const sag = 1.25 - Math.sin(((t - from) / (to - from)) * Math.PI) * 0.35;
+          const link = new THREE.TorusGeometry(0.16, 0.035, 5, 10);
+          if (k % 2) link.rotateZ(Math.PI / 2);
+          link.rotateY(yaw + Math.PI / 2);
+          glow.push(tint(at(link, sag, a.x + ux * t, a.z + uz * t), this.theme.pillar.accent, 1.5));
+        }
+      }
+    }
+    if (glow.length) this.addStatic(merge(glow), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), this.terrain);
+    // Lava pools: one merged set of discs with an animated molten shader.
+    const pools = layoutHazards(layout);
+    if (pools.length) {
+      const discs = pools.map((p) => {
+        const g = new THREE.CircleGeometry(p.radius + 0.25, 40);
+        g.rotateX(-Math.PI / 2);
+        // Local disc coordinates (in metres, and the pool radius) for the shader.
+        const n = g.attributes.position.count;
+        const local = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) local.set([g.attributes.position.getX(i), g.attributes.position.getZ(i), p.radius], i * 3);
+        g.setAttribute('aLocal', new THREE.BufferAttribute(local, 3));
+        return at(g, 0.03, p.x, p.z);
+      });
+      const time = { value: 0 };
+      this.timeUniforms.push(time);
+      const lava = this.addStatic(merge(discs), new THREE.ShaderMaterial({
+        vertexShader: LAVA_VERT, fragmentShader: LAVA_FRAG, uniforms: { uTime: time }, toneMapped: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      }), this.terrain);
+      lava.name = 'lava';
+      lava.renderOrder = 1;
     }
   }
 
@@ -1089,15 +1169,20 @@ export class ThemeKit {
 }
 
 /**
- * Per-axis scale that fits a box-shaped cover model (a cubicle) to its box collider: footprint
- * `2 * halfX` by `2 * halfZ` and height `height`, from its bounding box in its own space.
+ * Per-axis scale (and a yaw of 0 or 90 degrees) that fits a box-shaped cover model (a cubicle, a
+ * car, a stall) to its collider bounds: footprint `2 * halfX` by `2 * halfZ`, height `height`, from
+ * its bounding box in its own space. A model whose long side runs the other way is turned first.
  */
-export function boxFitScale(root: THREE.Object3D, halfX: number, halfZ: number, height: number): [number, number, number] {
+export function boxFitScale(root: THREE.Object3D, halfX: number, halfZ: number, height: number): [number, number, number, number] {
   root.updateMatrixWorld(true);
   const box3 = new THREE.Box3().setFromObject(root);
   const s = box3.getSize(new THREE.Vector3());
   const k = (want: number, have: number) => (have > 1e-3 ? THREE.MathUtils.clamp(want / have, 0.05, 20) : 1);
-  return [k(2 * halfX, s.x), k(height, s.y), k(2 * halfZ, s.z)];
+  const turn = Math.abs(halfX - halfZ) > 0.15 && (s.x > s.z) !== (halfX > halfZ);
+  // Turned 90 degrees, the model's own x runs along the obstacle's z.
+  return turn
+    ? [k(2 * halfZ, s.x), k(height, s.y), k(2 * halfX, s.z), Math.PI / 2]
+    : [k(2 * halfX, s.x), k(height, s.y), k(2 * halfZ, s.z), 0];
 }
 
 /**

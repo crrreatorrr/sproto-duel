@@ -9,6 +9,7 @@ import { registerGamepadScenarios } from './qa/gamepadScenarios';
 import { registerJumpScenarios } from './qa/jumpScenarios';
 import { registerArenaScenarios } from './qa/arenaScenarios';
 import { registerCampaignScenarios } from './qa/campaignScenarios';
+import { registerArenaKitScenarios } from './qa/arenaKitScenarios';
 import { registerOfficeScenarios } from './qa/officeScenarios';
 import { registerSkinScenarios } from './qa/skinScenarios';
 import { registerStageScenarios } from './qa/stageScenarios';
@@ -43,6 +44,7 @@ async function boot() {
   registerStageScenarios(qa, game, app);
   registerTicketScenarios(qa, game, app);
   registerOfficeScenarios(qa, game);
+  registerArenaKitScenarios(qa, game);
   const qaApi = Object.assign(qa, {
     /**
      * `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance.

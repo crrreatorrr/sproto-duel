@@ -129,6 +129,24 @@ concepts in a wide standing stance rather than a T-pose, since there is no rig: 
 view, plain background, one character, few detached floating objects. Projectiles are built in code
 (`skins` in `levels.ts`).
 
+## Arena obstacles (optional)
+
+Each boss arena's obstacles are built in code; a generated model replaces a kind's look when its
+file exists (`OBSTACLE_MODELS` in `src/assets/manifest.ts`). Models face +X (rotated -90 degrees
+on load), are fitted per axis to the obstacle's collider bounds (turned 90 degrees first if their
+long side runs the other way) and stand on the floor by their bounds. Cubicles, rug piles and cars
+match the collider height exactly (you stand on them); the others keep within 15 % of their own
+proportions. Stumps stay procedural. ≤ 6k triangles each.
+
+| File | Kind | Collider (L x W x H) |
+|---|---|---|
+| `models/obstacles/market_stall.glb` | `stall` | 2.6 x 1.8 x 2.4 m |
+| `models/obstacles/rug_pile.glb` | `rugs` | 1.9 x 1.6 x 1.0 m |
+| `models/obstacles/parked_car.glb` | `car` | 4.2 x 1.8 m; hood 0.95 m, cabin 1.4 m |
+| `models/obstacles/food_truck.glb` | `truck` | 5.6 x 2.6 x 3.0 m |
+| `models/obstacles/dumpster.glb` | `dumpster` | 1.9 x 1.2 x 1.3 m (a raised lid may rise above) |
+| `models/obstacles/rock_outcrop.glb` | `rockA`, `rockB` | the bounds of two cylinders/boxes, ~4.4 x 3.5 x 3.0-3.6 m |
+
 ## Arena environments
 
 Every theme has the same five slots under `textures/themes/<theme>/` and `models/themes/<theme>/`

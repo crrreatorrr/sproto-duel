@@ -256,15 +256,15 @@ export function registerArenaScenarios(qa: QAHarness, game: Game): void {
     const cap = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.8, 3.6), mat);
     cap.position.y = 9.4;
     fake.add(shaft, base, cap);
-    const spec = THEME_ASSETS.desert.pillar;
+    const spec = THEME_ASSETS.glacier.pillar;
     withThemes(() => {
       try {
         game.assets.provideModel(spec, fake, 'qa-fake-pillar');
-        void arena.applyTheme('desert');
-        void arena.invalidateThemeAssets('desert');
+        void arena.applyTheme('glacier');
+        void arena.invalidateThemeAssets('glacier');
         const pillar = arena.pillars[3];
         const key = pillar.describe().key ?? '';
-        c.expect(key.startsWith('desert:glb'), `GLB pillar not shown (${key})`);
+        c.expect(key.startsWith('glacier:glb'), `GLB pillar not shown (${key})`);
         const col = pillar.column!;
         col.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(col);
@@ -275,9 +275,9 @@ export function registerArenaScenarios(qa: QAHarness, game: Game): void {
         c.expect(box.min.y > -0.05 && box.min.y < 0.05, `model floats or sinks (min y ${box.min.y.toFixed(2)})`);
       } finally {
         game.assets.forgetModel(spec.path);
-        void arena.invalidateThemeAssets('desert');
+        void arena.invalidateThemeAssets('glacier');
       }
-      c.expect(arena.pillars[3].describe().key === 'desert', 'placeholder pillar not restored');
+      c.expect(arena.pillars[3].describe().key === 'glacier', 'placeholder pillar not restored');
     });
     shaft.geometry.dispose();
     base.geometry.dispose();

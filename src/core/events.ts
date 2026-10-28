@@ -30,7 +30,7 @@ export interface GameEvents {
   stunned: { wizard: Wizard };
   burn: { wizard: Wizard };
   pillarHit: { pos: Vector3 };
-  pillarBreak: { pos: Vector3 };
+  pillarBreak: { pos: Vector3; glass?: boolean };
   ultReady: { wizard: Wizard };
   noMana: { wizard: Wizard };
   ultWave: { wizard: Wizard; pos: Vector3 };

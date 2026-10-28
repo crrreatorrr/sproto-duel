@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { AssetLoader, ModelTemplate } from '../assets/AssetLoader';
-import { THEME_ASSETS } from '../assets/manifest';
+import { OBSTACLE_MODELS, THEME_ASSETS } from '../assets/manifest';
 import { ParticleSystem } from '../fx/ParticleSystem';
 import { RegenTexture, drawArenaFloor, drawGround, drawStone, glowTexture } from '../fx/textures';
 import type { Physics } from '../physics/Physics';
 import { Debris } from './Debris';
 import type { FireRing } from './FireRing';
-import { layoutSpots, type ArenaLayout } from './layouts';
-import { Pillar } from './Pillar';
+import { layoutHazards, layoutSoftZones, layoutSpots, type ArenaLayout, type Hazard, type MoverDef, type SoftZone } from './layouts';
+import { CANDLE_REF_HEIGHT } from './obstacleKit';
+import { Pillar, type ObstacleKind } from './Pillar';
 import { ThemeKit, boxFitScale, pillarFitScale } from './themeKit';
 import { THEMES, isThemeId, type ArenaTheme, type ArenaThemeId, type SkyDef } from './themes';
 
@@ -157,6 +158,8 @@ interface ThemeFiles {
   wallStone: THREE.Texture | null;
   pillar: ModelTemplate | null;
   prop: ModelTemplate | null;
+  /** Optional generated obstacle models (OBSTACLE_MODELS) for the kinds in the theme's layout. */
+  obstacles: Partial<Record<ObstacleKind, ModelTemplate>>;
 }
 
 /** Everything one theme needs, built on first use and kept (GPU copies are freed while inactive). */
@@ -171,16 +174,73 @@ interface ThemeResources {
   files: ThemeFiles;
   loading: Promise<void> | null;
   propCopies: THREE.Group | null;
-  /** Pillar visual key last shown for this theme. */
-  pillarKey: string | null;
 }
+
+/** A sliding obstacle and where it is on its rail. */
+interface MoverState {
+  pillar: Pillar;
+  rail: MoverDef;
+  /** Position along the rail, -1..1. */
+  t: number;
+  dir: 1 | -1;
+}
+
+/** A drifting vape cloud (soft cover) and its current centre. */
+interface CloudState extends SoftZone {
+  cx: number;
+  cz: number;
+}
+
+const BILLBOARD_VERT = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying float vNear;
+  void main() {
+    vUv = uv;
+    vColor = instanceColor;
+    vec4 center = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    float s = length(instanceMatrix[0].xyz);
+    center.xy += position.xy * s;
+    // Thin out puffs right in front of the camera (inside a cloud it stays hazy, not opaque).
+    vNear = mix(0.35, 1.0, smoothstep(0.3, 3.5, -center.z));
+    gl_Position = projectionMatrix * center;
+  }
+`;
+const BILLBOARD_FRAG = /* glsl */ `
+  uniform float uOpacity;
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying float vNear;
+  void main() {
+    vec2 p = vUv - 0.5;
+    float d = length(p) * 2.0;
+    float a = (1.0 - smoothstep(0.15, 1.0, d)) * uOpacity * vNear;
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(vColor, a);
+  }
+`;
+/** Puffs drawn per vape cloud. */
+const PUFFS = 9;
 
 export class Arena {
   readonly debris: Debris;
-  /** Cover layout of the current theme ('rings' of pillars, or the office 'cubicles'). */
+  /** Cover layout of the current theme ('rings' of pillars, the office 'cubicles', or a boss arena's). */
   layout: ArenaLayout = 'rings';
   /** Obstacles per layout, built on first use; only the current layout's are visible and collide. */
   private readonly layouts = new Map<ArenaLayout, Pillar[]>();
+  /** Sliding obstacles per layout. */
+  private readonly movers = new Map<ArenaLayout, MoverState[]>();
+  /** Soft cover (vape clouds) and floor hazards (lava) of the current layout. */
+  private clouds: CloudState[] = [];
+  private hazardList: Hazard[] = [];
+  private cloudMesh: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | null = null;
+  private readonly cloudColor = new THREE.Color();
+  /** Glass shards (made when a layout with glass is first used). */
+  private glassDebris: Debris | null = null;
+  /** Seconds since the round (or layout) started: drives clouds. */
+  private layoutTime = 0;
+  private lavaAcc = 0;
+  private readonly puffDummy = new THREE.Object3D();
   /** The original chunk shape (themes may swap in flat partition panels). */
   private readonly chunkGeometry: THREE.BufferGeometry;
   private panelGeometry: THREE.BufferGeometry | null = null;
@@ -273,11 +333,93 @@ export class Arena {
   obstaclesFor(layout: ArenaLayout): Pillar[] {
     let list = this.layouts.get(layout);
     if (!list) {
-      list = layoutSpots(layout).map((s) => new Pillar(this.scene, this.physics, s.x, s.z, this.debris, s.shape));
+      const movers: MoverState[] = [];
+      list = layoutSpots(layout).map((s) => {
+        const debris = s.shape.seeThrough ? this.shards() : this.debris;
+        const p = new Pillar(this.scene, this.physics, s.x, s.z, debris, s.shape, !!s.mover);
+        if (s.mover) movers.push({ pillar: p, rail: s.mover, t: s.mover.start, dir: s.mover.dir });
+        return p;
+      });
       for (const p of list) p.setActive(layout === this.layout);
       this.layouts.set(layout, list);
+      this.movers.set(layout, movers);
     }
     return list;
+  }
+
+  /** Sliding obstacles of the current layout (QA and tools). */
+  get movingCover(): readonly Pillar[] {
+    this.obstaclesFor(this.layout);
+    return (this.movers.get(this.layout) ?? []).map((m) => m.pillar);
+  }
+
+  /** Vape clouds of the current layout: centre and size right now. */
+  get softZones(): readonly { x: number; z: number; radius: number; height: number }[] {
+    return this.clouds.map((c) => ({ x: c.cx, z: c.cz, radius: c.radius, height: c.height }));
+  }
+
+  /** Lava pools of the current layout. */
+  get hazards(): readonly Hazard[] {
+    return this.hazardList;
+  }
+
+  /** The hazard (lava pool) at (x, z), counting `margin` metres around it, or null. */
+  hazardAt(x: number, z: number, margin = 0): Hazard | null {
+    for (const h of this.hazardList) if (Math.hypot(x - h.x, z - h.z) < h.radius + margin) return h;
+    return null;
+  }
+
+  /**
+   * True if the segment a -> b passes through soft cover (a vape cloud), or starts or ends inside
+   * one. Clouds stop no spell; they only hide wizards from the AI.
+   */
+  obscured(a: THREE.Vector3, b: THREE.Vector3): boolean {
+    for (const c of this.clouds) {
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const len2 = dx * dx + dz * dz;
+      const t = len2 > 1e-6 ? THREE.MathUtils.clamp(((c.cx - a.x) * dx + (c.cz - a.z) * dz) / len2, 0, 1) : 0;
+      const px = a.x + dx * t, pz = a.z + dz * t;
+      const y = a.y + (b.y - a.y) * t;
+      if (Math.hypot(px - c.cx, pz - c.cz) < c.radius && y < c.height) return true;
+    }
+    return false;
+  }
+
+  /** Add a push away from nearby hazards to a wanted XZ move (the AI steers around lava). */
+  avoidHazards(pos: THREE.Vector3, move: THREE.Vector3, margin: number = A.lavaMargin): void {
+    for (const h of this.hazardList) {
+      const dx = pos.x - h.x, dz = pos.z - h.z;
+      const d = Math.hypot(dx, dz) || 1e-3;
+      const reach = h.radius + margin + CONFIG.wizard.radius;
+      if (d > reach + 1.5) continue;
+      const push = THREE.MathUtils.clamp((reach + 1.5 - d) / 1.5, 0, 2);
+      move.x += (dx / d) * push * 1.6;
+      move.z += (dz / d) * push * 1.6;
+    }
+  }
+
+  /** Golden tickets stay out of lava, vape clouds and the rails of sliding cover. */
+  excludesPickup(x: number, z: number): boolean {
+    const m = A.pickupZoneMargin;
+    if (this.hazardAt(x, z, m)) return true;
+    for (const c of this.clouds) if (Math.hypot(x - c.cx, z - c.cz) < c.radius + m) return true;
+    for (const mv of this.movers.get(this.layout) ?? []) {
+      const r = mv.rail, s = mv.pillar.shape;
+      const along = r.axis === 'x' ? Math.abs(x - r.cx) : Math.abs(z - r.cz);
+      const across = r.axis === 'x' ? Math.abs(z - r.cz) : Math.abs(x - r.cx);
+      if (along < r.half + s.halfX + m && across < Math.max(s.halfX, s.halfZ) + m) return true;
+    }
+    return false;
+  }
+
+  /** Glass shards: thin pale panes in their own pool (only drawn where glass exists). */
+  private shards(): Debris {
+    if (!this.glassDebris) {
+      const mat = new THREE.MeshStandardMaterial({ color: 0xd8f6ee, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.7, emissive: 0x204a3a });
+      this.glassDebris = new Debris(this.scene, 90, mat, new THREE.BoxGeometry(0.34, 0.24, 0.015));
+      this.glassDebris.visible = false;
+    }
+    return this.glassDebris;
   }
 
   /** Connect the fire ring (created by Game after the effects) so applyTheme recolours it too. */
@@ -293,6 +435,7 @@ export class Arena {
     res.loading = null;
     res.propCopies = null;
     res.files.pillar = res.files.prop = null;
+    res.files.obstacles = {};
     this.peekFiles(res);
     if (this.theme === id) this.show(res);
     return this.loadFiles(res);
@@ -366,10 +509,9 @@ export class Arena {
       debris: id === 'moonlit'
         ? this.debris.defaultMaterial
         : new THREE.MeshStandardMaterial({ color: t.debris.color, emissive: new THREE.Color(t.debris.color).multiplyScalar(t.debris.emissive), roughness: 0.95, flatShading: true }),
-      files: { floor: null, sky: null, stone: null, wallStone: null, pillar: null, prop: null },
+      files: { floor: null, sky: null, stone: null, wallStone: null, pillar: null, prop: null, obstacles: {} },
       loading: null,
       propCopies: null,
-      pillarKey: null,
     };
     this.resources.set(id, res);
     return res;
@@ -391,6 +533,17 @@ export class Arena {
     const spec = THEME_ASSETS[res.theme.id];
     const a = this.assets;
     this.setFiles(res, a.peekTexture(spec.floor), a.peekTexture(spec.sky), a.peekTexture(spec.stone), a.peekModel(spec.pillar.path), a.peekModel(spec.prop.path));
+    for (const kind of this.modelKinds(res)) {
+      const t = a.peekModel(OBSTACLE_MODELS[kind]!.path);
+      if (t) res.files.obstacles[kind] = t;
+    }
+  }
+
+  /** Obstacle kinds in the theme's layout that have an optional generated model. */
+  private modelKinds(res: ThemeResources): ObstacleKind[] {
+    const layout = res.theme.layout ?? 'rings';
+    const kinds = new Set(layoutSpots(layout).map((s) => s.shape.kind));
+    return [...kinds].filter((k) => OBSTACLE_MODELS[k]);
   }
 
   private setFiles(
@@ -422,17 +575,24 @@ export class Arena {
     if (res.loading) return res.loading;
     const spec = THEME_ASSETS[res.theme.id];
     const tex = (path: string, repeat?: [number, number]) => this.assets.loadTextureAsset({ path, color: true, repeat });
+    const kinds = this.modelKinds(res);
     const job = Promise.all([
       tex(spec.floor),
       tex(spec.sky),
       tex(spec.stone, [2, 2]),
       this.assets.loadModelAsset(spec.pillar),
       this.assets.loadModelAsset(spec.prop),
-    ]).then(([floor, sky, stone, pillar, prop]) => {
+      Promise.all(kinds.map((k) => this.assets.loadModelAsset(OBSTACLE_MODELS[k]!))),
+    ]).then(([floor, sky, stone, pillar, prop, models]) => {
       if (res.loading !== job) return; // invalidated meanwhile
-      const before = { ...res.files };
+      const before = { ...res.files, obstacles: { ...res.files.obstacles } };
       this.setFiles(res, floor, sky, stone, pillar, prop);
-      const changed = (Object.keys(before) as (keyof ThemeFiles)[]).some((k) => before[k] !== res.files[k]);
+      kinds.forEach((k, i) => {
+        const t = models[i];
+        if (t) res.files.obstacles[k] = t;
+      });
+      const changed = (Object.keys(before) as (keyof ThemeFiles)[]).some((k) => k !== 'obstacles' && before[k] !== res.files[k])
+        || kinds.some((k) => before.obstacles[k] !== res.files.obstacles[k]);
       if (changed && this.theme === res.theme.id) this.show(res);
     }).catch((err) => console.warn(`[arena] theme ${res.theme.id}: asset load failed`, err));
     res.loading = job;
@@ -508,27 +668,29 @@ export class Arena {
     this.swap('terrain', res.kit.terrain);
     res.kit.setRoomWalls(!files.sky);
 
-    // Cover layout: switching hides the old obstacles (no collision) and resets the new ones.
+    // Cover layout: switching hides the old obstacles (no collision), resets the new ones and
+    // brings in the layout's soft cover (vape clouds) and hazards (lava).
     const layout = t.layout ?? 'rings';
     if (layout !== this.layout) {
       for (const p of this.pillars) p.setActive(false);
       this.layout = layout;
-      for (const p of this.pillars) {
-        p.setActive(true);
-        p.reset();
-      }
+      for (const p of this.pillars) p.setActive(true);
+      this.clouds = layoutSoftZones(layout).map((z) => ({ ...z, cx: z.x, cz: z.z }));
+      this.hazardList = layoutHazards(layout);
+      this.fire?.setHazards(this.hazardList);
+      this.reset();
     }
+    if (this.clouds.length) this.cloudPuffs().visible = true;
+    else if (this.cloudMesh) this.cloudMesh.visible = false;
+    if (this.glassDebris) this.glassDebris.visible = this.pillars.some((p) => p.shape.seeThrough);
 
-    // Pillars (a pillar GLB replaces the placeholder column or cubicle; the replaced visual is freed).
-    const glb = files.pillar;
-    const key = glb ? `${id}:glb:${glb.root.uuid}` : id;
-    const prevKey = res.pillarKey;
-    res.pillarKey = key;
+    // Cover looks: the theme's pillar GLB replaces placeholder columns and cubicles, an obstacle GLB
+    // (OBSTACLE_MODELS) replaces its kind; a replaced placeholder visual is freed.
     this.pillars.forEach((p, i) => {
       const kind = p.shape.kind;
-      const useGlb = glb && (kind === 'pillar' || kind === 'cubicle');
-      p.setVisual(key, () => (useGlb ? this.glbPillar(res, glb, p, i) : { whole: res.kit.makePillar(kind), stump: this.stump(res, p, i) }));
-      if (prevKey && prevKey !== key) p.dropVisual(prevKey);
+      const model = kind === 'pillar' || kind === 'cubicle' ? files.pillar : files.obstacles[kind] ?? null;
+      const key = model ? `${id}:glb:${model.root.uuid}` : id;
+      p.setThemeVisual(id, key, () => (model ? this.glbPillar(res, model, p, i) : this.placeholder(res, p, i)));
     });
     this.debris.setMaterial(res.debris);
     this.debris.setGeometry(t.debris.shape === 'panel' ? this.panels() : this.chunkGeometry);
@@ -597,6 +759,13 @@ export class Arena {
     }
   }
 
+  /** A code-built obstacle look (candlestick bars are stretched to their placement's height). */
+  private placeholder(res: ThemeResources, p: Pillar, i: number): { whole: THREE.Object3D; stump: THREE.Object3D } {
+    const whole = res.kit.makePillar(p.shape.kind, p.shape.variant);
+    if (p.shape.kind === 'candle') whole.scale.y = p.shape.height / CANDLE_REF_HEIGHT;
+    return { whole, stump: this.stump(res, p, i) };
+  }
+
   private stump(res: ThemeResources, p: Pillar, i: number): THREE.Object3D {
     const model = res.theme.id === 'moonlit' && p.shape.kind === 'pillar' ? this.assets.instantiate('pillarBroken') : null;
     return model?.root ?? res.kit.makeStump(i, p.shape.kind);
@@ -611,8 +780,15 @@ export class Arena {
     const s = p.shape;
     if (p.isBox) {
       const key = `fitBox:${s.halfX}:${s.halfZ}:${s.height}`;
-      const fit = (template.root.userData[key] ??= boxFitScale(template.root, s.halfX, s.halfZ, s.height)) as [number, number, number];
-      model.root.scale.set(fit[0], fit[1], fit[2]);
+      const fit = (template.root.userData[key] ??= boxFitScale(template.root, s.halfX, s.halfZ, s.height)) as [number, number, number, number];
+      // Things you stand on (cubicles, rug piles, cars) match the collider height exactly; the rest
+      // keep near their own proportions (a dumpster's raised lid may rise above its collider).
+      const standable = s.kind === 'cubicle' || s.kind === 'rugs' || s.kind === 'car';
+      const mean = (fit[0] + fit[2]) / 2;
+      const sy = standable ? fit[1] : THREE.MathUtils.clamp(fit[1], mean * 0.85, mean * 1.15);
+      model.root.scale.set(fit[0], sy, fit[2]);
+      model.root.rotation.y = fit[3];
+      model.root.position.set(s.cx, 0, s.cz);
     } else {
       const fit = (template.root.userData.fitXZ ??= pillarFitScale(template.root)) as number;
       model.root.scale.set(fit, 1, fit);
@@ -775,11 +951,22 @@ export class Arena {
     this.fireRadius = A.fireRadius;
     for (const p of this.pillars) p.reset();
     this.debris.clear();
+    this.glassDebris?.clear();
+    // Sliding cover back to its start, clouds back to their anchors.
+    this.layoutTime = 0;
+    for (const m of this.movers.get(this.layout) ?? []) {
+      m.t = m.rail.start;
+      m.dir = m.rail.dir;
+      const [x, z] = this.railPoint(m.rail, m.t);
+      m.pillar.moveTo(x, z, true);
+    }
+    this.driftClouds();
   }
 
   /** Simulation tick. */
   update(dt: number): void {
     this.time += dt;
+    this.layoutTime += dt;
     for (let i = 0; i < this.brazierFlames.length; i++) {
       const f = this.brazierFlames[i];
       const flicker = 1 + Math.sin(this.time * 17 + i * 3.1) * 0.08 + Math.sin(this.time * 31 + i) * 0.05;
@@ -787,6 +974,88 @@ export class Arena {
     }
     for (const p of this.pillars) p.update(dt, this.time);
     this.debris.update(dt);
+    this.glassDebris?.update(dt);
+    this.slideMovers(dt);
+    this.driftClouds();
+  }
+
+  /** World position of a point along a rail (t in -1..1). */
+  private railPoint(r: MoverDef, t: number): [number, number] {
+    return r.axis === 'x' ? [r.cx + t * r.half, r.cz] : [r.cx, r.cz + t * r.half];
+  }
+
+  /**
+   * Slide moving cover along its rails. A block never moves into a wizard: if its next position
+   * would touch one, it turns back instead (no crushing, no shoving through walls).
+   */
+  private slideMovers(dt: number): void {
+    for (const m of this.movers.get(this.layout) ?? []) {
+      const s = m.pillar.shape;
+      let t = m.t + (m.dir * m.rail.speed * dt) / m.rail.half;
+      if (t > 1 || t < -1) {
+        t = THREE.MathUtils.clamp(t, -1, 1);
+        m.dir = -m.dir as 1 | -1;
+      }
+      const [x, z] = this.railPoint(m.rail, t);
+      const pad = 0.08;
+      if (this.physics.boxTouchesWizard(x, s.height / 2, z, s.halfX + pad, s.height / 2, s.halfZ + pad, s.yaw)) {
+        m.dir = -m.dir as 1 | -1;
+        continue;
+      }
+      m.t = t;
+      m.pillar.moveTo(x, z);
+    }
+  }
+
+  /** Clouds drift in slow circles around their anchors (on simulation time, so the AI sees the same clouds). */
+  private driftClouds(): void {
+    for (const c of this.clouds) {
+      const a = c.phase + (this.layoutTime / c.period) * Math.PI * 2;
+      c.cx = c.x + Math.cos(a) * c.drift;
+      c.cz = c.z + Math.sin(a) * c.drift;
+    }
+  }
+
+  /** The vape clouds' puffs: one instanced billboard mesh for every cloud (made on first use). */
+  private cloudPuffs(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
+    if (!this.cloudMesh) {
+      const max = 4 * PUFFS;
+      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
+        vertexShader: BILLBOARD_VERT, fragmentShader: BILLBOARD_FRAG, uniforms: { uOpacity: { value: 0.42 } },
+        transparent: true, depthWrite: false,
+      }), max);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 9;
+      for (let i = 0; i < max; i++) mesh.setColorAt(i, this.cloudColor.setRGB(1, 1, 1));
+      this.scene.add(mesh);
+      this.cloudMesh = mesh;
+    }
+    return this.cloudMesh;
+  }
+
+  /** Lay out every cloud's puffs around its current centre, slowly churning. */
+  private placePuffs(t: ArenaTheme): void {
+    const mesh = this.cloudMesh;
+    if (!mesh || !mesh.visible) return;
+    const d = this.puffDummy;
+    let n = 0;
+    const c1 = this.tmpColor.fromArray(t.ambient.color), c2 = this.tmpColor2.fromArray(t.ambient.color2);
+    this.clouds.forEach((c, ci) => {
+      for (let k = 0; k < PUFFS && n < mesh.count; k++, n++) {
+        const a = (k / PUFFS) * Math.PI * 2 + this.visualTime * (0.05 + 0.02 * ci) * (k % 2 ? 1 : -1);
+        const rr = c.radius * (k === 0 ? 0 : 0.35 + 0.45 * ((k * 37) % 10) / 10);
+        const y = c.height * (0.3 + 0.45 * ((k * 53) % 10) / 10) + Math.sin(this.visualTime * 0.4 + k) * 0.15;
+        d.position.set(c.cx + Math.cos(a) * rr, y, c.cz + Math.sin(a) * rr);
+        d.scale.setScalar(c.radius * (1.2 + 0.5 * ((k * 71) % 10) / 10));
+        d.updateMatrix();
+        mesh.setMatrixAt(n, d.matrix);
+        mesh.setColorAt(n, this.cloudColor.copy(k % 2 ? c1 : c2).multiplyScalar(0.62));
+      }
+    });
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
   /** Render-time visuals: sky animation, drifting props and ambient particles around `focus` (the camera). */
@@ -796,8 +1065,25 @@ export class Arena {
     const res = this.resources.get(this.theme);
     res?.kit.update(dt);
     if (res && dt > 0) this.emitAmbient(res.theme, dt, focus);
+    if (res) this.placePuffs(res.theme);
+    if (dt > 0) this.bubbleLava(dt);
     this.ambientSoft.update(dt);
     this.ambientGlow.update(dt);
+  }
+
+  /** Lava pools spit glowing droplets and steam. */
+  private bubbleLava(dt: number): void {
+    if (!this.hazardList.length || !this.ambientGlow.points.visible) return;
+    const rnd = Math.random;
+    this.lavaAcc += dt * 9 * this.hazardList.length;
+    const hot = this.tmpColor.setRGB(1, 0.45, 0.08);
+    while (this.lavaAcc >= 1) {
+      this.lavaAcc -= 1;
+      const h = this.hazardList[Math.floor(rnd() * this.hazardList.length)];
+      const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * h.radius * 0.9;
+      this.ambientGlow.emit(h.x + Math.cos(a) * r, 0.08, h.z + Math.sin(a) * r, (rnd() - 0.5) * 0.8, 1.2 + rnd() * 2, (rnd() - 0.5) * 0.8,
+        hot, 2.6, 0.09 + rnd() * 0.07, 0.6 + rnd() * 0.6, { gravity: 5, drag: 0.4 });
+    }
   }
 
   private emitAmbient(t: ArenaTheme, dt: number, focus: THREE.Vector3): void {
