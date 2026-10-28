@@ -11,6 +11,7 @@
 
 import type { ObstacleKind } from '../arena/Pillar';
 import type { ArenaThemeId } from '../arena/themes';
+import type { MuzzleSet } from '../wizard/muzzles';
 import { CONFIG } from '../config';
 
 export type WizardClip = 'idle' | 'run' | 'cast' | 'castBig' | 'dodge' | 'hit' | 'stunned' | 'victory' | 'defeat';
@@ -35,6 +36,11 @@ export interface ModelAsset {
    * doesn't shift the body off its collider.
    */
   anchor?: 'bounds' | 'feet';
+  /**
+   * Where spells leave the model (staff orb, phone, gun barrel...), for models that aren't a boss
+   * stage (boss stages set `muzzle` in levels.ts). See src/wizard/muzzles.ts and ASSETS.md.
+   */
+  muzzle?: MuzzleSet;
 }
 
 export interface TextureAsset {
@@ -83,7 +89,11 @@ MIDGET_STAGES.bossMidget1.rotationY = -94.6;
 
 export const MODELS = {
   // Player: Higgsfield/Tripo static mesh (faces +X), animated procedurally like the bosses.
-  wizardPlayer: { path: 'models/wizard_player.glb', fitHeight: 1.9, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS },
+  // His magical sproto staff: every spell leaves from the glowing orb on top (right hand).
+  wizardPlayer: {
+    path: 'models/wizard_player.glb', fitHeight: 1.9, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS,
+    muzzle: { points: { staff: { type: 'staff', at: [0.076, 0.916, 0.203] } } },
+  },
   wizardRival: { path: 'models/wizard_rival.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
   pillar: { path: 'models/pillar.glb', fitHeight: 5.5 },
   pillarBroken: { path: 'models/pillar_broken.glb', fitHeight: 1.0 },

@@ -393,7 +393,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       const e = game.enemy, q = game.partner, p = game.player;
       const v = new THREE.Vector3();
       c.expect(q.height === MIDGET.hitbox.height && q.radius === MIDGET.hitbox.radius, `hitbox ${q.radius}/${q.height}`);
-      const chest = q.chest(v).y - q.pos.y, wand = q.wandTip(v).y - q.pos.y;
+      const chest = q.chest(v).y - q.pos.y, wand = q.castPoint('bolt', v).y - q.pos.y;
       c.expect(chest < 0.9 && wand < 1 && q.tagHeight < 1.8 && q.shieldCenterY < 0.75, `aim points not scaled: chest ${chest.toFixed(2)} wand ${wand.toFixed(2)}`);
       const shot = () => {
         c.setup({ player: [0, -6], enemy: [0, 8], partner: [0, 1] });
