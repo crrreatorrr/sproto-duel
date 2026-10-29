@@ -2,9 +2,11 @@ import { CONFIG } from '../config';
 
 /**
  * Hub identity for Sproto Duel.
- * Server game id matches the Nakama schema (`sproto`). The exit hash uses the portal slug.
+ * Server game id matches the Nakama schema (`sproto`).
+ * Returning to the hub is the SDK's `exit`, which goes to `/hub/#from=sproto`.
  */
 export const HUB_GAME_ID = 'sproto';
+/** Portal slug. The return URL is not built from this. */
 export const HUB_EXIT_SLUG = 'sproto-duel';
 
 /** Flat Tickets for each duel win. The only amount the game reports. */

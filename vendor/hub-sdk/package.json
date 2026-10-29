@@ -1,10 +1,25 @@
 {
   "name": "@metaverse/hub-sdk",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
-  "description": "Hub client for game pages: portal ticket, Nakama session, Tickets, Verse, events, exit.",
+  "sideEffects": false,
+  "files": ["dist", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crrreatorrr/metaverse-hub.git",
+    "directory": "packages/hub-sdk"
+  },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
   }
 }
