@@ -1,4 +1,4 @@
-import { createHubSdk, HubSdkError, type HubSdk, type InitResult } from '@metaverse/hub-sdk';
+import { createHubSdk, HubSdkError, type HubSdk, type InitResult, type RelicId } from '@metaverse/hub-sdk';
 import { HUB_EXIT_SLUG, HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
 import { planDuelWin, type DuelWin } from './report';
 
@@ -28,6 +28,11 @@ const HUB_SESSION_KEY = `hub:${HUB_GAME_ID}:session`;
 export class HubLink {
   connected = false;
   ranked = false;
+  /**
+   * Relics from the hub init result for this visit. Empty when the visit is standalone.
+   * A copy of what `init` already returned. Nothing in the game writes this back.
+   */
+  relics: readonly RelicId[] = [];
   balance: number | null = null;
   ticketsCapLeft: number | null = null;
   error: string | null = null;
@@ -41,6 +46,7 @@ export class HubLink {
   attach(session: InitResult | null): void {
     this.connected = session !== null;
     this.ranked = session?.ranked ?? false;
+    this.relics = [...(session?.relics ?? [])];
     this.ticketsCapLeft = session?.ticketsCapLeft ?? null;
     this.error = null;
   }
@@ -48,6 +54,7 @@ export class HubLink {
   fail(err: unknown): void {
     this.connected = false;
     this.ranked = false;
+    this.relics = [];
     this.error = err instanceof Error ? err.message : String(err);
   }
 

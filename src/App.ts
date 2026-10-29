@@ -14,7 +14,7 @@ import { HUD } from './ui/HUD';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
 import { HubLink } from './hub/link';
 import { equipStaff, staffCard, staffModelPath } from './staff/catalog';
-import { getLoadout, setSelectedStaff } from './staff/loadout';
+import { getLoadout, setSelectedStaff, setSessionRelics } from './staff/loadout';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
 
@@ -81,6 +81,8 @@ export class App {
   private pausedAt = 0;
 
   constructor(readonly game: Game, campaign = new Campaign(), private readonly hub = HubLink.standalone()) {
+    // Relics the existing init already returned. No session: the staff cache stays the fallback.
+    setSessionRelics(hub.connected ? hub.relics : null);
     this.campaign = campaign;
     this.settings = loadSettings();
     // God mode is a session-only testing aid: CONFIG.debug.godMode, `?god`, Settings or F9.
@@ -147,9 +149,9 @@ export class App {
   }
 
   /**
-   * Equip the saved staff on the player. Ranked (`HubLink.ranked`, from the vendored SDK init)
+   * Equip the staff `getLoadout` allows. Ranked (`HubLink.ranked`, from the vendored SDK init)
    * keeps the mesh and colours and uses starter stats. There is no mid-fight swap: menus call
-   * this, and every match start calls it again.
+   * this, and every match start calls it again. Equipping does not report Tickets, Relics, or scores.
    */
   private applyStaff(): void {
     const load = getLoadout();
