@@ -98,11 +98,14 @@ function createMockHubSdk(env) {
     function ticketsKey(game) {
         return `hub:tickets:${game}`;
     }
+    function bucketNow() {
+        return env.serverNow ? env.serverNow() : resolved.now();
+    }
     function earnKey(game) {
-        return `hub:earn:${game}:${dayKey(resolved.now())}`;
+        return `hub:earn:${game}:${dayKey(bucketNow())}`;
     }
     function verseDayKey(game) {
-        return `hub:verseDay:${game}:${dayKey(resolved.now())}`;
+        return `hub:verseDay:${game}:${dayKey(bucketNow())}`;
     }
     function capLeft(game) {
         return Math.max(0, MOCK_TICKET_EARN_CAP - readNumber(resolved.local, earnKey(game)));

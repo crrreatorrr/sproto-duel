@@ -4,5 +4,6 @@ export { DEVICE_ID_KEY, getOrCreateDeviceId, memoryKeyValue } from './storage';
 export { MOCK_TICKET_KEY, mintMockTicket, readTicketParam, stripTicketParam, verifyMockTicket, } from './ticket';
 export { createHubSdk, installHubSdk } from './createHubSdk';
 export { HubSdkError } from './errors';
+export { HUB_OUTBOX_DB } from './live';
 export { LOCAL_NAKAMA, createNakamaClient, userIdFromToken, } from './nakama';
 //# sourceMappingURL=index.js.map
