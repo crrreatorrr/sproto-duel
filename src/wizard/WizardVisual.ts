@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { CONFIG, type TeamPalette } from '../config';
-import type { ModelInstance } from '../assets/AssetLoader';
+import type { ModelInstance, PropInstance } from '../assets/AssetLoader';
 import type { ModelAsset } from '../assets/manifest';
+import type { EquippedStaff } from '../staff/catalog';
 import { muzzleSetFor } from '../campaign/muzzleIndex';
 import { glowTexture } from '../fx/textures';
 import { clamp, damp, lerp, saturate, wrapAngle } from '../core/math';
@@ -323,6 +324,15 @@ export class WizardVisual {
   proceduralOff = false;
   /** Height of the top of the current look (hat, crown or model), in meters. The HUD tag sits above it. */
   topHeight = WIZARD_TOP;
+  /** Equipped staff id currently on the socket, or null. */
+  mountedStaffId: string | null = null;
+  private staffDef: EquippedStaff | null = null;
+  private staffProp: PropInstance | null = null;
+  private staffObject: THREE.Object3D | null = null;
+  private staffMixer: THREE.AnimationMixer | null = null;
+  private staffGlow: THREE.MeshStandardMaterial | null = null;
+  /** 0..1 blend toward the cast / blink emissive peak. */
+  private staffCast = 0;
 
   constructor(public team: TeamPalette, model: ModelInstance | null, modelSpec: ModelAsset) {
     this.root.add(this.pivot);
@@ -446,6 +456,7 @@ export class WizardVisual {
       this.applyMuzzles(set ? resolveMuzzles(set, height) : null);
       this.attachSockets(model);
       this.measureRelease(model);
+      this.attachStaff();
     } else {
       this.usesModel = false;
       this.rigged = false;
@@ -454,7 +465,134 @@ export class WizardVisual {
       const k = PLACEHOLDER_SCALE[variant] ?? 1;
       this.fxScale = k;
       this.applyMuzzles(resolveMuzzles(PLACEHOLDER_MUZZLES[variant], 1, k));
+      this.attachStaff();
     }
+  }
+
+  /**
+   * One detach and one attach. `prop` omitted keeps the mesh and only refreshes colours.
+   * `prop` null builds the procedural staff (the GLB was missing).
+   */
+  setStaff(def: EquippedStaff | null, prop?: PropInstance | null): void {
+    this.staffDef = def;
+    if (prop !== undefined) {
+      this.detachStaff();
+      this.staffProp = prop;
+      this.mountedStaffId = null;
+    }
+    if (!this.staffObject) this.attachStaff();
+    else this.tintStaffMuzzles();
+  }
+
+  private attachStaff(): void {
+    this.detachStaff();
+    const def = this.staffDef;
+    if (!def) {
+      this.showPlaceholderStaff(true);
+      return;
+    }
+    const socket = this.staffSocket();
+    if (!socket) {
+      console.warn('[staff] player model has no socket_staff');
+      return;
+    }
+    const root = this.staffProp?.root ?? this.proceduralStaff(def);
+    if (!this.staffProp) this.staffProp = { root, animations: [] };
+    root.position.set(0, 0, 0);
+    root.quaternion.identity();
+    root.scale.set(1, 1, 1);
+    socket.add(root);
+    this.staffObject = root;
+    this.mountedStaffId = def.id;
+    this.showPlaceholderStaff(false);
+    const clip = this.staffProp.animations.find((c) => c.name === def.clip);
+    if (clip) {
+      const mixer = new THREE.AnimationMixer(root);
+      const action = mixer.clipAction(clip);
+      action.loop = THREE.LoopRepeat;
+      action.play();
+      this.staffMixer = mixer;
+    }
+    if (def.pulse) {
+      const want = def.pulse.material;
+      root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || this.staffGlow) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) {
+          if (m.name === want && 'emissiveIntensity' in m) this.staffGlow = m as THREE.MeshStandardMaterial;
+        }
+      });
+    }
+    this.tintStaffMuzzles();
+  }
+
+  private detachStaff(): void {
+    this.staffMixer?.stopAllAction();
+    this.staffMixer = null;
+    this.staffGlow = null;
+    this.staffCast = 0;
+    this.staffObject?.removeFromParent();
+    this.staffObject = null;
+    this.mountedStaffId = null;
+  }
+
+  /** `socket_staff` on a GLB, or a grip anchor on the procedural wizard. */
+  private staffSocket(): THREE.Object3D | null {
+    const socket = this.body.getObjectByName('socket_staff');
+    if (socket) return socket;
+    if (this.usesModel) return null;
+    let anchor = this.armPivot.getObjectByName('staff-anchor');
+    if (!anchor) {
+      anchor = new THREE.Group();
+      anchor.name = 'staff-anchor';
+      // The placeholder arm holds a 1.455 m staff here. Delivered staffs are 1.894 m.
+      anchor.position.set(-0.04, 0, 0.44);
+      anchor.scale.setScalar(1.455 / 1.894);
+      this.armPivot.add(anchor);
+    }
+    return anchor;
+  }
+
+  private showPlaceholderStaff(show: boolean): void {
+    const held = this.body.getObjectByName('placeholder-staff');
+    if (held) held.visible = show;
+  }
+
+  /** Cylinder along +Y, grip at the origin, used when the staff GLB failed to load. */
+  private proceduralStaff(def: EquippedStaff): THREE.Group {
+    const g = new THREE.Group();
+    g.name = 'staff_fallback';
+    const shaftMat = new THREE.MeshStandardMaterial({ color: 0x6b4632, roughness: 0.7 });
+    const orbMat = new THREE.MeshBasicMaterial({ color: def.boltColor, toneMapped: false });
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 1.894, 8), shaftMat);
+    shaft.position.y = (-1.093 + 0.801) / 2;
+    shaft.castShadow = true;
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), orbMat);
+    orb.position.y = 0.62;
+    g.add(shaft, orb);
+    return g;
+  }
+
+  private tintStaffMuzzles(): void {
+    const def = this.staffDef;
+    if (!def) return;
+    for (const slot of this.slots) {
+      if (slot.type === 'staff') slot.color.setHex(def.boltColor);
+    }
+  }
+
+  private tickStaff(w: Wizard, dt: number): void {
+    this.staffMixer?.update(dt);
+    const glow = this.staffGlow;
+    const pulse = this.staffDef?.pulse;
+    if (!glow || !pulse) return;
+    const cast = w.cast !== null || w.castPulse > 0.35;
+    const blink = w.blinking && pulse.onBlink != null;
+    const idle = pulse.min + (pulse.max - pulse.min) * (0.5 + 0.5 * Math.sin(Math.PI * 2 * pulse.hz * this.time));
+    const peak = blink ? pulse.onBlink! : pulse.onCast;
+    this.staffCast = damp(this.staffCast, blink || cast ? 1 : 0, blink || cast ? 12.5 : 2.86, dt);
+    glow.emissiveIntensity = idle + (peak - idle) * this.staffCast;
   }
 
   /**
@@ -756,6 +894,7 @@ export class WizardVisual {
 
   /** Remove the current look and free what it created (GLB geometry stays shared with its template). */
   private clearLook(): void {
+    this.detachStaff();
     this.body.scale.setScalar(1);
     this.body.position.y = 0;
     this.animator?.dispose();
@@ -873,11 +1012,14 @@ export class WizardVisual {
         return;
       }
       default: {
-        // A staff held upright, a glowing orb on top in a trim collar.
-        const shaft = add(new THREE.CylinderGeometry(0.02, 0.028, 1.33, 6), wood, -0.04, 0.615, 0.44, hand);
+        // A staff held upright, a glowing orb on top in a trim collar. Hidden once a staff GLB is attached.
+        const held = new THREE.Group();
+        held.name = 'placeholder-staff';
+        hand.add(held);
+        const shaft = add(new THREE.CylinderGeometry(0.02, 0.028, 1.33, 6), wood, -0.04, 0.615, 0.44, held);
         shaft.castShadow = false;
-        add(new THREE.TorusGeometry(0.05, 0.012, 5, 12), trim, -0.04, 1.29, 0.44, hand).rotation.x = Math.PI / 2;
-        add(new THREE.SphereGeometry(0.065, 12, 10), tip, -0.04, 1.34, 0.44, hand).castShadow = false;
+        add(new THREE.TorusGeometry(0.05, 0.012, 5, 12), trim, -0.04, 1.29, 0.44, held).rotation.x = Math.PI / 2;
+        add(new THREE.SphereGeometry(0.065, 12, 10), tip, -0.04, 1.34, 0.44, held).castShadow = false;
       }
     }
   }
@@ -1302,6 +1444,7 @@ export class WizardVisual {
       inp.weight = heavy;
       anim.update(w, dt, inp);
     }
+    this.tickStaff(w, dt);
     // Split wings (Tinubu's LeftWing/RightWing): a slow, menacing flap about the bone's forward axis
     // (their bind axes are the model's; +Z lifts the left wing, -Z the right), beating faster and
     // wider while a spell winds up or leaves and through a transformation; nearly still when KO'd or

@@ -9,10 +9,11 @@ import type { ProjectileSkin } from '../campaign/levels';
 import type { WizardVisual } from './WizardVisual';
 import type { CastKind } from './muzzles';
 import { REWARD_SPELLS, type RewardSpellId } from '../spells/rewardCatalog';
+import type { EquippedStaff } from '../staff/catalog';
 
 /** Everything a controller can ask for: the core spells, movement actions and the boss reward spells. */
 export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump' | RewardSpellId;
-export type CooldownKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'dodge';
+export type CooldownKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'dodge' | 'blink';
 
 /** What a controller (keyboard, AI) wants the wizard to do this tick. */
 export class WizardIntent {
@@ -98,7 +99,7 @@ export class Wizard {
   /** Golden-ticket mana boost: seconds left (0 = none). Raises max mana and regen (src/arena/GoldenTickets.ts). */
   manaBoost = 0;
 
-  readonly cd: Record<CooldownKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, dodge: 0 };
+  readonly cd: Record<CooldownKey, number> = { bolt: 0, blast: 0, shield: 0, stun: 0, dodge: 0, blink: 0 };
   /**
    * Boss reward spells this wizard may cast (src/spells/RewardSpells.ts). Only the player ever has
    * any: App fills it from the campaign save (all five in god mode); bosses and the rival never do.
@@ -121,6 +122,17 @@ export class Wizard {
   dodgeTime = 0;
   iframes = 0;
   readonly dodgeDir = new Vector3();
+  /**
+   * The equipped duel staff. Null on enemies. Ranked play still sets this for the mesh and colours;
+   * gameplay fields on it are the starter values (see equipStaff).
+   */
+  staff: EquippedStaff | null = null;
+  /** Seconds left of a Momentum Blink Dash (0 when not blinking). */
+  blinkTime = 0;
+  private blinkDuration = 0;
+  /** Feet at the start of the current blink, and the swept end (walls stop it short). */
+  readonly blinkFrom = new Vector3();
+  readonly blinkTo = new Vector3();
   stunTime = 0;
   /**
    * Seconds left of a campaign boss's transformation into its next stage (src/campaign/BossStages):
@@ -219,6 +231,10 @@ export class Wizard {
   get dodging(): boolean {
     return this.dodgeTime > 0;
   }
+  /** Mid Blink Dash (Momentum Staff). */
+  get blinking(): boolean {
+    return this.blinkTime > 0;
+  }
   get invulnerable(): boolean {
     return this.iframes > 0;
   }
@@ -274,7 +290,7 @@ export class Wizard {
   }
   /** Can start a new action (cast/dodge). Riding the carpet or breathing fire rules out casting. */
   get canAct(): boolean {
-    return this.alive && !this.stunned && !this.evolving && !this.dodging && this.cast === null && !this.riding && !this.breathing;
+    return this.alive && !this.stunned && !this.evolving && !this.dodging && !this.blinking && this.cast === null && !this.riding && !this.breathing;
   }
 
   /** Height relative to a standard wizard (1 = CONFIG.wizard.height). Aim points scale with it. */
@@ -402,7 +418,7 @@ export class Wizard {
     this.manaDelay = this.manaBoost = 0;
     this.groundSlow = 1;
     for (const k in this.cd) this.cd[k as CooldownKey] = 0;
-    this.dodgeTime = this.iframes = this.stunTime = this.evolveTime = this.shieldTime = this.shieldAge = 0;
+    this.dodgeTime = this.blinkTime = this.iframes = this.stunTime = this.evolveTime = this.shieldTime = this.shieldAge = 0;
     this.cast = null;
     this.hitFlash = this.castPulse = this.burnTimer = 0;
     this.sinceAttack = 1e9;
@@ -481,7 +497,7 @@ export class Wizard {
   /** Called once per fixed tick before movement. */
   updateTimers(dt: number): void {
     // Presses made mid-roll are held until the roll ends instead of expiring.
-    this.intent.tick(this.dodging ? 0 : dt);
+    this.intent.tick(this.dodging || this.blinking ? 0 : dt);
     for (const k in this.cd) {
       const key = k as CooldownKey;
       if (this.cd[key] > 0) this.cd[key] = Math.max(0, this.cd[key] - dt);
@@ -539,6 +555,34 @@ export class Wizard {
     events.emit('rewardEnd', { wizard: this, spell: 'carpet' });
   }
 
+  /**
+   * Momentum Staff: a swept dash along `dir`. The capsule shape-cast stops at the first wall or
+   * pillar. I-frames and the dodge event match a roll; Blink has its own cooldown.
+   */
+  private startBlink(dir: Vector3, physics: Physics): void {
+    const blink = this.staff?.blink;
+    if (!blink) return;
+    const dist = physics.sweepWizard(this.collider, dir, blink.dist);
+    this.blinkFrom.copy(this.pos);
+    this.blinkTo.copy(this.pos).addScaledVector(dir, dist);
+    this.blinkDuration = blink.travel;
+    this.blinkTime = blink.travel;
+    this.iframes = blink.iframes;
+    this.cd.blink = blink.cooldown;
+    this.dodgeDir.copy(dir);
+    this.cast = null;
+    this.breathTime = 0;
+    this.stats.dodges++;
+    events.emit('dodge', { wizard: this });
+    events.emit('blink', {
+      wizard: this,
+      color: this.staff?.trailColor ?? 0x3fe6ff,
+      width: blink.trailWidth,
+      dps: blink.trailDps,
+      life: blink.trailTime,
+    });
+  }
+
   /** Movement, dodge and knockback integration through the character controller. */
   updateMovement(dt: number, physics: Physics): void {
     this.prevPos.copy(this.pos);
@@ -552,20 +596,30 @@ export class Wizard {
 
     // Start a dodge roll. Cancels any windup: rolling out of a cast should always be possible.
     // Rolls need footing: in the air the press stays buffered and fires if you land in time.
+    // Momentum Staff: Sprint + Dodge is a Blink Dash while its own cooldown is ready. A plain Dodge,
+    // and Sprint + Dodge while Blink is cooling down, stay the stock roll.
     const footing = this.grounded || this.coyote > 0;
-    if (intent.wants('dodge') && footing && this.alive && !frozen && !this.dodging && !this.riding && this.cd.dodge <= 0) {
+    const blinkReady = !!this.staff?.blink && intent.sprint && this.cd.blink <= 0;
+    if (
+      intent.wants('dodge') && footing && this.alive && !frozen && !this.dodging && !this.blinking && !this.riding
+      && (blinkReady || this.cd.dodge <= 0)
+    ) {
       intent.consume('dodge');
       const dir = tmpMove.copy(intent.move);
       if (dir.lengthSq() < 0.01) this.forward(dir).negate();
       dir.y = 0;
-      this.dodgeDir.copy(dir.normalize());
-      this.dodgeTime = W.dodge.duration;
-      this.iframes = W.dodge.iframes;
-      this.cd.dodge = W.dodge.duration + W.dodge.cooldown;
-      this.cast = null;
-      this.breathTime = 0; // rolling out of the fire breath
-      this.stats.dodges++;
-      events.emit('dodge', { wizard: this });
+      dir.normalize();
+      if (blinkReady) this.startBlink(dir, physics);
+      else {
+        this.dodgeDir.copy(dir);
+        this.dodgeTime = W.dodge.duration;
+        this.iframes = W.dodge.iframes;
+        this.cd.dodge = W.dodge.duration + W.dodge.cooldown;
+        this.cast = null;
+        this.breathTime = 0; // rolling out of the fire breath
+        this.stats.dodges++;
+        events.emit('dodge', { wizard: this });
+      }
     }
 
     // Jump off the Magic Carpet: a leap higher than a jump, keeping the carpet's speed.
@@ -579,7 +633,7 @@ export class Wizard {
       events.emit('jump', { wizard: this, pos: this.pos });
     }
     // Jump. Casting continues through it; a press during a roll waits for the roll to end.
-    if (intent.wants('jump') && this.canJump) {
+    if (intent.wants('jump') && this.canJump && !this.blinking) {
       intent.consume('jump');
       this.vy = J.velocity;
       this.grounded = false;
@@ -590,8 +644,17 @@ export class Wizard {
 
     this.sprinting = false;
     if (!this.alive || frozen) {
+      this.blinkTime = 0;
       tmpTarget.set(0, 0, 0);
       this.vel.lerp(tmpTarget, 1 - Math.exp(-12 * dt));
+    } else if (this.blinking) {
+      // Linear sweep along the shape-cast. moveCharacter below still stops us if the world moved.
+      const step = Math.min(dt, this.blinkTime);
+      const u = this.blinkDuration > 0 ? 1 - (this.blinkTime - step) / this.blinkDuration : 1;
+      this.blinkTime -= step;
+      const x = this.blinkFrom.x + (this.blinkTo.x - this.blinkFrom.x) * u;
+      const z = this.blinkFrom.z + (this.blinkTo.z - this.blinkFrom.z) * u;
+      this.vel.set(dt > 0 ? (x - this.pos.x) / dt : 0, 0, dt > 0 ? (z - this.pos.z) / dt : 0);
     } else if (this.dodging) {
       const t = 1 - this.dodgeTime / W.dodge.duration; // 0 -> 1
       const speed = W.dodge.speed * (1 - 0.55 * t * t);

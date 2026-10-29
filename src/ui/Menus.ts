@@ -164,6 +164,10 @@ export interface MenuHandlers {
   exchangeTickets(tickets: number): Promise<ExchangeView>;
   /** Close the hub session and go back to the Sproto Duel portal. */
   exitHub(): void;
+  /** Owned staffs and the equipped one. Sproto is always owned. */
+  staffRack(): { owned: { id: string; name: string; line: string; accent: string; bolt: string }[]; selected: string; ranked: boolean };
+  /** Equip a staff. No-op mid-fight. */
+  selectStaff(id: string): void;
 }
 
 const CONTROLS: [string, string][] = [
@@ -241,6 +245,68 @@ export class Menus {
     this.root.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button')) this.h.uiSound('click');
     });
+    // Staff Rack: arrows move between staffs, [ ] equips the neighbour, Enter activates the focused button.
+    document.addEventListener('keydown', (e) => this.onStaffKey(e));
+  }
+
+  private onStaffKey(e: KeyboardEvent): void {
+    const rack = this.screen?.querySelector('[data-staff-rack]');
+    if (!rack) return;
+    if ((e.target as HTMLElement | null)?.matches('input, textarea, select')) return;
+    const buttons = [...rack.querySelectorAll<HTMLButtonElement>('[data-staff]')];
+    if (!buttons.length) return;
+    if (e.key === '[' || e.key === ']') {
+      e.preventDefault();
+      const equipped = buttons.findIndex((b) => b.classList.contains('equipped'));
+      const dir = e.key === ']' ? 1 : -1;
+      const next = buttons[(equipped + dir + buttons.length) % buttons.length];
+      next.click();
+      next.focus();
+      return;
+    }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const current = document.activeElement as HTMLElement | null;
+    const i = buttons.findIndex((b) => b === current);
+    if (i < 0 && !rack.contains(current)) return;
+    e.preventDefault();
+    const dir = e.key === 'ArrowRight' ? 1 : -1;
+    const from = i < 0 ? 0 : i;
+    buttons[(from + dir + buttons.length) % buttons.length].focus();
+  }
+
+  /** Horizontal staff buttons. `autofocus` marks the equipped one so a pad starts there. */
+  private staffRackHtml(autofocus: boolean, kicker = 'Staff'): string {
+    const view = this.h.staffRack();
+    const picks = view.owned.map((s) => {
+      const on = s.id === view.selected;
+      return `<button type="button" class="staff-pick${on ? ' equipped' : ''}" data-staff="${s.id}" style="--accent:${s.accent};--bolt:${s.bolt}" aria-pressed="${on}"${on && autofocus ? ' data-autofocus' : ''}>
+        <i class="staff-orb" aria-hidden="true"></i><span class="staff-copy"><b>${s.name}</b><small>${s.line}</small></span></button>`;
+    }).join('');
+    const note = view.ranked ? '<p class="staff-ranked">Ranked: staff look only, starter stats</p>' : '';
+    return `<div class="staff-rack" data-staff-rack><span class="staff-kicker">${kicker}</span>${picks}</div>${note}`;
+  }
+
+  private bindStaff(root: ParentNode): void {
+    root.querySelectorAll<HTMLButtonElement>('[data-staff]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.h.selectStaff(btn.dataset.staff ?? '');
+        this.paintStaff(root);
+      });
+    });
+  }
+
+  private paintStaff(root: ParentNode): void {
+    const view = this.h.staffRack();
+    root.querySelectorAll<HTMLButtonElement>('[data-staff]').forEach((btn) => {
+      const on = btn.dataset.staff === view.selected;
+      btn.classList.toggle('equipped', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  private staffName(): string {
+    const view = this.h.staffRack();
+    return view.owned.find((s) => s.id === view.selected)?.name ?? 'Sproto Staff';
   }
 
   get visible(): boolean {
@@ -319,6 +385,7 @@ export class Menus {
         <div class="mode-block">
           <button class="primary quick-duel" data-act="start">Quick Duel<small>One best-of-three against the Rival</small></button>
         </div>
+        ${this.staffRackHtml(false)}
         <div class="row">
           <button class="ghost" data-act="howto">How to Play</button>
           <button class="ghost" data-act="settings">Settings</button>
@@ -336,6 +403,7 @@ export class Menus {
     this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showMain()));
     this.on(s, '[data-act="exchange"]', () => this.showExchange());
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
+    this.bindStaff(s);
   }
 
   /** Tickets to Verse. The rate is fixed; the daily cap is enforced by the hub. */
@@ -527,6 +595,7 @@ export class Menus {
         <h2>Paused</h2>
         ${subtitle ? `<p class="note pause-sub">${subtitle}</p>` : ''}
         ${stages.map(line).join('')}
+        <p class="note staff-lock">Staff: ${this.staffName()} · change it before the next fight</p>
         <button class="primary" data-act="resume">Resume</button>
         <button data-act="restart">${restartLabel}</button>
         <button data-act="howto">How to Play</button>
@@ -592,12 +661,14 @@ export class Menus {
         </div>
         ${stages}
         ${this.rewardLine(info)}
+        ${this.staffRackHtml(true)}
         <div class="menu-actions row"><button class="primary" data-act="begin">${this.label({ label: 'Begin', sub: info.beginNote })}</button>
         <button class="ghost" data-act="menu">Main Menu</button></div>
       </div>`, 'boss');
     this.bossIntro = { ...info };
     this.on(s, '[data-act="begin"]', () => actions.begin());
     this.on(s, '[data-act="menu"]', () => actions.back());
+    this.bindStaff(s);
   }
 
   /** God mode was toggled on the boss card: its reward line says whether a win would be saved. */
@@ -698,11 +769,13 @@ export class Menus {
           ${row('Perfect reflects', r.player.perfects, r.enemy.perfects)}
           ${row('Dodges', r.player.dodges, r.enemy.dodges)}
         </div>
+        ${this.staffRackHtml(false, 'Change Staff')}
         <div class="menu-actions row"><button class="primary" data-act="rematch">${this.label(primary)}</button>
         <button class="ghost" data-act="quit">Main Menu</button></div>
       </div>`, 'results');
     this.on(s, '[data-act="rematch"]', () => primary.action());
     this.on(s, '[data-act="quit"]', () => this.h.quit());
+    this.bindStaff(s);
   }
 
   /** Overlay shown when the game needs a click to (re)capture the mouse. */

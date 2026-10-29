@@ -60,6 +60,12 @@ export interface RiggedModel {
    * mocap was made empty-handed). See Animator `keepStaffClear`.
    */
   staff?: StaffSpec;
+  /**
+   * Use this scale instead of fitting the bounding box. The empty socketed player is already
+   * metre-scale (the dressed rig is 1.9 m, so the old fitHeight 1.9 scale was 1). Fitting the
+   * staff-less box would make him about 4.5% too tall.
+   */
+  uniformScale?: number;
 }
 
 type Vec3 = readonly [number, number, number];
@@ -87,6 +93,8 @@ export interface ModelAsset {
   path: string;
   /** Uniformly rescale so the model's bounding box is this tall, in meters. Leave unset to keep authored scale. */
   fitHeight?: number;
+  /** When set, skip bbox fitting and use this scale. `fitHeight` stays the gameplay height. */
+  uniformScale?: number;
   /** Extra yaw in degrees if the model doesn't face +Z (glTF forward). */
   rotationY?: number;
   /** Raise or lower the model after fitting, in meters. */
@@ -246,13 +254,16 @@ const MIDGET_STAGES = bossStages('midget', [1.25, 1.4, 1.6], LIGHT_STAGE_MOTION)
 MIDGET_STAGES.bossMidget1.rotationY = -94.6;
 
 export const MODELS = {
-  // Player: Higgsfield/Tripo static mesh (faces +X), animated procedurally like the bosses, or its
-  // skinned version (models/rigged/, faces +Z) with clips when that file is there.
-  // His magical sproto staff: every spell leaves from the glowing orb on top (right hand).
+  // Player: static mesh (faces +X) or the skinned rig (models/rigged/, faces +Z). The baked staff is
+  // gone. `socket_staff` sits under RightHand (static: under the mesh node) and the equipped staff
+  // GLB is parented there at load. fitHeight 1.9 is still the gameplay height. The rig is authored
+  // at that size, so it uses uniformScale 1 — fitting the empty box would make him 4.5% too tall.
+  // The static file is fitted with its preview staff still attached (then stripped), which is the
+  // scale the socket was authored for.
   wizardPlayer: {
     path: 'models/wizard_player.glb', fitHeight: 1.9, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS,
     muzzle: { points: { staff: { type: 'staff', at: [0.076, 0.916, 0.203] } } },
-    rigged: { path: 'models/rigged/wizard_player.glb', sockets: RIG_SOCKETS.wizardPlayer, staff: PLAYER_STAFF },
+    rigged: { path: 'models/rigged/wizard_player.glb', sockets: RIG_SOCKETS.wizardPlayer, staff: PLAYER_STAFF, uniformScale: 1 },
   },
   wizardRival: { path: 'models/wizard_rival.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
   pillar: { path: 'models/pillar.glb', fitHeight: 5.5 },

@@ -702,6 +702,57 @@ export const CONFIG = {
     popups: true,
   },
 
+  /**
+   * Duel staffs (src/staff). Equipped on the player only. Ranked sessions keep the mesh and these
+   * colours and ignore the gameplay fields. Colours match the 3D delivery (staffs.json vfx).
+   */
+  staffs: {
+    sproto: {
+      name: 'Sproto Staff',
+      /** Bolt, trail and accent, from staffs.json. */
+      bolt: 0x46c8ff,
+      core: 0xbff0ff,
+      trail: 0x2f7dff,
+      accent: 0xffd21f,
+      pulse: { material: 'staff_sproto_orb_glow_mat', min: 1, max: 2.2, hz: 1, onCast: 3.2 },
+    },
+    momentum: {
+      name: 'Momentum Staff',
+      bolt: 0x3fe6ff,
+      core: 0x9ff6ff,
+      trail: 0x2b7bff,
+      accent: 0xffc23a,
+      /**
+       * Sprint + Dodge, while this cooldown is ready. A plain Dodge (or Sprint + Dodge while Blink
+       * is cooling down) stays the stock roll. The trail is not a spell, so spell-damage scale skips it.
+       */
+      blink: { dist: 6, travel: 0.08, iframes: 0.28, cooldown: 4, trailDps: 10, trailTime: 1.5, trailWidth: 1.2 },
+      pulse: { material: 'staff_momentum_core_glow_mat', min: 1, max: 2.6, hz: 1.6, onCast: 3.5, onBlink: 4 },
+    },
+    moonward: {
+      name: 'Moonward Staff',
+      bolt: 0xcfe3ff,
+      core: 0xeef6ff,
+      trail: 0x7fa8ff,
+      accent: 0xd9b45a,
+      /** Bolt damage × this (4 → 6). The HUD calls the bolt COOM Bolt. */
+      boltDamageMult: 1.5,
+      boltLabel: 'COOM Bolt',
+      pulse: { material: 'staff_moonward_moon_glow_mat', min: 0.7, max: 1.8, hz: 0.5, onCast: 3 },
+    },
+    nobu: {
+      name: 'Nobu Staff',
+      bolt: 0xfff1a8,
+      core: 0xfffbe6,
+      trail: 0x4f8dff,
+      accent: 0x2f6bff,
+      /** Bolt knockback (base 2.4). Damage stays the stock bolt. The HUD calls it Bark Bolt. */
+      boltKnockback: 6,
+      boltLabel: 'Bark Bolt',
+      pulse: { material: 'staff_nobu_bone_glow_mat', min: 0.8, max: 2, hz: 1, onCast: 3 },
+    },
+  },
+
   clash: {
     hitStopMs: 35,
     shake: 0.25,

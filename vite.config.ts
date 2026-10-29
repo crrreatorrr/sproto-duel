@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,8 +48,20 @@ function assetIndex(): Plugin {
   };
 }
 
-export default defineConfig({
-  base: './',
+/**
+ * Public base path. Unset (the default) stays `./`, so one build is served both from the dev
+ * path `/play/sproto-duel/` and from production `https://play.<domain>/sproto-duel/`.
+ * Asset URLs are `import.meta.env.BASE_URL` plus a relative path, never a leading `/`.
+ */
+function resolveBase(mode: string): string {
+  const fromFile = loadEnv(mode, ROOT, 'VITE_').VITE_BASE;
+  const raw = (process.env.VITE_BASE ?? fromFile ?? '').trim();
+  if (!raw || raw === '.' || raw === './') return './';
+  return raw.endsWith('/') ? raw : `${raw}/`;
+}
+
+export default defineConfig(({ mode }) => ({
+  base: resolveBase(mode),
   plugins: [assetIndex()],
   build: {
     // public/assets holds game assets, so keep bundled JS/CSS in a separate folder.
@@ -74,4 +86,4 @@ export default defineConfig({
     // Agent worktrees and QA snapshots live inside the project folder; don't watch them.
     watch: { ignored: ['**/.claude/**', '**/.qa-build/**'] },
   },
-});
+}));

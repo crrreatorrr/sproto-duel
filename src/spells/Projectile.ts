@@ -36,6 +36,9 @@ const ORB_FRAG = /* glsl */ `
   }
 `;
 
+const tmpBoltColor = new THREE.Color();
+const tmpBoltWhite = new THREE.Color(1, 1, 1);
+
 /**
  * Shared visual resources, one set per wizard index so reflection is just a material swap.
  * Indices beyond CONFIG.teams (extra wizards) get a set on first use, in their own palette.
@@ -119,6 +122,11 @@ export class Projectile implements SkinTarget {
   seek: Wizard | null = null;
   /** Ticks alive. */
   age = 0;
+  /** Horizontal knockback on a wizard hit. Set at launch (a staff may raise it). */
+  knockback = 0;
+  /** Staff bolt / trail colours. 0 keeps the team palette. */
+  boltColor = 0;
+  trailColor = 0;
   /** Wizard this projectile already passed through during a dodge (for the EVADE callout). */
   evaded: Wizard | null = null;
   /** Bit per wizard index: set once that wizard's AI has evaluated this projectile. Cleared on spawn. */
@@ -135,6 +143,9 @@ export class Projectile implements SkinTarget {
   private slot: SkinSlot | null = null;
   /** Set by the first refreshLook after spawn (casters set owner/caster/pos/vel, then refresh). */
   private launched = false;
+  /** Per-bolt tint, allocated with the pool so a staff colour doesn't repaint the shared team material. */
+  private readonly tintCore: THREE.MeshBasicMaterial | null;
+  private readonly tintGlow: THREE.SpriteMaterial | null;
 
   constructor(
     readonly kind: ProjectileKind,
@@ -146,6 +157,19 @@ export class Projectile implements SkinTarget {
     this.glow = new THREE.Sprite(kind === 'bolt' ? mats.boltGlow[0] : mats.blastGlow[0]);
     this.group.add(this.core, this.glow);
     this.group.visible = false;
+    if (kind === 'bolt') {
+      this.tintCore = new THREE.MeshBasicMaterial({ toneMapped: false });
+      this.tintGlow = new THREE.SpriteMaterial({
+        map: glowTexture(),
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        transparent: true,
+        toneMapped: false,
+      });
+    } else {
+      this.tintCore = null;
+      this.tintGlow = null;
+    }
   }
 
   /** The object's instance while skinned (QA). */
@@ -154,6 +178,7 @@ export class Projectile implements SkinTarget {
   }
 
   get color(): number {
+    if (this.kind === 'bolt' && this.boltColor) return this.boltColor;
     const team = this.owner.team;
     return this.kind === 'bolt' ? team.spell : team.blast;
   }
@@ -169,8 +194,16 @@ export class Projectile implements SkinTarget {
     this.mats.ensure(team, this.owner.team);
     const glow = this.slot ? CONFIG.projectileSkins.glowScale[this.kind] * this.skins.glowSize(this.slot.skin) : 1;
     if (this.kind === 'bolt') {
-      this.core.material = this.mats.boltCore[team];
-      this.glow.material = this.mats.boltGlow[team];
+      if (this.boltColor && this.tintCore && this.tintGlow) {
+        const c = tmpBoltColor.setHex(this.boltColor);
+        this.tintCore.color.copy(c).lerp(tmpBoltWhite, 0.55).multiplyScalar(3.2);
+        this.tintGlow.color.copy(c).multiplyScalar(1.8);
+        this.core.material = this.tintCore;
+        this.glow.material = this.tintGlow;
+      } else {
+        this.core.material = this.mats.boltCore[team];
+        this.glow.material = this.mats.boltGlow[team];
+      }
       this.glow.scale.setScalar(this.radius * 9 * glow);
     } else {
       this.core.material = this.mats.blastCore[team];
@@ -199,12 +232,15 @@ export class Projectile implements SkinTarget {
     this.skin = 'orb';
     this.launched = false;
     this.core.visible = true;
+    this.knockback = 0;
+    this.boltColor = 0;
+    this.trailColor = 0;
   }
 
   /** Per-tick trail: glowing motes for the orb, the object's own trail (smoke, crumbs...) otherwise. */
   trail(fx: Effects): void {
     if (this.slot) this.skins.trail(this.slot, this);
-    else fx.trail(this.pos, this.color, this.kind === 'bolt' ? 0.22 : 0.5 * (this.radius / CONFIG.spells.blast.radius), this.kind === 'bolt' ? 1 : 3);
+    else fx.trail(this.pos, this.trailColor || this.color, this.kind === 'bolt' ? 0.22 : 0.5 * (this.radius / CONFIG.spells.blast.radius), this.kind === 'bolt' ? 1 : 3);
   }
 
   /** Render-time placement with interpolation; bolts stretch along their velocity. Objects pose in ProjectileSkins.sync. */

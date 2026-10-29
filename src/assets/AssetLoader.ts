@@ -4,9 +4,14 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import assetIndex from 'virtual:asset-index';
 import { MODELS, TEXTURES, WIZARD_CLIPS, type ModelAsset, type ModelKey, type RiggedModel, type TextureAsset, type TextureKey } from './manifest';
+import { STAFF_IDS, staffModelPath } from '../staff/catalog';
 import { prepareRig } from './rig';
 
 const available = new Set(assetIndex);
+/**
+ * Every fetched asset is `import.meta.env.BASE_URL` plus a path under `public/assets/`.
+ * Vite's `base` (VITE_BASE, default `./`) is that prefix, so a leading `/assets/...` is never used.
+ */
 const BASE = `${import.meta.env.BASE_URL}assets/`;
 
 const AUDIO_EXTS = ['.mp3', '.ogg', '.wav', '.m4a', '.webm'];
@@ -31,6 +36,17 @@ export interface ModelInstance {
   animations: THREE.AnimationClip[];
   /** The rigged variant this copy is (sockets, clip timing), or null/absent for a static model. */
   rig?: RiggedModel | null;
+}
+
+/** A prop loaded as authored (staff GLBs). `instantiateProp` clones it. */
+export interface PropTemplate {
+  root: THREE.Group;
+  animations: THREE.AnimationClip[];
+}
+
+export interface PropInstance {
+  root: THREE.Object3D;
+  animations: THREE.AnimationClip[];
 }
 
 /** A loaded, normalized model. Instantiate copies with `AssetLoader.instantiateModel`. */
@@ -59,7 +75,7 @@ export function riggedSpec(spec: ModelAsset): ModelAsset | null {
   let out = riggedSpecs.get(spec);
   if (!out) {
     out = {
-      path: r.path, fitHeight: spec.fitHeight, rotationY: r.rotationY ?? 0, yOffset: spec.yOffset, anchor: spec.anchor,
+      path: r.path, fitHeight: spec.fitHeight, uniformScale: r.uniformScale, rotationY: r.rotationY ?? 0, yOffset: spec.yOffset, anchor: spec.anchor,
       doubleSided: spec.doubleSided, clips: spec.clips ?? WIZARD_CLIPS, maxTriangles: spec.maxTriangles, muzzle: spec.muzzle, motion: spec.motion,
     };
     riggedSpecs.set(spec, out);
@@ -94,6 +110,9 @@ export class AssetLoader {
   private readyTextures = new Map<string, THREE.Texture | null>();
   private gltf = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   private texLoader = new THREE.TextureLoader();
+  /** Staff props, cached by path. Not fitted: the grip is the origin. */
+  private props = new Map<string, Promise<PropTemplate | null>>();
+  private readyProps = new Map<string, PropTemplate | null>();
 
   async loadAll(onProgress?: (done: number, total: number) => void): Promise<void> {
     const jobs: Promise<void>[] = [];
@@ -105,6 +124,7 @@ export class AssetLoader {
     for (const key of Object.keys(TEXTURES) as TextureKey[]) {
       jobs.push(this.loadTextureAsset(TEXTURES[key] as TextureAsset).then((t) => void this.textures.set(key, t)).then(tick));
     }
+    for (const id of STAFF_IDS) jobs.push(this.loadProp(staffModelPath(id)).then(tick));
     await Promise.all(jobs);
   }
 
@@ -112,6 +132,23 @@ export class AssetLoader {
   instantiate(key: ModelKey): ModelInstance | null {
     const t = this.models.get(key);
     return t ? this.instantiateModel(t) : null;
+  }
+
+  /**
+   * A fresh copy of a staff (or other prop) loaded by `loadProp`. Geometry is shared with the
+   * template. Null when the file is missing: the caller builds a procedural staff.
+   */
+  instantiateProp(path: string): PropInstance | null {
+    const t = this.readyProps.get(path);
+    if (!t) return null;
+    const root = t.root.clone(true);
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    });
+    return { root, animations: t.animations };
   }
 
   /** A fresh copy of a template (geometry and materials are shared with the template). */
@@ -199,6 +236,33 @@ export class AssetLoader {
     this.readyModels.delete(path);
   }
 
+  /** Load a prop GLB as authored (no height fit, no recentre). Grip-origin staffs depend on that. */
+  loadProp(path: string): Promise<PropTemplate | null> {
+    let job = this.props.get(path);
+    if (!job) {
+      job = this.fetchProp(path).then((t) => {
+        if (this.props.get(path) === job) this.readyProps.set(path, t);
+        return t;
+      });
+      this.props.set(path, job);
+    }
+    return job;
+  }
+
+  private async fetchProp(path: string): Promise<PropTemplate | null> {
+    const url = resolveAsset(path);
+    if (!url) return null;
+    try {
+      const gltf = await this.gltf.loadAsync(url);
+      const root = gltf.scene;
+      root.name = root.name || `prop:${path}`;
+      return { root, animations: gltf.animations };
+    } catch (err) {
+      console.warn(`[assets] Failed to load ${path}.`, err);
+      return null;
+    }
+  }
+
   private async fetchModel(spec: ModelAsset, name: string): Promise<ModelTemplate | null> {
     const url = resolveAsset(spec.path);
     if (!url) return null;
@@ -228,6 +292,13 @@ export class AssetLoader {
       return null;
     }
   }
+}
+
+/** Remove a preview staff parented to `socket_staff` after the height fit has been measured. */
+function dropSocketPreview(root: THREE.Object3D): void {
+  const socket = root.getObjectByName('socket_staff');
+  if (!socket) return;
+  for (const child of [...socket.children]) socket.remove(child);
 }
 
 /** Fraction of the model's height, from the ground up, whose vertices count as its feet. */
@@ -275,11 +346,17 @@ function normalizeModel(key: string, scene: THREE.Object3D, animations: THREE.An
 
   const box = new THREE.Box3().setFromObject(inner);
   const size = box.getSize(new THREE.Vector3());
-  if (spec.fitHeight && size.y > 1e-4) inner.scale.setScalar(spec.fitHeight / size.y);
+  // uniformScale wins over fitHeight. The empty player rig is already 1.9 m with a staff on the
+  // socket; fitting the staff-less box would scale him up about 4.5%.
+  if (spec.uniformScale != null) inner.scale.setScalar(spec.uniformScale);
+  else if (spec.fitHeight && size.y > 1e-4) inner.scale.setScalar(spec.fitHeight / size.y);
   inner.updateMatrixWorld(true);
   box.setFromObject(inner);
   const center = spec.anchor === 'feet' ? feetCenter(inner, box) : box.getCenter(new THREE.Vector3());
   inner.position.set(-center.x, -box.min.y + (spec.yOffset ?? 0), -center.z);
+  // The static wizard is fitted with its preview staff still in the box (that is the scale the
+  // socket was built for). Drop that preview so the equipped staff is the only one attached.
+  dropSocketPreview(inner);
 
   let triangles = 0;
   let skinned = false;
