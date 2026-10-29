@@ -253,7 +253,7 @@ export class HUD {
       <div class="plate plate-${side}${partner ? ' plate-partner' : ''}">
         <div class="plate-head"><span class="plate-id"><span class="plate-name">Rival</span><small class="plate-title"></small></span><span class="hp-text">150</span></div>
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
-        <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden ticket: +50% mana pool, refilled, for 15 s"><i>✦</i><b></b></span></div>
+        <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden Tickets: +50% mana pool, refilled, for 15 s"><i>✦</i><b></b></span></div>
         <div class="bar ult"><div class="ult-fill"></div><span>ULT</span></div>
         ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div><div class="plate-powers"></div>' : '<div class="life-packs" title="Life packs this fight"></div>'}
       </div>`;
@@ -381,7 +381,7 @@ export class HUD {
       if (e.wizard !== g.player) return;
       const regen = TK.regenMultiplier > 1 ? ` · ${TK.regenMultiplier}× regen` : '';
       const sub = e.refreshed ? 'Mana boost refreshed' : `+${Math.round((TK.maxManaMultiplier - 1) * 100)}% mana for ${TK.boostDuration} s${regen}`;
-      this.showBanner('Golden Ticket!', sub, 'ticket', 1.3);
+      this.showBanner('Golden Tickets!', sub, 'ticket', 1.3);
     });
     // Life packs: a banner the first time, a green "+HP" on pickup.
     events.on('lifePackSpawn', (e) => {

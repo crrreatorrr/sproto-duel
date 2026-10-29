@@ -1,0 +1,10 @@
+{
+  "name": "@metaverse/hub-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hub client for game pages: portal ticket, Nakama session, Tickets, Verse, events, exit.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

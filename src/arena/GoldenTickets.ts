@@ -578,7 +578,7 @@ export function ticketFaceTexture(): THREE.CanvasTexture {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.font = 'bold 132px Georgia, "Times New Roman", serif';
-  for (const [text, y] of [['GOLDEN', 200], ['TICKET', 318]] as const) {
+  for (const [text, y] of [['GOLDEN', 200], ['TICKETS', 318]] as const) {
     g.fillStyle = '#fff6c8';
     g.fillText(text, 514, y + 4, 600);
     g.fillStyle = '#5a3604';

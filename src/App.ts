@@ -12,6 +12,7 @@ import { Match } from './core/Match';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
+import { HubLink } from './hub/link';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
 
@@ -77,7 +78,7 @@ export class App {
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
 
-  constructor(readonly game: Game, campaign = new Campaign()) {
+  constructor(readonly game: Game, campaign = new Campaign(), private readonly hub = HubLink.standalone()) {
     this.campaign = campaign;
     this.settings = loadSettings();
     // God mode is a session-only testing aid: CONFIG.debug.godMode, `?god`, Settings or F9.
@@ -127,6 +128,9 @@ export class App {
       learnedSpells: () => new Set(this.game.player.learned),
       savedSpells: () => new Set(this.campaign.unlocked),
       forgetSpells: () => this.forgetSpells(),
+      hubStatus: () => this.hub.status(),
+      exchangeTickets: (tickets) => this.hub.exchangeTickets(tickets),
+      exitHub: () => this.hub.exitHub(),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
     this.applySettings(this.settings);
@@ -505,6 +509,14 @@ export class App {
       if (this.godUsed) this.winUnsaved = 'god';
       else if (c.recordWin() === 'unsaved') this.winUnsaved = 'skipped';
       else this.syncLearned();
+    }
+    // Hub reports go around Campaign.recordWin: god-mode wins still earn Tickets and Tinubu's Crown.
+    if (!this.game.qaMode) {
+      const bossId = this.match.boss?.id ?? null;
+      void this.hub.onDuelWin(
+        { playerWon: winner === this.game.player, bossId, godMode: this.godUsed, elapsed: this.match.elapsed },
+        (title, sub) => this.menus.toast(title, sub, 'tickets'),
+      );
     }
   }
 
