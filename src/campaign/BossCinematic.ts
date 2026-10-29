@@ -12,6 +12,7 @@ import { rivalAccent } from '../ui/HUD';
 import type { Wizard } from '../wizard/Wizard';
 import type { BossStages } from './BossStages';
 import type { BossFighter } from './levels';
+import { createStyles, PropSet, type Beat, type Body, type TransformStyle, type TransformStyleId } from './transformStyles';
 
 const K = CONFIG.campaign.cinematic;
 const C = CONFIG.campaign;
@@ -24,7 +25,6 @@ const tmpBase = new THREE.Vector3();
 const tmpColor = new THREE.Color();
 const tmpColor2 = new THREE.Color();
 const WHITE = new THREE.Color(1, 1, 1);
-const RAGE = new THREE.Color(0xff1e10);
 
 const sat = (x: number) => clamp(x, 0, 1);
 const smooth = (a: number, b: number, x: number) => {
@@ -221,8 +221,7 @@ interface Shot {
   w: Wizard;
   /** Stage being entered (1 or 2). */
   stage: number;
-  enraged: boolean;
-  /** Params index: 1 for stage 2, 2 for stage 3 and the enrage. */
+  /** Params index: 1 for stage 2, 2 for stage 3. */
   tier: 1 | 2;
   duration: number;
   /** Cinematic seconds (pausable, sped up by a skip). */
@@ -257,11 +256,17 @@ interface Shot {
   height: number;
   color: number;
   colorHi: number;
+  /** The boss's own transformation (BossFighter.transform), its highest float (m) and turns. */
+  style: TransformStyle | null;
+  riseMax: number;
+  spins: number;
+  /** The float the camera follows (smoothed: a hop doesn't bob the shot). */
+  camRise: number;
 }
 
 /**
- * Boss transformation cinematics. In a live Boss Gauntlet fight, every `bossEvolve` (a stage's bar
- * emptied, or a double fight's survivor enraged) plays a short cinematic instead of the headless
+ * Boss transformation cinematics. In a live Boss Gauntlet fight, every `bossEvolve` (a boss's own
+ * stage bar emptied; in a double fight only that boss's) plays a short cinematic instead of the headless
  * sim-time transformation:
  *
  * 1. The cut: the world eases into a freeze (Game.cinematicScale: no wizard, spell, fire or lava
@@ -279,7 +284,7 @@ interface Shot {
  *    immune for a short grace (BossStages.release).
  *
  * The timeline drives BossStages (`drive`), so the look swap and the bar refill line up with it.
- * Stage 3 and the enrage are bigger and longer (CONFIG.campaign.cinematic, per stage). Real time,
+ * Stage 3 is bigger and longer (CONFIG.campaign.cinematic, per stage). Real time,
  * but pausable: nothing advances while the game is paused. A skip key plays the rest faster. Every
  * effect is built once and reused. Headless (QA, soaks, menus) nothing plays: `live` is false.
  */
@@ -289,7 +294,7 @@ export class BossCinematic {
   /** QA: play even while the harness runs (qaMode). */
   allowInQa = false;
   private shot: Shot | null = null;
-  private readonly queue: { stages: BossStages; stage: number; enraged: boolean }[] = [];
+  private readonly queue: { stages: BossStages; stage: number }[] = [];
   private readonly overlay: HTMLElement;
   private readonly barTop: HTMLElement;
   private readonly barBottom: HTMLElement;
@@ -310,6 +315,17 @@ export class BossCinematic {
   /** Shockwave rings (pooled), animated on real time. */
   private readonly waves: Wave[] = [];
   private readonly debris: Debris;
+  /** Every boss's transformation, built once; their props come from the bosses' own skin batches. */
+  readonly styles: Record<TransformStyleId, TransformStyle>;
+  private readonly styleList: TransformStyle[];
+  private readonly props: PropSet;
+  private readonly beat = {
+    base: new THREE.Vector3(), run: 0, time: 0, tStag: 0, tBurst: 0, tSlam: 0, fall: 0, charge: 0, riseMax: 0,
+  };
+  private readonly body: Body = { y: 0, yaw: 0, dx: 0, dz: 0, tilt: 0, sx: 1, sy: 1 };
+  /** A style's screen effect on the overlay (class name) and its real seconds left. */
+  private flashClass = '';
+  private flashLeft = 0;
   private readonly eye = new THREE.PerspectiveCamera();
   private readonly invRoot = new THREE.Matrix4();
   /** Fog colour before the tint, restored afterwards. */
@@ -412,6 +428,19 @@ export class BossCinematic {
       scene.add(mesh);
       this.waves.push({ mesh, t: 0, duration: 0, radius: 1 });
     }
+    this.props = new PropSet(game);
+    this.styles = createStyles({
+      game,
+      props: this.props,
+      debris: this.debris,
+      flash: (cls, seconds) => {
+        if (this.flashClass && this.flashClass !== cls) this.overlay.classList.remove(this.flashClass);
+        this.flashClass = cls;
+        this.flashLeft = seconds;
+        this.overlay.classList.add(cls);
+      },
+    });
+    this.styleList = Object.values(this.styles);
 
     // Warm-ups (Game.warmUp, behind the boss card) draw the glow shells on every stage look too,
     // and the landing's debris in the arena's look, so the first transformation compiles nothing.
@@ -428,7 +457,7 @@ export class BossCinematic {
     events.on('bossEvolve', (e) => {
       if (!this.live) return;
       const stages = game.stagesOf(e.wizard);
-      if (stages) this.enqueue(stages, e.stage, e.enraged);
+      if (stages) this.enqueue(stages, e.stage);
     });
     game.onFrame((dt) => this.frame(dt));
   }
@@ -445,12 +474,12 @@ export class BossCinematic {
 
   /** The current shot's phase and progress, and its camera this frame (QA). */
   get state(): {
-    phase: string; t: number; duration: number; stage: number; enraged: boolean; wizard: Wizard;
+    phase: string; t: number; duration: number; stage: number; wizard: Wizard; style: TransformStyleId | null;
     camera: { planned: number; actual: number; lift: number; start: number; dir: number };
   } | null {
     const s = this.shot;
     return s ? {
-      phase: s.phase, t: s.t, duration: s.duration, stage: s.stage, enraged: s.enraged, wizard: s.w,
+      phase: s.phase, t: s.t, duration: s.duration, stage: s.stage, wizard: s.w, style: s.style?.id ?? null,
       camera: { planned: s.camPlanned, actual: s.camActual, lift: s.lift, start: s.orbitStart, dir: s.orbitDir },
     } : null;
   }
@@ -467,31 +496,35 @@ export class BossCinematic {
     this.crackFade = 0;
     this.crack.visible = false;
     for (const w of this.waves) w.mesh.visible = false;
+    for (const st of this.styleList) st.reset();
+    this.props.clear();
+    this.endFlash();
   }
 
   // ------------------------------------------------------------------ timeline
 
-  private enqueue(stages: BossStages, stage: number, enraged: boolean): void {
+  private enqueue(stages: BossStages, stage: number): void {
     // Take the transformation over now, so the sim never advances it on its own.
     stages.drive(0);
-    if (this.shot) this.queue.push({ stages, stage, enraged });
-    else this.begin(stages, stage, enraged);
+    if (this.shot) this.queue.push({ stages, stage });
+    else this.begin(stages, stage);
   }
 
-  private begin(stages: BossStages, stage: number, enraged: boolean): void {
+  private begin(stages: BossStages, stage: number): void {
     const g = this.game;
     const boss = stages.boss;
     if (!boss) return;
     const w = stages.owner;
-    const tier: 1 | 2 = enraged || stage >= 2 ? 2 : 1;
+    const tier: 1 | 2 = stage >= 2 ? 2 : 1;
     const cam = g.renderer.camera;
     const pos = w.visual.root.position;
     tmpA.set(cam.position.x - pos.x, 0, cam.position.z - pos.z);
     const pal = boss.palette;
-    const color = enraged ? tmpColor.setHex(pal.ultimate).lerp(RAGE, 0.45).getHex() : pal.ultimate;
+    const color = pal.ultimate;
+    const style = this.styles[boss.transform] ?? null;
     const shot: Shot = {
-      stages, boss, w, stage, enraged, tier,
-      duration: enraged ? K.enrageDuration : K.duration[tier],
+      stages, boss, w, stage, tier,
+      duration: K.duration[tier],
       t: 0, real: 0, speed: 1, rise: 0, phase: 'play', phaseT: 0,
       burst: false, slam: false, prePulse: false, lastCount: -1,
       fromTheta: Math.atan2(tmpA.x, tmpA.z),
@@ -508,6 +541,10 @@ export class BossCinematic {
       height: w.visual.topHeight * stages.lookScale,
       color,
       colorHi: tmpColor2.setHex(pal.spell).lerp(WHITE, 0.55).getHex(),
+      style,
+      riseMax: K.rise[tier] * (style?.motion.rise ?? 1),
+      spins: K.spins[tier] * (style?.motion.spins ?? 1),
+      camRise: 0,
     };
     this.planOrbit(shot);
     this.shot = shot;
@@ -518,12 +555,14 @@ export class BossCinematic {
     // The card: the stage, its name and concept art, in the boss's colours.
     for (const [k, v] of rivalAccent(boss.palette)) this.overlay.style.setProperty(k, v);
     const st = boss.stages[stage];
-    this.cardEyebrow.textContent = enraged ? `Enraged · Stage ${stage + 1}` : stage === 2 ? 'Final Form · Stage 3' : `Stage ${stage + 1} of 3`;
-    this.cardTitle.textContent = enraged ? `${w.name} is enraged!` : st.name;
+    // A double fight's bosses change stage on their own: the card says whose transformation it is.
+    const who = g.partnerActive ? `${w.name} · ` : '';
+    this.cardEyebrow.textContent = who + (stage === 2 ? 'Final Form · Stage 3' : `Stage ${stage + 1} of 3`);
+    this.cardTitle.textContent = st.name;
     const art = resolveImage(bossStagePortrait(boss.id, stage));
     this.cardArt.style.display = art ? '' : 'none';
     if (art) this.cardArt.src = art;
-    this.overlay.className = `cine on tier${tier}${enraged ? ' enrage' : ''}`;
+    this.overlay.className = `cine on tier${tier}${style ? ` style-${style.id}` : ''}`;
     // Effects in the boss's colours.
     this.shellOld.uniforms.uColor.value.setHex(pal.spell).multiplyScalar(1.4);
     this.shellOld.uniforms.uHot.value.setHex(color).lerp(WHITE, 0.55);
@@ -533,14 +572,18 @@ export class BossCinematic {
     this.crack.material.uniforms.uColor.value.setHex(color).multiplyScalar(K.crackGlow * shot.light);
     this.crack.material.uniforms.uSeed.value = Math.random() * 10;
     // A deep shade of the palette: it darkens and tints bright skies instead of washing them out.
-    this.dome.material.uniforms.uColor.value.setHex(enraged ? color : pal.spell).multiplyScalar(0.35);
+    this.dome.material.uniforms.uColor.value.setHex(pal.spell).multiplyScalar(0.35);
     this.attachShells(this.shellOld);
+    if (style) {
+      style.cues.length = 0;
+      style.begin(shot, this.beatOf(shot, 0));
+    }
     const fog = g.renderer.scene.fog as THREE.Fog | null;
     if (fog && !this.fogSaved) {
       this.fogBase.copy(fog.color);
       this.fogSaved = true;
     }
-    events.emit('bossCinematic', { wizard: w, boss, stage, beat: 'start', enraged });
+    events.emit('bossCinematic', { wizard: w, boss, stage, beat: 'start' });
   }
 
   /** Per render frame (after BossStages has set the look): advance the shot and pose everything. */
@@ -557,10 +600,18 @@ export class BossCinematic {
       this.crack.visible = this.crackFade > 0;
     }
     this.updateWaves(run);
+    for (const st of this.styleList) st.tick(run);
+    if (this.flashLeft > 0) {
+      this.flashLeft -= run;
+      if (this.flashLeft <= 0) this.endFlash();
+    }
     if (!this.shot) {
       this.debris.update(run);
+      this.props.update(run);
       return;
     }
+    // Props (carpets) ripple on through the freeze.
+    g.spells.pool.skins.cineTime += run;
     const s = this.shot;
     if (s.phase === 'play') {
       if (run > 0 && s.t > K.skipAfter && s.speed === 1 && this.skipPressed()) s.speed = K.skipSpeed;
@@ -584,7 +635,7 @@ export class BossCinematic {
         this.count.classList.remove('pop');
         void this.count.offsetWidth;
         this.count.classList.add('pop');
-        events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'count', enraged: s.enraged });
+        events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'count' });
       }
       this.fadeWorld(s, 0);
       if (s.phaseT >= K.resume) {
@@ -592,7 +643,7 @@ export class BossCinematic {
         s.phaseT = 0;
         this.count.textContent = 'Fight!';
         s.stages.release(K.grace);
-        events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'resume', enraged: s.enraged });
+        events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'resume' });
       }
     } else {
       s.phaseT += run;
@@ -601,6 +652,8 @@ export class BossCinematic {
       if (s.phaseT >= K.easeOut) this.finish(s);
     }
     this.debris.update(run);
+    // Props fly, and take the places the style gave them this frame.
+    this.props.update(run);
   }
 
   /** Everything in the 'play' phase at the shot's current time. */
@@ -622,25 +675,21 @@ export class BossCinematic {
     const charge = sat(t / tBurst);
     const burstNow = !s.burst && t >= tBurst;
     if (burstNow) s.burst = true;
+    const f = this.beatOf(s, run);
 
-    // ---- the boss: rise, spin, shudder, swell; then grow out of the light; then the landing
-    const rise = K.rise[tier];
-    const fall = 0.17 + 0.05 * tier;
+    // ---- the boss: reel, rise, spin, shudder, swell; then grow out of the light; then the landing
+    // (his own transformation bends all of it: hops, glitch snaps, inflating...).
+    const rise = s.riseMax;
+    const fall = f.fall;
     let y = 0;
-    if (t < tSlam - fall) y = rise * easeOut3(t / (tBurst * 0.8)) + (s.burst ? 0.06 * Math.sin((t - tBurst) * 5) : 0);
-    else if (t < tSlam) {
+    if (t < tSlam - fall) {
+      // He lifts off once the stagger is past.
+      y = rise * easeOut3((t - f.tStag * 0.6) / (tBurst * 0.8 - f.tStag * 0.6)) + (s.burst ? 0.06 * Math.sin((t - tBurst) * 5) : 0);
+    } else if (t < tSlam) {
       const k = (t - (tSlam - fall)) / fall;
       y = rise * (1 - k * k);
     }
     const shudder = s.burst ? 0 : 0.06 * I * charge * charge;
-    root.position.set(
-      base.x + (Math.random() - 0.5) * shudder,
-      base.y + y,
-      base.z + (Math.random() - 0.5) * shudder,
-    );
-    root.rotation.y += Math.PI * 2 * K.spins[tier] * smoother(t / tSlam);
-    root.rotation.x = s.burst ? 0 : -0.16 * easeOut3(charge);
-    root.rotation.z = 0;
     const look = st.lookScale;
     let sx = look, sy = look;
     if (!s.burst) {
@@ -661,11 +710,34 @@ export class BossCinematic {
       sy = look * (1 - 0.24 * sq);
       sx = look * (1 + 0.13 * sq);
     }
-    root.scale.set(sx, sy, sx);
+    const b = this.body;
+    const planned = y;
+    b.y = y;
+    b.yaw = Math.PI * 2 * s.spins * smoother(t / tSlam);
+    b.dx = b.dz = 0;
+    b.tilt = s.burst ? 0 : -0.16 * easeOut3(charge);
+    b.sx = sx;
+    b.sy = sy;
+    s.style?.body(s, f, b);
+    root.position.set(
+      base.x + b.dx + (Math.random() - 0.5) * shudder,
+      base.y + b.y,
+      base.z + b.dz + (Math.random() - 0.5) * shudder,
+    );
+    root.rotation.y += b.yaw;
+    root.rotation.x = b.tilt;
+    root.rotation.z = 0;
+    root.scale.set(b.sx, b.sy, b.sx);
     root.updateMatrixWorld(true);
     this.invRoot.copy(root.matrixWorld).invert();
     s.height = damp(s.height, s.w.visual.topHeight * look, 8, run || 1e-3);
+    y = b.y;
     s.rise = y;
+    // The camera keeps to the planned float (planOrbit cleared it), except while a style moves him its own way (hops).
+    s.camRise = s.style?.followBody && !s.burst ? damp(s.camRise, y, 8, run || 1e-3) : planned;
+    // His rig: the style's clip for this moment, and its own props and effects.
+    s.style?.pose(s, f);
+    s.style?.update(s, f);
 
     // ---- beats
     if (tier === 2 && !s.prePulse && t >= tBurst * 0.62) {
@@ -764,7 +836,8 @@ export class BossCinematic {
     // The new form wears a fading shell of light.
     this.detachShells();
     this.attachShells(this.shellNew);
-    events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'burst', enraged: s.enraged });
+    s.style?.burst(s, this.beat);
+    events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'burst' });
   }
 
   /** He lands: an arena-wide shockwave, debris, dust and a big shake. */
@@ -798,7 +871,8 @@ export class BossCinematic {
       this.debris.spawn(tmpA.set(base.x + Math.sin(a) * 1.2, 0.3, base.z + Math.cos(a) * 1.2), Math.ceil(n / 6), 0.8 + 0.2 * s.tier);
     }
     feel.shake(0.7 * I);
-    events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'slam', enraged: s.enraged });
+    s.style?.slam(s, this.beat);
+    events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'slam' });
   }
 
   /**
@@ -850,7 +924,7 @@ export class BossCinematic {
     const rigFov = cam.fov;
 
     // The orbit around the boss (on the side planOrbit found clear of cover).
-    const o = this.orbitPose(s, t, s.height, s.rise, orbitPose);
+    const o = this.orbitPose(s, t, s.height, s.camRise, orbitPose);
     const center = tmpA.set(base.x, base.y + o.centerY, base.z);
     const theta = o.theta;
     let dist = o.dist;
@@ -936,10 +1010,10 @@ export class BossCinematic {
     // The beats as [time, his height, how high he floats]: the old form until the burst, both
     // around it (the new one grows out of it), the new one after, landed at the slam.
     const h0 = s.height, h1 = this.nextHeight(s);
-    const rise = K.rise[s.tier];
+    const rise = s.riseMax;
     const tB = K.burstAt * D, tS = K.slamAt * D;
     const beats: [number, number, number][] = [
-      [0.3 * D, h0, rise], [tB, h0, rise], [tB, h1, rise], [tB + 0.15, h0, rise], [tB + 0.15, h1, rise], [tB + 0.3, h1, rise],
+      [0.3 * D, h0, rise], [0.6 * tB, h0, rise], [tB - 0.04, h0, rise], [tB, h0, rise], [tB, h1, rise], [tB + 0.15, h0, rise], [tB + 0.15, h1, rise], [tB + 0.3, h1, rise],
       [(tB + tS) / 2, h1, rise], [tS, h1, 0], [Math.min(tS + 0.12, K.returnAt * D), h1, 0],
     ];
     const defStart = s.orbitStart;
@@ -985,6 +1059,29 @@ export class BossCinematic {
   }
 
   // ------------------------------------------------------------------ helpers
+
+  /** This frame of shot `s` as the styles see it (one shared object). */
+  private beatOf(s: Shot, run: number): Beat {
+    const f = this.beat;
+    const D = s.duration;
+    f.base.copy(s.w.visual.root.position);
+    f.run = run;
+    f.time = this.time;
+    f.tStag = Math.min(K.stagger, K.staggerShare * D);
+    f.tBurst = K.burstAt * D;
+    f.tSlam = K.slamAt * D;
+    f.fall = 0.17 + 0.05 * s.tier;
+    f.charge = sat(s.t / f.tBurst);
+    f.riseMax = s.riseMax;
+    return f;
+  }
+
+  /** Take a style's screen effect off the overlay. */
+  private endFlash(): void {
+    if (this.flashClass) this.overlay.classList.remove(this.flashClass);
+    this.flashClass = '';
+    this.flashLeft = 0;
+  }
 
   /** Start a shockwave ring at `at` (floor) growing to `radius` m over `duration` s, `width` m thick. */
   private wave(at: THREE.Vector3, color: number, radius: number, duration: number, width: number): void {
@@ -1081,6 +1178,8 @@ export class BossCinematic {
   private endPose(s: Shot): void {
     const root = s.w.visual.root;
     root.rotation.x = root.rotation.z = 0;
+    s.style?.end();
+    s.w.visual.animator?.direct(null);
     this.detachShells();
     this.vortex.visible = false;
     this.barTop.style.transform = this.barBottom.style.transform = 'scaleY(0)';
@@ -1098,10 +1197,10 @@ export class BossCinematic {
     this.count.textContent = '';
     this.shot = null;
     g.director = null;
-    events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'end', enraged: s.enraged });
+    events.emit('bossCinematic', { wizard: s.w, boss: s.boss, stage: s.stage, beat: 'end' });
     const next = this.queue.shift();
     if (next && next.stages.transforming) {
-      this.begin(next.stages, next.stage, next.enraged);
+      this.begin(next.stages, next.stage);
       return;
     }
     g.cinematicScale = 1;

@@ -9,6 +9,7 @@ import type { Wizard } from '../wizard/Wizard';
 import type { QAHarness } from './QAHarness';
 import { lookPixels, type LookPixels } from './pixels';
 import { GROUP } from '../physics/Physics';
+import type { CineCue } from '../campaign/transformStyles';
 
 const K = CONFIG.campaign.cinematic;
 const C = CONFIG.campaign;
@@ -183,9 +184,9 @@ function untilShot(game: Game, app: App, t: number): boolean {
 
 /**
  * Boss transformation cinematics (src/campaign/BossCinematic.ts): they freeze combat (no ticks, no
- * damage, no input), frame the boss, return the camera to the player, escalate for stage 3 and the
- * enrage, keep their title card clear of the boss and the timer, pause with the game, and never
- * play headless.
+ * damage, no input), frame the boss, return the camera to the player, escalate for stage 3, play
+ * for one double-fight boss at a time (the other's fall changes nothing), keep their title card clear
+ * of the boss and the timer, pause with the game, and never play headless.
  */
 export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App): void {
   const cine = app.cinematic;
@@ -278,24 +279,36 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
     });
   });
 
-  qa.add('cinematic.duo_enrage_with_full_last_bar', (c) => {
+  qa.add('cinematic.duo_bosses_transform_on_their_own', (c) => {
+    // A double fight's bosses are separate: The Midget's bar empties and only The Midget transforms
+    // (his own shot, his name on the card); Obama knocked out leaves The Midget where he is (no shot,
+    // same stage, same health).
     withLiveFight(c, game, app, 1, () => {
       const e = game.enemy, q = game.partner;
       const pst = game.partnerStages, st = game.stages;
       const mid = BOSSES[1].partner!;
-      // Obama down to his last stage, then knocked out: The Midget is enraged.
+      const evolves = record('bossEvolve');
+      deplete(game, q);
+      c.expect(cine.state?.wizard === q && pst.stage === 1 && st.stage === 0, `Midget's bar out: shot for ${cine.state?.wizard.name}, stages ${st.stage + 1}/${pst.stage + 1}`);
+      frames(game, K.duration[1] * K.burstAt + 0.3);
+      const eyebrow = game.ui.querySelector('.cine-eyebrow')?.textContent ?? '';
+      c.expect(eyebrow.includes(q.name), `card eyebrow "${eyebrow}" doesn't name The Midget`);
+      let guard = 0;
+      while (cine.active && guard++ < 800) game.advance(FRAME);
+      c.step(K.grace + 0.1);
+      c.expect(st.stage === 0 && !e.evolving && e.health === e.maxHealth, `Obama changed with The Midget: stage ${st.stage + 1}, ${e.health}/${e.maxHealth}`);
+      // Obama down to his last stage and knocked out: nothing happens to The Midget.
       jump(st, 2);
       c.step(DT);
       q.health = q.maxHealth * 0.5;
+      const hp = q.health;
       deplete(game, e);
-      c.expect(!e.alive && pst.stage === 2 && !!cine.state?.enraged && cine.state?.wizard === q, `enrage shot ${JSON.stringify(cine.state && { ...cine.state, wizard: cine.state.wizard.name })}`);
-      c.expect(cine.state!.duration === K.enrageDuration, 'enrage has its own length');
-      c.expect(q.maxHealth === mid.stageHealth[2], `enraged bar max ${q.maxHealth}`);
-      frames(game, K.enrageDuration * K.burstAt + 0.2);
-      c.expect((game.ui.querySelector('.cine-title')?.textContent ?? '').includes('is enraged!') && game.ui.querySelector('.cine.enrage') !== null, 'no enrage card');
-      let guard = 0;
-      while (cine.active && guard++ < 800) game.advance(FRAME);
-      c.expect(q.health === q.maxHealth && q.maxHealth === mid.stageHealth[2], `after the enrage: ${q.health}/${q.maxHealth}`);
+      c.step(DT * 3);
+      c.expect(!e.alive && !cine.active && pst.stage === 1 && !q.evolving, `after Obama fell: shot ${cine.active}, Midget stage ${pst.stage + 1}, evolving ${q.evolving}`);
+      c.expect(q.health === hp && q.maxHealth === mid.stageHealth[1], `The Midget's bar changed: ${q.health}/${q.maxHealth}`);
+      // (Obama's own jump to stage 3 above is the test's doing.) The Midget transformed once, on his own bar.
+      const ev = evolves().filter((x) => x.wizard === q);
+      c.expect(ev.length === 1 && ev[0].stage === 1, `The Midget's transformations: ${ev.map((x) => `${x.from + 1}->${x.stage + 1}`).join(', ')}`);
     }, { player: [0, -8], enemy: [2, 8], partner: [-2, 8] });
   });
 
@@ -389,18 +402,17 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
 
   qa.add('cinematic.new_form_readable', (c) => {
     // The new form reads at the burst and the slam in the brightest arenas: Sahil's stage 2 in the
-    // desert, Tinubu's stage 3 in the volcano, and The Midget's enrage (under its sparks). Sampled
+    // desert, Tinubu's stage 3 in the volcano, and The Midget's stage 3 (under its sparks). Sampled
     // from the frame drawn, inside his silhouette: few blown-out (near-white) pixels, mean luminance
     // under a cap, and, when he is bright, a clear colour step across his outline (a washed-out form
     // melts into what's behind it). Before the fix: desert slam 73-76% luminance, the volcano slam
-    // 65-68% with an outline step of 0.12, the enrage's burst 89-91% with 19-35% blown out.
+    // 65-68% with an outline step of 0.12, The Midget's burst 89-91% with 19-35% blown out.
     const BLOWN_MAX = 0.1, MEAN_MAX = 0.7, CONTRAST_MIN = 0.16, BRIGHT = 0.45;
     const failed: string[] = [];
-    const enrage = (): Wizard => {
-      jump(game.stages, 2);
+    const midget3 = (): Wizard => {
+      jump(game.partnerStages, 1);
       c.step(DT);
-      game.partner.health = game.partner.maxHealth * 0.5;
-      deplete(game, game.enemy);
+      deplete(game, game.partner);
       return game.partner;
     };
     const stage3 = (): Wizard => {
@@ -416,7 +428,7 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
     const cases: { index: number; label: string; trigger: () => Wizard }[] = [
       { index: 0, label: 'desert s2', trigger: stage2 },
       { index: 4, label: 'volcano s3', trigger: stage3 },
-      { index: 1, label: 'Midget enrage', trigger: enrage },
+      { index: 1, label: 'Midget s3', trigger: midget3 },
     ];
     const rows: string[] = [];
     const fmt = (p: LookPixels) => `${(p.mean * 100).toFixed(0)}/${(p.blown * 100).toFixed(0)}/${(p.background * 100).toFixed(0)}/${(p.contrast * 100).toFixed(0)}`;
@@ -445,5 +457,72 @@ export function registerCinematicScenarios(qa: QAHarness, game: Game, app: App):
     }
     c.expect(failed.length === 0, `${failed.join('; ')} | mean/blown/bg/contrast % ${rows.join(' | ')}`);
     c.note(`mean/blown/bg/contrast % ${rows.join(' | ')}`);
+  });
+
+  qa.add('cinematic.signature_transformations', (c) => {
+    // Every boss (and The Midget) transforms its own way (src/campaign/transformStyles.ts): his
+    // style plays; the rig is posed by the shot (its own clip through the charge and after the
+    // burst, handed back afterwards); his props come out of his own skin batches and all go back;
+    // his sound cues play (a different set for each); and the style's meshes are hidden after.
+    // The camera only: frames aren't drawn.
+    const render = game.renderer.render;
+    game.renderer.render = () => {};
+    const skins = game.spells.pool.skins;
+    const PROPS_IN_CHARGE: Record<string, boolean> = { bazaar: true, shill: true, tantrum: true, vape: false, glitch: false, hellfire: true };
+    const sets = new Map<string, Set<CineCue>>();
+    const rows: string[] = [];
+    try {
+      const cases = [...BOSSES.map((_, index) => ({ index, partner: false })), { index: 1, partner: true }];
+      for (const k of cases) {
+        withLiveFight(c, game, app, k.index, () => {
+          const def = k.partner ? BOSSES[k.index].partner! : BOSSES[k.index];
+          const w = k.partner ? game.partner : game.enemy;
+          game.advance(FRAME);
+          const before = skins.stats().active;
+          const cues = record('bossCinematicCue');
+          deplete(game, w);
+          const s0 = cine.state;
+          c.expect(s0?.style === def.transform && s0.wizard === w, `${def.id}: shot style ${s0?.style}, wanted ${def.transform}`);
+          const D = s0!.duration;
+          c.expect(untilShot(game, app, K.burstAt * D * 0.75), `${def.id}: shot ended before the charge`);
+          const chargeClip = w.visual.animator?.directedClip ?? null;
+          const props = skins.stats().active - before;
+          c.expect(untilShot(game, app, K.burstAt * D + 0.25), `${def.id}: shot ended before the burst`);
+          const burstClip = w.visual.animator?.directedClip ?? null;
+          frames(game, D + K.resume + K.easeOut + 1.4);
+          const got = cues().filter((e) => e.wizard === w).map((e) => e.cue);
+          const tag = `${def.id} (${def.transform})`;
+          c.expect(!cine.active, `${tag}: the shot never ended`);
+          if (w.visual.animator) {
+            c.expect(chargeClip !== null && burstClip !== null, `${tag}: rig not directed (charge ${chargeClip}, burst ${burstClip})`);
+            c.expect(w.visual.animator.directedClip === null, `${tag}: rig still directed after the shot`);
+          }
+          c.expect(!PROPS_IN_CHARGE[def.transform] || props > 0, `${tag}: no props during the charge`);
+          c.expect(skins.stats().active === before, `${tag}: ${skins.stats().active - before} props never handed back`);
+          c.expect(got.length >= 3, `${tag}: only ${got.length} cues (${got.join(',')})`);
+          const shown: string[] = [];
+          game.renderer.scene.traverse((o) => {
+            if (o.name.startsWith('cine:') && o.visible) shown.push(o.name);
+          });
+          c.expect(shown.length === 0, `${tag}: still showing ${shown.join(', ')}`);
+          const set = sets.get(def.transform) ?? new Set<CineCue>();
+          for (const g of got) set.add(g);
+          sets.set(def.transform, set);
+          rows.push(`${tag}: charge ${chargeClip} / burst ${burstClip}, ${props} props, cues ${[...new Set(got)].join('+')}`);
+        });
+      }
+    } finally {
+      game.renderer.render = render;
+    }
+    // Each sounds like itself.
+    const keys = [...sets.keys()];
+    for (let i = 0; i < keys.length; i++) {
+      for (let j = i + 1; j < keys.length; j++) {
+        const a = sets.get(keys[i])!, b = sets.get(keys[j])!;
+        c.expect([...a].some((x) => !b.has(x)) && [...b].some((x) => !a.has(x)), `${keys[i]} and ${keys[j]} sound the same`);
+      }
+    }
+    c.expect(keys.length === 6, `styles played: ${keys.join(', ')}`);
+    c.note(rows.join(' | '));
   });
 }

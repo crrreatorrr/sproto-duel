@@ -22,8 +22,11 @@ export class CameraRig {
   private readonly forward = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
-  private distance: number = C.distance;
+  /** Current pull-back from the shoulder point (m; read by QA). */
+  distance: number = C.distance;
   private shoulder: number = C.shoulder;
+  /** Current rise over the shoulder when pulled in close (m; read by QA). */
+  rise = 0;
   private fovBoost = 0;
   private time = 0;
   /** Extra pull-back for cinematic moments (ultimate windup). Decays back to 0 on its own. */
@@ -118,6 +121,17 @@ export class CameraRig {
 
     const cam = this.camera;
     cam.position.copy(shoulder).addScaledVector(this.desired, this.distance);
+    // Pulled in close (cover right behind): rise over the shoulder, as far as the space above allows,
+    // so the view clears the player's head instead of sitting in it.
+    const close = Math.max(0, 1 - this.distance / Math.min(wantDist, 2.2));
+    let rise = C.closeRise * close * close * (3 - 2 * close);
+    if (rise > 0.01) {
+      this.desired.set(0, 1, 0);
+      const upHit = physics.sphereCast(cam.position, this.desired, r, GROUP.WORLD);
+      if (upHit) rise = Math.min(rise, Math.max(0, upHit.distance - 0.02));
+    }
+    this.rise = rise < this.rise ? rise : damp(this.rise, rise, 8, dt);
+    cam.position.y += this.rise;
     if (cam.position.y < 0.3) cam.position.y = 0.3;
 
     // Trauma shake (positional + roll), driven by smooth noise.

@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { resolveAudio, resolveAsset } from '../assets/AssetLoader';
 import { SOUNDS, type SoundAsset, type SoundKey } from '../assets/manifest';
-import type { ProjectileSkin } from '../campaign/levels';
+import type { PowerKind, ProjectileSkin } from '../campaign/levels';
+import type { CineCue } from '../campaign/transformStyles';
 import { events } from '../core/events';
 import type { Game } from '../core/Game';
 
@@ -33,6 +34,51 @@ const SKIN_SOUNDS: Record<Exclude<ProjectileSkin, 'orb'>, { key: SoundKey; rate:
   grenade: { key: 'grenadeThump', rate: 1, volume: 1 },
   hellfire: { key: 'fireRoar', rate: 1.2, volume: 0.8 },
   skull: { key: 'fireRoar', rate: 0.85, volume: 1 },
+};
+
+/** What each boss transformation's cues sound like (rate and volume; the cue's own rate multiplies in). */
+const CINE_CUES: Record<CineCue, { key: SoundKey; rate: number; volume: number }> = {
+  whoosh: { key: 'carpetWhoosh', rate: 0.9, volume: 0.9 },
+  coins: { key: 'pumpCoin', rate: 0.85, volume: 1 },
+  phone: { key: 'phoneBlip', rate: 0.9, volume: 0.8 },
+  candle: { key: 'pumpCoin', rate: 1, volume: 0.55 },
+  crash: { key: 'pillarCrumble', rate: 0.7, volume: 0.9 },
+  oink: { key: 'pigOink', rate: 0.9, volume: 0.9 },
+  hop: { key: 'pillarHit', rate: 1.1, volume: 0.5 },
+  thud: { key: 'pillarHit', rate: 0.6, volume: 0.7 },
+  inhale: { key: 'vapePuff', rate: 0.45, volume: 0.9 },
+  exhale: { key: 'vapePuff', rate: 0.32, volume: 1 },
+  crunch: { key: 'veggieCrunch', rate: 0.9, volume: 0.8 },
+  beep: { key: 'lockBeep', rate: 1, volume: 0.5 },
+  glitch: { key: 'stunBeam', rate: 1.9, volume: 0.45 },
+  gunfire: { key: 'gunshot', rate: 1, volume: 0.6 },
+  casing: { key: 'pillarHit', rate: 2.6, volume: 0.4 },
+  fire: { key: 'fireRoar', rate: 0.8, volume: 0.8 },
+  roar: { key: 'breathRoar', rate: 0.72, volume: 1 },
+};
+
+/** Boss powers: the warning as one starts, and what each piece sounds like as it fires. */
+const POWER_CAST: Record<PowerKind, { key: SoundKey; rate: number; volume: number }> = {
+  strike: { key: 'lockBeep', rate: 0.8, volume: 0.8 },
+  barrage: { key: 'blastCharge', rate: 1.1, volume: 0.9 },
+  march: { key: 'stunCharge', rate: 0.7, volume: 0.9 },
+  rings: { key: 'ultCharge', rate: 1.4, volume: 0.8 },
+  sweep: { key: 'stunCharge', rate: 1.2, volume: 0.9 },
+  cone: { key: 'blastCharge', rate: 0.75, volume: 1 },
+  seekers: { key: 'phoneBlip', rate: 0.7, volume: 0.9 },
+  flash: { key: 'grenadeThump', rate: 1, volume: 1 },
+  cloud: { key: 'vapePuff', rate: 0.6, volume: 0.9 },
+};
+const POWER_FIRE: Partial<Record<PowerKind, { key: SoundKey; rate: number; volume: number }>> = {
+  strike: { key: 'blastExplode', rate: 0.9, volume: 1 },
+  barrage: { key: 'blastExplode', rate: 1.25, volume: 0.6 },
+  march: { key: 'blastExplode', rate: 1.45, volume: 0.55 },
+  rings: { key: 'ultWave', rate: 1.35, volume: 0.8 },
+  sweep: { key: 'stunBeam', rate: 0.7, volume: 1 },
+  cone: { key: 'blastCast', rate: 0.7, volume: 1 },
+  seekers: { key: 'fireRoar', rate: 1.3, volume: 0.6 },
+  flash: { key: 'stunHit', rate: 1.6, volume: 1 },
+  cloud: { key: 'vapePuff', rate: 0.45, volume: 1 },
 };
 
 /** The sound a skin's launch plays (QA and docs). */
@@ -220,20 +266,55 @@ export class AudioManager {
       this.play('blastExplode', { pos: e.pos, rate: 0.7 });
     });
     on('bossCinematic', (e) => {
-      const big = e.stage >= 2 || e.enraged;
+      const big = e.stage >= 2;
       if (e.beat === 'start') this.play('bossRise', { exactPitch: true, rate: big ? 0.85 : 1 });
       else if (e.beat === 'burst') {
-        this.play('bossRoar', { exactPitch: true, rate: e.enraged ? 0.82 : big ? 0.9 : 1.05 });
+        this.play('bossRoar', { exactPitch: true, rate: big ? 0.9 : 1.05 });
         this.play('blastExplode', { rate: 0.6, volume: 0.9 });
       } else if (e.beat === 'slam') this.play('bossSlam', { exactPitch: true, rate: big ? 0.88 : 1 });
       else if (e.beat === 'count') this.play('countdown', { exactPitch: true });
       else if (e.beat === 'resume') this.play('roundStart', { exactPitch: true, rate: 1.15, volume: 0.6 });
     });
+    // Boss special powers: a warning as each starts, a beep as a strike locks, its hits as they land.
+    on('bossPower', (e) => {
+      const k = e.power.kind;
+      if (e.phase === 'cast') {
+        const c = POWER_CAST[k];
+        this.play(c.key, { pos: e.pos, rate: c.rate, volume: c.volume, exactPitch: true });
+      } else if (e.phase === 'lock') {
+        this.play('lockBeep', { pos: e.pos, rate: 1.5, exactPitch: true });
+      } else if (e.phase === 'fire') {
+        const c = POWER_FIRE[k];
+        if (c) this.play(c.key, { pos: e.pos, rate: c.rate * (0.92 + Math.random() * 0.16), volume: c.volume });
+      } else if (k === 'seekers') {
+        this.play('boltHit', { pos: e.pos, rate: 0.8 });
+      }
+    });
+    // A boss's own transformation: his props and moves (carpets, candles, hops, the vape, gunfire, hellfire).
+    on('bossCinematicCue', (e) => {
+      const c = CINE_CUES[e.cue];
+      this.play(c.key, { exactPitch: true, rate: c.rate * e.rate, volume: c.volume });
+    });
     // Boss reward spells: a whoosh, a coin pump, a puff, a lock beep, a fire roar.
     const REWARD_SOUNDS: Record<string, SoundKey> = { carpet: 'carpetWhoosh', pump: 'pumpCoin', vape: 'vapePuff', lockon: 'lockBeep', breath: 'breathRoar' };
     on('rewardCast', (e) => this.play(REWARD_SOUNDS[e.spell], { pos: isPlayer(e.wizard) ? undefined : e.pos, exactPitch: e.spell === 'lockon' }));
+    // The carpet flown into someone: a thump and a whoosh.
+    on('carpetRam', (e) => {
+      this.play('pillarHit', { pos: e.pos, rate: 0.7, volume: 0.9 });
+      this.play('carpetWhoosh', { pos: e.pos, rate: 1.3, volume: 0.7 });
+    });
     on('rewardEnd', (e) => {
       if (e.spell === 'carpet' && e.wizard.active) this.play('pillarHit', { pos: e.wizard.pos, rate: 0.8, volume: 0.35 });
+    });
+    // Arena shifts: a deep rumble as the floor changes, a hiss before a vent and its roar, the spring's chime.
+    on('arenaShift', () => {
+      this.play('ultWave', { rate: 0.55, volume: 0.9 });
+      this.play('pillarHit', { rate: 0.5, volume: 0.7 });
+    });
+    on('ventWarn', (e) => this.play('stunCharge', { pos: e.pos, rate: 0.6, volume: 0.7 }));
+    on('ventErupt', (e) => this.play('fireRoar', { pos: e.pos, rate: 0.9, volume: 1 }));
+    on('springHeal', (e) => {
+      if (isPlayer(e.wizard)) this.play('lifePackPickup', { rate: 1.5, volume: 0.35 });
     });
     on('lifePackSpawn', (e) => this.play('lifePackSpawn', { pos: e.pos, exactPitch: true }));
     on('lifePackPickup', () => this.play('lifePackPickup', { exactPitch: true }));

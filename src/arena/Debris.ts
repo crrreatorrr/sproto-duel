@@ -14,7 +14,8 @@ export class Debris {
   /** The material the debris was built with (the moonlit look). */
   readonly defaultMaterial: THREE.Material;
 
-  constructor(scene: THREE.Scene, private readonly capacity = 160, material?: THREE.Material, geometry?: THREE.BufferGeometry) {
+  /** `floor`: how far a chunk's centre rests above the floor per unit of its scale (the default rock's radius). */
+  constructor(scene: THREE.Scene, private readonly capacity = 160, material?: THREE.Material, geometry?: THREE.BufferGeometry, private readonly floor = 0.22) {
     this.defaultMaterial = material ?? new THREE.MeshStandardMaterial({ color: 0x8a8394, roughness: 0.95, flatShading: true });
     this.mesh = new THREE.InstancedMesh(
       geometry ?? new THREE.DodecahedronGeometry(0.22, 0),
@@ -73,6 +74,11 @@ export class Debris {
     }
   }
 
+  /** One piece thrown from `point` at a given velocity (a spent casing ejected from a gun). */
+  throw(point: THREE.Vector3, vx: number, vy: number, vz: number, size: number, life: number): void {
+    this.emit(point.x, point.y, point.z, vx, vy, vz, size, life);
+  }
+
   /** Re-shape the chunks for an environment theme (e.g. flat partition panels in the office). */
   setGeometry(geometry: THREE.BufferGeometry): void {
     this.mesh.geometry = geometry;
@@ -105,7 +111,7 @@ export class Debris {
       this.pos[i3] += this.vel[i3] * dt;
       this.pos[i3 + 1] += this.vel[i3 + 1] * dt;
       this.pos[i3 + 2] += this.vel[i3 + 2] * dt;
-      const r = 0.22 * this.scale[i];
+      const r = this.floor * this.scale[i];
       if (this.pos[i3 + 1] < r) {
         this.pos[i3 + 1] = r;
         this.vel[i3 + 1] *= -0.3;

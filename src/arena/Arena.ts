@@ -244,6 +244,8 @@ const BILLBOARD_FRAG = /* glsl */ `
 /** Puffs drawn per vape cloud. */
 const PUFFS = 9;
 
+const tmpMood = new THREE.Color();
+
 /** Does segment a -> b pass through (or start or end inside) the upright cloud cylinder at (cx, cz)? */
 function segmentInCloud(a: THREE.Vector3, b: THREE.Vector3, cx: number, cz: number, radius: number, height: number): boolean {
   const dx = b.x - a.x, dz = b.z - a.z;
@@ -267,6 +269,15 @@ export class Arena {
   /** Dropped smoke screens (Vape Cloud), live ones only. */
   private readonly smokeList: Smoke[] = [];
   private hazardList: Hazard[] = [];
+  /**
+   * Floor an arena shift (src/arena/ArenaShifts.ts) made dangerous: its pools and vents. Kept out of
+   * like lava (AI steering, pickups) but they hurt by their own rules, not the fire ring's.
+   */
+  readonly shiftHazards: Hazard[] = [];
+  /** Most the fire ring may be (an arena shift pulls it in); Match keeps fireRadius within it. */
+  ringCap: number = A.fireRadius;
+  /** The theme's light and fog, kept so a mood tint (setMood) can be blended on and taken off. */
+  private readonly moodBase = { fog: new THREE.Color(), hemi: new THREE.Color(), hemiGround: new THREE.Color(), sun: new THREE.Color(), bounce: new THREE.Color() };
   private cloudMesh: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | null = null;
   private readonly cloudColor = new THREE.Color();
   /** Glass shards (made when a layout with glass is first used). */
@@ -294,6 +305,7 @@ export class Arena {
   private readonly brazierFlames: THREE.Sprite[] = [];
   private readonly bowlMat = new THREE.MeshStandardMaterial({ color: 0x3a3030, roughness: 0.6, metalness: 0.5 });
   private readonly background = new THREE.Color(0x07060f);
+  private readonly moodBackground = new THREE.Color(0x07060f);
   private readonly fog = new THREE.Fog(0x140c22, R.fogNear, R.fogFar);
   private readonly sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private readonly hemi = new THREE.HemisphereLight(0x6a78c8, 0x2a1a24, 1.1);
@@ -437,7 +449,23 @@ export class Arena {
   /** The hazard (lava pool) at (x, z), counting `margin` metres around it, or null. */
   hazardAt(x: number, z: number, margin = 0): Hazard | null {
     for (const h of this.hazardList) if (Math.hypot(x - h.x, z - h.z) < h.radius + margin) return h;
+    for (const h of this.shiftHazards) if (Math.hypot(x - h.x, z - h.z) < h.radius + margin) return h;
     return null;
+  }
+
+  /**
+   * Turn the theme's light and fog toward `color` by `k` (0 = the theme as authored). Arena shifts
+   * deepen it each boss stage; a new theme or round starts clean.
+   */
+  setMood(color: THREE.ColorRepresentation, k: number): void {
+    const b = this.moodBase;
+    tmpMood.set(color);
+    this.fog.color.copy(b.fog).lerp(tmpMood, k * 0.6);
+    this.hemi.color.copy(b.hemi).lerp(tmpMood, k);
+    this.hemi.groundColor.copy(b.hemiGround).lerp(tmpMood, k * 0.7);
+    this.sun.color.copy(b.sun).lerp(tmpMood, k * 0.8);
+    this.bounce.color.copy(b.bounce).lerp(tmpMood, k);
+    this.background.copy(this.moodBackground).lerp(tmpMood.multiplyScalar(0.12), k * 0.5);
   }
 
   /**
@@ -453,7 +481,7 @@ export class Arena {
 
   /** Add a push away from nearby hazards to a wanted XZ move (the AI steers around lava). */
   avoidHazards(pos: THREE.Vector3, move: THREE.Vector3, margin: number = A.lavaMargin): void {
-    for (const h of this.hazardList) {
+    for (const h of this.hazardList.length && this.shiftHazards.length ? [...this.hazardList, ...this.shiftHazards] : this.shiftHazards.length ? this.shiftHazards : this.hazardList) {
       const dx = pos.x - h.x, dz = pos.z - h.z;
       const d = Math.hypot(dx, dz) || 1e-3;
       const reach = h.radius + margin + CONFIG.wizard.radius;
@@ -689,6 +717,13 @@ export class Arena {
     this.sun.position.fromArray(t.sun.position).multiplyScalar(SUN_DISTANCE);
     this.bounce.color.setHex(t.bounce.color);
     this.bounce.intensity = t.bounce.intensity;
+    const mb = this.moodBase;
+    mb.fog.copy(this.fog.color);
+    mb.hemi.copy(this.hemi.color);
+    mb.hemiGround.copy(this.hemi.groundColor);
+    mb.sun.copy(this.sun.color);
+    mb.bounce.copy(this.bounce.color);
+    this.moodBackground.copy(this.background);
 
     // Floor: bright texels glow (lava cracks, void runes) through the emissive map.
     const floorMap = files.floor ?? res.floor.texture;
@@ -1014,7 +1049,7 @@ export class Arena {
   // ------------------------------------------------------------------ per frame
 
   reset(): void {
-    this.fireRadius = A.fireRadius;
+    this.fireRadius = this.ringCap = A.fireRadius;
     for (const p of this.pillars) p.reset();
     this.debris.clear();
     this.glassDebris?.clear();

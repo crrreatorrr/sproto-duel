@@ -79,6 +79,9 @@ class CarpetLook {
   private readonly base: Float32Array;
   /** 0 hidden .. 1 full size. */
   show = 0;
+  /** Bank (rad) into turns and sideways slides, smoothed, and the last heading. */
+  private bank = 0;
+  private lastYaw = NaN;
   constructor(scene: THREE.Scene, material: THREE.MeshStandardMaterial) {
     const geo = new THREE.PlaneGeometry(1.0, 1.6, 6, 14);
     geo.rotateX(-Math.PI / 2); // flat, long axis along z (the rider's forward)
@@ -99,9 +102,16 @@ class CarpetLook {
     const k = w.sizeScale;
     m.position.set(root.position.x, root.position.y - 0.04, root.position.z);
     m.rotation.set(0, root.rotation.y, 0);
-    // Bank into turns and pitch with speed.
+    // Bank into turns and sideways slides, and pitch with speed.
     const speed = Math.hypot(w.vel.x, w.vel.z);
+    const yaw = root.rotation.y;
+    const turn = Number.isNaN(this.lastYaw) || dt <= 0 ? 0 : THREE.MathUtils.euclideanModulo(yaw - this.lastYaw + Math.PI, Math.PI * 2) - Math.PI;
+    this.lastYaw = yaw;
+    const side = w.vel.x * Math.cos(yaw) - w.vel.z * Math.sin(yaw);
+    const want = THREE.MathUtils.clamp((dt > 0 ? -turn / dt : 0) * 0.06 + side * 0.035, -0.4, 0.4);
+    this.bank = THREE.MathUtils.damp(this.bank, want, 8, dt);
     m.rotateX(-Math.min(0.14, speed * 0.008));
+    m.rotateZ(this.bank);
     m.scale.set(k * (0.4 + 0.6 * this.show), 1, k * this.show);
     // Ripple travelling back along the rug, stronger at the trailing edge, edges curling up.
     const pos = m.geometry.attributes.position as THREE.BufferAttribute;

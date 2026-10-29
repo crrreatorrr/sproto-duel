@@ -3,7 +3,7 @@ import { CONFIG, type TeamPalette } from '../config';
 import { resolveImage } from '../assets/AssetLoader';
 import { bossStagePortrait } from '../assets/manifest';
 import { STAGE_COUNT } from '../campaign/BossStages';
-import { BOSSES, bossDisplayName } from '../campaign/levels';
+import { BOSSES, bossDisplayName, type BossFighter } from '../campaign/levels';
 import { events } from '../core/events';
 import { feel } from '../core/feel';
 import type { Game } from '../core/Game';
@@ -112,6 +112,8 @@ export class HUD {
   private readonly bannerArt: HTMLImageElement;
   /** Boss stage pips and stage name on the enemy plates (indexed by plate; 0 is unused). */
   private readonly stagePips: HTMLElement[][] = [[], [], []];
+  /** A boss plate's special-power chips (name, recharge fill), rebuilt when the boss changes. */
+  private readonly powerChips: { boss: unknown; root: HTMLElement; chips: { el: HTMLElement; fill: HTMLElement }[] }[] = [];
   private readonly stageNames: HTMLElement[] = [];
   private readonly flash: HTMLElement;
   private readonly ultDim: HTMLElement;
@@ -198,6 +200,7 @@ export class HUD {
       const row = q('.stage-pips', plate);
       for (let k = 0; k < STAGE_COUNT; k++) this.stagePips[i].push(row.appendChild(document.createElement('i')));
       this.stageNames[i] = q('.stage-name', plate);
+      this.powerChips[i] = { boss: null, root: q('.plate-powers', plate), chips: [] };
     }
     this.flash = q('.screen-flash');
     this.ultDim = q('.ult-dim');
@@ -252,7 +255,7 @@ export class HUD {
         <div class="bar hp"><div class="hp-chip"></div><div class="hp-fill"></div></div>
         <div class="mana-row"><div class="bar mana"><div class="mana-fill"></div><i class="mana-mark"></i></div><span class="mana-buff" title="Golden ticket: +50% mana pool, refilled, for 15 s"><i>✦</i><b></b></span></div>
         <div class="bar ult"><div class="ult-fill"></div><span>ULT</span></div>
-        ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div>' : '<div class="life-packs" title="Life packs this fight"></div>'}
+        ${side === 'right' ? '<div class="plate-stage"><span class="stage-pips"></span><span class="stage-name"></span></div><div class="plate-powers"></div>' : '<div class="life-packs" title="Life packs this fight"></div>'}
       </div>`;
   }
 
@@ -351,7 +354,7 @@ export class HUD {
       if (e.wizard === g.player && !e.wizard.noCooldowns) this.showBanner('Ultimate Ready', `Press ${this.slotKeys[4].textContent}`, 'ult', 1.1);
     });
     // Boss evolution: "STAGE 2" and the stage's name in the boss palette, over its concept art if any.
-    // An enraged survivor of a double fight says so instead ("The Midget is enraged!").
+    // In a double fight each boss changes stage on its own, so the banner says whose it is.
     events.on('bossEvolve', (e) => {
       // In a live fight the transformation cinematic has its own title card (BossCinematic).
       if (g.transformCinematics) return;
@@ -359,8 +362,8 @@ export class HUD {
       const box = this.banner.parentElement!;
       setAccent(box, e.wizard === g.partner ? e.boss.palette : null);
       const stage = e.boss.stages[e.stage].name;
-      if (e.enraged) this.showBanner(`${e.wizard.name} is enraged!`, `Stage ${e.stage + 1} · ${stage}`, 'stage enrage', CONFIG.campaign.evolveTime + 0.9, art);
-      else this.showBanner(`Stage ${e.stage + 1}`, stage, 'stage', CONFIG.campaign.evolveTime + 0.6, art);
+      const who = g.partnerActive ? `${e.wizard.name} · ` : '';
+      this.showBanner(`${who}Stage ${e.stage + 1}`, stage, 'stage', CONFIG.campaign.evolveTime + 0.6, art);
     });
     // Every other banner is in the rival's colours.
     for (const ev of ['roundIntro', 'roundStart', 'roundEnd', 'suddenDeath', 'fightCap', 'ultReady', 'lifePackSpawn'] as const) {
@@ -369,6 +372,10 @@ export class HUD {
     // A boss names its signature volley over its head.
     events.on('volley', (e) => {
       if (e.wizard.side === 1) g.popups.spawn(tmp.copy(e.pos).setY(e.pos.y + 0.6), `${e.name}!`, 'boss');
+    });
+    // ...and each special power as it starts.
+    events.on('bossPower', (e) => {
+      if (e.phase === 'cast' && e.wizard.side === 1) g.popups.spawn(tmp.copy(e.pos).setY(e.pos.y + 0.9), `${e.power.name}!`, 'boss');
     });
     events.on('ticketPickup', (e) => {
       if (e.wizard !== g.player) return;
@@ -385,6 +392,24 @@ export class HUD {
     events.on('lifePackPickup', (e) => {
       g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 2), `+${Math.round(e.healed)} HP`, 'heal');
       this.healFlash = 0.6;
+    });
+    // Arena shifts: what the floor just grew, named where it is; a spring's healing as it lands.
+    events.on('arenaShift', (e) => {
+      const sh = e.shift;
+      setAccent(this.banner.parentElement!, null);
+      const sub = e.stage === 1 ? `${sh.pools.name} burn${sh.pools.slow !== undefined ? ' and slow' : ''} · the ${sh.spring.name} heals` : `${sh.vents.name} · the ${sh.spring.name} refills · the fire closes in`;
+      this.showBanner('The Arena Shifts', sub, 'danger', 2.2);
+      const label = (kind: 'pool' | 'spring' | 'vent', text: string, style: 'boss' | 'heal') => {
+        for (const f of g.shifts.of(kind)) if (f.age === 0) g.popups.spawn(tmp.set(f.x, 1.4, f.z), text, style);
+      };
+      if (e.stage === 1) {
+        label('pool', sh.pools.name, 'boss');
+        label('spring', sh.spring.name, 'heal');
+      } else label('vent', sh.vents.name, 'boss');
+    });
+    events.on('springHeal', (e) => {
+      g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 1.9), `+${Math.round(e.amount)}`, 'heal');
+      if (e.wizard === g.player) this.healFlash = Math.max(this.healFlash, 0.35);
     });
     // Reward spells: the vape cloud's healing, and the player plate glowing while it lasts.
     events.on('rewardHeal', (e) => {
@@ -522,7 +547,42 @@ export class HUD {
     const evolving = st.evolving ? ' evolving' : '';
     this.stagePips[i].forEach((pip, k) => this.set(`spip${i}${k}`, pip, 'class', k < st.stage ? 'done' : k === st.stage ? `on${evolving}` : ''));
     this.set(`stagename${i}`, this.stageNames[i], 'text', stage.name);
+    this.updatePowers(i, w, st.boss!, st.stage);
     return true;
+  }
+
+  /**
+   * A boss's special powers under its stage row: one chip each, locked until its stage, filling up
+   * while it recharges, lit when ready, flashing while it plays out.
+   */
+  private updatePowers(i: number, w: Wizard, boss: BossFighter, stage: number): void {
+    const row = this.powerChips[i];
+    if (row.boss !== boss) {
+      row.boss = boss;
+      row.root.textContent = '';
+      row.chips = boss.powers.map((d) => {
+        const el = document.createElement('span');
+        el.title = d.name;
+        el.innerHTML = `<i></i><b>${d.name}</b>`;
+        row.root.appendChild(el);
+        return { el, fill: el.querySelector('i') as HTMLElement };
+      });
+      for (let k = 0; k < 4; k++) {
+        this.cache.delete(`pw${i}${k}class`);
+        this.cache.delete(`pwf${i}${k}transform`);
+      }
+    }
+    const pw = this.game.spells.powers;
+    boss.powers.forEach((d, k) => {
+      const chip = row.chips[k];
+      const locked = d.from > stage;
+      const cd = pw.cooldown(w, d);
+      const firing = pw.firing(w, d);
+      const state = locked ? 'locked' : firing ? 'firing' : cd > 0 ? 'charging' : 'ready';
+      this.set(`pw${i}${k}`, chip.el, 'class', `pw ${state}`);
+      const fill = locked ? 0 : firing ? 1 : 1 - cd / Math.max(1e-3, pw.recharge(d, stage));
+      this.set(`pwf${i}${k}`, chip.fill, 'transform', `scaleX(${Math.max(0, Math.min(1, fill)).toFixed(3)})`);
+    });
   }
 
   private updateSlots(p: Wizard): void {

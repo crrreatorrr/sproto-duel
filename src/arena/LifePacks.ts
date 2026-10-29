@@ -39,11 +39,12 @@ const BEAM_FRAG = /* glsl */ `
     float fade = pow(1.0 - vUv.y, 1.5);
     float pulse = 0.7 + 0.3 * sin(vUv.y * 22.0 - uTime * 6.0);
     float a = fade * pulse * pow(vFacing, 1.3) * uOpacity;
-    gl_FragColor = vec4(uColor * (1.0 + 1.8 * fade), a);
+    gl_FragColor = vec4(uColor * (1.1 + 1.9 * fade), a);
   }
 `;
 
 const TK = CONFIG.tickets;
+const H = CONFIG.pickupHighlight;
 const HEAL_COLOR = new THREE.Color(HEAL);
 const HEAL_HI_COLOR = new THREE.Color(HEAL_HI);
 const tmpColor = new THREE.Color();
@@ -58,6 +59,8 @@ export class LifePack {
   readonly pos = new THREE.Vector3();
   /** Seconds on the floor (fight phase only). */
   age = 0;
+  /** Floor pulse ring timer (pickupHighlight). */
+  pulseAcc = 0;
   readonly root = new THREE.Group();
   /** The flask (GLB or code-built), spun and bobbed about its centre. */
   readonly body = new THREE.Group();
@@ -99,7 +102,7 @@ export class LifePack {
 /** A code-built life pack (no GLB): a red glass potion flask with a white cross and a cork. */
 function buildFlask(size: number): THREE.Group {
   const g = new THREE.Group();
-  const glass = new THREE.MeshStandardMaterial({ color: 0xd8162c, emissive: 0xff1a35, emissiveIntensity: 0.55, roughness: 0.18, metalness: 0.1 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xd8162c, emissive: 0xff1a35, emissiveIntensity: 0.55 * CONFIG.pickupHighlight.emissive, roughness: 0.18, metalness: 0.1 });
   const white = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.65, roughness: 0.4 });
   const cork = new THREE.MeshStandardMaterial({ color: 0x9a6a3a, roughness: 0.8 });
   const k = size;
@@ -179,7 +182,7 @@ export class LifePacks {
         if (m && 'emissive' in m) {
           const c = m.clone();
           c.emissive.setHex(RED);
-          c.emissiveIntensity = 0.28;
+          c.emissiveIntensity = 0.28 * H.emissive;
           (o as THREE.Mesh).material = c;
         }
       });
@@ -413,13 +416,19 @@ export class LifePacks {
       far = Math.min(2.6, Math.max(1, tmpPos.length() / 16));
     }
     p.glow.position.set(0, p.body.position.y, 0);
-    p.glow.scale.setScalar(2.2 * Math.max(0.001, scale) * (0.9 + 0.35 * beat) * (1 + (far - 1) * 0.5));
-    p.glow.material.opacity = 0.55 * alpha;
+    p.glow.scale.setScalar(2.2 * H.glowScale * Math.max(0.001, scale) * (0.9 + 0.35 * beat) * (1 + (far - 1) * 0.5));
+    p.glow.material.opacity = Math.min(1, 0.55 * H.glowOpacity) * alpha;
     const u = p.beam.material.uniforms;
     u.uTime.value = time;
-    u.uOpacity.value = 0.7 * alpha * Math.min(1, p.active ? p.popTime / POP_TIME : 1) * (0.8 + 0.2 * beat);
-    p.beam.scale.set(scale * far, 1, scale * far);
-    p.floorGlow.material.opacity = 0.55 * alpha * (0.75 + 0.25 * beat);
+    u.uOpacity.value = Math.min(1, 0.7 * H.beamOpacity) * alpha * Math.min(1, p.active ? p.popTime / POP_TIME : 1) * (0.8 + 0.2 * beat);
+    p.beam.scale.set(scale * far * H.beamWidth, 1, scale * far * H.beamWidth);
+    p.floorGlow.material.opacity = Math.min(1, 0.55 * H.floorOpacity) * alpha * (0.75 + 0.25 * beat);
+    // A ring pulsing out along the floor on the heartbeat.
+    if (p.active && (p.pulseAcc += dt) >= H.pulseEvery) {
+      p.pulseAcc -= H.pulseEvery;
+      tmpPos.set(p.root.position.x, 0.08, p.root.position.z);
+      this.fx.ring(tmpPos, RED, H.pulseRadius, H.pulseTime);
+    }
   }
 }
 

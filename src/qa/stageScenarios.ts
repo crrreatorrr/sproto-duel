@@ -276,9 +276,12 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
           const p = ai.profile;
           c.near(p.reactionTime, boss.ai.reactionTime * A.reactionTime[s], 1e-9, `s${s + 1} reaction`);
           c.expect(Math.abs(p.aimError - boss.ai.aimError * A.aimError[s]) < 1e-9, `s${s + 1} aimError ${p.aimError}`);
-          c.expect(p.burst[0] === boss.ai.burst[0] + A.burstBonus[s] && p.burst[1] === boss.ai.burst[1] + A.burstBonus[s], `s${s + 1} burst ${p.burst}`);
-          c.expect(Math.abs(p.burstPause[1] - boss.ai.burstPause[1] * A.burstPause[s]) < 1e-9, `s${s + 1} burstPause ${p.burstPause}`);
-          c.expect(Math.abs(p.strafeSpeed - boss.ai.strafeSpeed * A.strafeSpeed[s]) < 1e-9, `s${s + 1} strafe ${p.strafeSpeed}`);
+          // On top of the stage scaling, every boss presses harder (CONFIG.campaign.aggression).
+          const G = C.aggression;
+          c.expect(p.burst[0] === boss.ai.burst[0] + A.burstBonus[s] && p.burst[1] === boss.ai.burst[1] + A.burstBonus[s] + G.burstExtra, `s${s + 1} burst ${p.burst}`);
+          c.expect(Math.abs(p.burstPause[1] - boss.ai.burstPause[1] * A.burstPause[s] * G.burstPause) < 1e-9, `s${s + 1} burstPause ${p.burstPause}`);
+          c.expect(Math.abs(p.strafeSpeed - boss.ai.strafeSpeed * A.strafeSpeed[s] * G.strafeSpeed) < 1e-9, `s${s + 1} strafe ${p.strafeSpeed}`);
+          c.expect(p.preferredRange[1] < boss.ai.preferredRange[1], `s${s + 1} does not close in`);
           c.expect(p.dodgeChance <= A.maxChance && p.dodgeChance >= boss.ai.dodgeChance, `s${s + 1} dodge ${p.dodgeChance}`);
           c.expect(p.leadFactor >= boss.ai.leadFactor && p.punishChance >= boss.ai.punishChance && p.blastChance >= boss.ai.blastChance, `s${s + 1} lead/punish/blast not scaled up`);
           if (s > 0) {
@@ -384,7 +387,7 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
       const hp = p.health;
       c.step(0.6);
       // The middle shot lands; the others pass to either side.
-      c.near(hp - p.health, B.damage * 0.6 * 1.5, 1e-6, 'one fan hit (x damage multiplier)');
+      c.near(hp - p.health, B.damage * 0.6 * 1.5 * e.spellDamageScale, 1e-6, 'one fan hit (x damage multiplier and spell scale)');
       c.expect([...game.ui.querySelectorAll('.popup')].some((el) => el.textContent === 'QA Fan!'), 'no "QA Fan!" popup over the boss');
     });
   });
@@ -408,7 +411,7 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
       c.near(times[6] - t0, 6 * def.interval, DT + 1e-6, 'burst length s');
       for (let i = 1; i < times.length; i++) c.expect(Math.abs(times[i] - times[i - 1] - def.interval) <= DT + 1e-6, `gap ${i} = ${(times[i] - times[i - 1]).toFixed(3)} s`);
       // Each shot re-aims and sweeps the spread; all hit the near-static target at 0.5x.
-      c.near(CONFIG.wizard.maxHealth - p.health, 7 * B.damage * 0.5 * e.damageMultiplier, B.damage, 'burst damage');
+      c.near(CONFIG.wizard.maxHealth - p.health, 7 * B.damage * 0.5 * e.damageMultiplier * e.spellDamageScale, B.damage * e.spellDamageScale, 'burst damage');
       // A stun cuts it short.
       c.setup();
       c.aimAt(e, p);

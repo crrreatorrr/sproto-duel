@@ -117,6 +117,8 @@ function withStage(c: Ctx, game: Game, boss: BossDef, stage: number, fn: () => v
       if (game.partnerActive) game.partnerStages.evolveTo(s);
       c.step(C.evolveTime + 0.05);
     }
+    // A flying stage (The Midget's last) climbs to its hover first.
+    if (game.enemies.some((w) => w.flying)) c.step(1.2);
     fn();
   } finally {
     game.setupEnemy(prev);
@@ -297,8 +299,10 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
       dataPoint(q, partner, 0, 'phone', exp);
       c.expect(!!from && from.distanceTo(exp) < TIGHT, `Midget stage 1: bolt ${from ? from.distanceTo(exp).toFixed(3) : 'none'} m from his phone`);
       toLocal(q, from!, local);
-      // His left hand (+x), at hand height of a 1.25 m man (lower at the cast's release than at rest).
-      c.expect(local.x > 0.2 && local.y > 0.4 && local.y < 1.0, `Midget stage 1: bolt at local (${local.x.toFixed(2)}, ${local.y.toFixed(2)}): not his left hand's phone`);
+      // His left hand at hand height of a 1.25 m man: his own over-shoulder throw whips that hand in
+      // to his centre line at the release, so it is on the line or left of it (+x), never his right.
+      c.expect(local.x > -0.1 && local.y > 0.4 && local.y < 1.0, `Midget stage 1: bolt at local (${local.x.toFixed(2)}, ${local.y.toFixed(2)}): not his left hand's phone`);
+      c.expect(q.visual.muzzleSocketed(q.muzzleIndex('bolt')), 'Midget stage 1: phone not riding his hand');
       c.expect(q.visual.muzzleType(q.muzzleIndex('bolt')) === 'phone', 'Midget muzzle is not a phone');
     });
     // Stages 2 and 3: a phone in each hand, shots alternate; stage 3's are drawn in his fists.

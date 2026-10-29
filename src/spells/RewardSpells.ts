@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { events } from '../core/events';
+import { feel } from '../core/feel';
 import { clamp } from '../core/math';
 import type { Arena } from '../arena/Arena';
 import type { Effects } from '../fx/Effects';
@@ -34,6 +35,8 @@ export class RewardSpells {
   private readonly breathTick = new Map<Wizard, number>();
   /** Vape-cloud healing not yet shown as a popup, per wizard. */
   private readonly healShown = new Map<Wizard, number>();
+  /** Who each rider's carpet already rammed this ride. */
+  private readonly rammed = new Map<Wizard, Wizard[]>();
   /** Sim time of the last "BLOCK" callout a shield made against the breath, per shielder. */
   private readonly blockShownAt = new Map<Wizard, number>();
   private time = 0;
@@ -45,7 +48,7 @@ export class RewardSpells {
     private readonly wizards: Wizard[],
     private readonly arena: Arena,
     /** SpellSystem.dealDamage. */
-    private readonly damage: (target: Wizard, source: Wizard | null, amount: number, point: THREE.Vector3, kind: 'breath' | 'scorch') => number,
+    private readonly damage: (target: Wizard, source: Wizard | null, amount: number, point: THREE.Vector3, kind: 'breath' | 'scorch' | 'ram', knockDir?: THREE.Vector3, knockback?: number) => number,
     /** SpellSystem's NO MANA feedback. */
     private readonly noMana: (w: Wizard) => void,
   ) {
@@ -105,10 +108,19 @@ export class RewardSpells {
     w.castPulse = 1;
     const pos = w.pos.clone();
     switch (id) {
-      case 'carpet':
+      case 'carpet': {
         w.carpetTime = RS.carpet.duration;
-        w.intent.holdBolt = false;
+        this.rammed.set(w, []);
+        // Takeoff: launched at once at the burst's speed where you're steering (standing still, the
+        // burst waits for you to move).
+        const C = RS.carpet;
+        const dir = tmpDir.copy(w.intent.move).setY(0);
+        if (dir.lengthSq() > 0.01) {
+          dir.normalize().multiplyScalar(CONFIG.wizard.moveSpeed * C.speedMultiplier * (1 + C.boost));
+          w.vel.set(dir.x, 0, dir.z);
+        }
         break;
+      }
       case 'pump':
         w.pumpTime = RS.pump.duration;
         break;
@@ -142,8 +154,37 @@ export class RewardSpells {
         events.emit('rewardEnd', { wizard: w, spell: 'breath' });
       }
       if (w.scorched) this.burn(w, dt);
+      if (w.riding && w.alive) this.ram(w);
     }
     this.healInSmoke(dt);
+  }
+
+  /**
+   * Magic Carpet ram: flying into an enemy fast enough hits it (once per enemy per ride) and
+   * knocks it back along the carpet's path. The carpet carries on.
+   */
+  private ram(w: Wizard): void {
+    const C = RS.carpet;
+    const speed = Math.hypot(w.vel.x, w.vel.z);
+    if (speed < C.ramSpeed) return;
+    const done = this.rammed.get(w) ?? [];
+    for (const o of this.wizards) {
+      if (o.side === w.side || !o.alive || !o.active || done.includes(o)) continue;
+      const dx = o.pos.x - w.pos.x, dz = o.pos.z - w.pos.z;
+      if (Math.hypot(dx, dz) > w.radius + o.radius + 0.35 || Math.abs(o.pos.y - w.pos.y) > 1.6) continue;
+      // Only what is ahead of the carpet.
+      if (dx * w.vel.x + dz * w.vel.z <= 0) continue;
+      done.push(o);
+      this.rammed.set(w, done);
+      if (o.invulnerable) continue;
+      tmpDir.set(w.vel.x, 0, w.vel.z).normalize();
+      const point = o.chest(tmpPoint);
+      this.damage(o, w, C.ramDamage, point, 'ram', tmpDir, C.ramKnockback);
+      feel.freeze(C.ramHitStopMs);
+      feel.shakeAt(point, 0.5);
+      events.emit('callout', { pos: point.clone(), text: 'RAMMED!', style: 'perfect' });
+      events.emit('carpetRam', { wizard: w, target: o, pos: point.clone() });
+    }
   }
 
   /** Hellfire Breath: every `tick` s, damage and set alight every enemy inside the cone. */
@@ -302,6 +343,7 @@ export class RewardSpells {
 
   clear(): void {
     this.breathTick.clear();
+    this.rammed.clear();
     this.healShown.clear();
     this.blockShownAt.clear();
     this.fx.clear();

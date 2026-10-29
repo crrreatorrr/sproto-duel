@@ -79,7 +79,9 @@ translucent, blurred dark backing so they read over any sky; the HUD steps aside
 During every round's fight (Quick Duel and the Boss Gauntlet), a floating golden ticket appears
 every 6–12 seconds at a random open spot inside the fire ring, at most 3 at a time; look for the
 gold light beams. Touch one (walking or mid-jump) to collect it: for **15 seconds** your max mana
-rises from 100 to **150** and refills at once, so you can chain far more spells. Another ticket during the boost resets it to 15 seconds (it doesn't
+rises from 100 to **150** and refills at once, so you can chain far more spells. Tickets and life
+packs glow hard to be seen: a tall beam in their colour, a bright halo, and a ring pulsing out
+along the floor every 1.3 s (`CONFIG.pickupHighlight`). Another ticket during the boost resets it to 15 seconds (it doesn't
 stack). When the boost ends, mana drops back to at most 100. A ticket left alone blinks and fades
 after 20 seconds, and the closing fire burns any it reaches. Rivals go for tickets too, when one
 is near, closer to them than to you (or their mana is low), and nothing is flying at them; a gold
@@ -131,13 +133,99 @@ grows out of the light with an overshoot squash and stretch, and he slams down: 
 shockwave ring, debris and a big shake. The camera returns to your shoulder, a quick "3 2 1"
 plays, and the fight resumes (the boss stays frozen and immune for a moment). Stage 3 is longer
 and bigger (higher rise, more spins, a wider orbit, more debris, a false burst first, a bigger
-card), and so is a double fight's enrage. Press Space, Enter, click or the pad's A to play the
+card). In the double fight the card names whose transformation it is. Press Space, Enter, click or the pad's A to play the
 rest of a cinematic faster. Pausing pauses it. Before the shot the camera picks the side of its
 orbit with the most clearance (sphere casts at every beat; a lift over the cover only if every
 side is blocked), so stalls, cubicles, cars and rocks never push it into the boss. The light show
 is in the boss's colours rather than white, and bright arenas (desert, volcano) turn their bloom,
 flashes and sparks down for the shot so the new form reads. Headless runs (QA, soaks) transform
 instantly on sim time instead. Tuning: `CONFIG.campaign.cinematic`; code: `src/campaign/BossCinematic.ts`.
+
+**Every boss transforms his own way.** On top of that shared shot, each boss has his own
+transformation (`BossFighter.transform`, `src/campaign/transformStyles.ts`): the cinematic poses his
+rig with his own clips (he reels from the blow that broke the bar, charges, bursts out of the
+light as the new form and lands), bends his motion, brings his own props (his own projectile
+looks, pooled) and effects, and plays his own sound cues. His title card is styled to match.
+
+| Boss | Transformation |
+|---|---|
+| Sahil | Raises his staff while his stock takes flight: flying carpets and rolled rugs whirl round him in a sand devil and he lifts off on a carpet. At the burst the carpets scatter and gold coins rain down; he lands in a ring of sand. |
+| Bitcoin Obama | Hypes the crowd, arms up, with phones circling him and pigs flying overhead while a ring of green candles pumps up round him, each a step higher. At the burst the candles turn red and crash (the dump), and the phones and pigs are flung out. |
+| The Midget | Throws a tantrum: hops higher and higher in a dust devil, turning in quarter snaps, then leaps, spins like a top and ground-pounds. |
+| Broccoli Head | Takes one enormous drag on the vape: vapour is sucked into it, he puffs up and floats on a cushion of cloud, swaying. Then the exhale: a cloud blown out all round, a smoke ring rolling across the arena, florets flying. |
+| Glowie | Glitches in place: he skips between nearby spots and headings, dropping pixels, under a scanner ring with red laser sights sweeping the room and lock-on beeps speeding up. At the burst the screen glitches and he empties a magazine into the sky; the casings rain down as he lands. |
+| Tinubu | A summoning circle opens under him and a column of hellfire rises while burning skulls circle him and he breathes fire, arms raised and wings beating. At the burst the column erupts and the skulls are flung out; fire bursts up all round the circle as he lands. |
+
+Shots last 3.2 s into stage 2 and 4.4 s into stage 3 (still skippable).
+Tuning: `CONFIG.campaign.cinematic.styles`.
+
+**Aggressive bosses.** Bosses press you with their ordinary spells: half the pause between bursts,
+an extra bolt per burst, two to two and a half times the blasts, stuns and punishes, and they close
+in. To keep the ladder's steps, each boss's spells are re-weighted (`spellDamage`): the early
+bosses' hit for about half what they did (Sahil 45%, the double fight 50%), Broccoli Head's about
+the same (97%), Glowie's harder (115%) and Tinubu's 80%. The fights are busier to dodge rather
+than much deadlier. Tuning: `CONFIG.campaign.aggression` and each boss's `spellDamage`.
+
+**Special powers.** Every boss has three or four special powers on top of his spells, each a
+different mechanic with its own way out. A power unlocks at its stage (stage 1 has one, each
+stage adds more), recharges on its own cooldown (faster in later stages) and is called out over
+the boss's head as it starts. Every power is telegraphed on the floor first, darkened and in a
+warning red, and gives you at least ~0.9 s. Rolling through any of them at the right moment
+(i-frames) evades it. The boss plate lists his powers: locked ones dimmed, a used one filling up
+as it recharges, a ready one lit. A double fight's bosses take turns (a short gap between any two
+powers), and nothing hurts its own side.
+
+| Kind | What it does | Way out |
+|---|---|---|
+| Strike | A reticle follows you, locks, then it's hit from above | Walk out after it locks |
+| Barrage | Circles land round you one after another | Keep moving between them |
+| March | A line of eruptions runs from the boss toward where you stood | Sidestep the line |
+| Rings | Shockwaves roll out along the floor | Jump each one |
+| Sweep | A low beam turns round the boss | Jump it as it passes |
+| Cone | A cone toward you locks, then blasts and knocks back | Step out of it, or get behind cover |
+| Seekers | Slow homing objects chase you | Roll through one (it loses its lock), shield, or break line of sight |
+| Flashbang | A grenade lands and pops: if you look at it you're blinded (stunned) | Look away |
+| Toxic cloud | A cloud forms where you stand and hurts every second | Get out |
+
+| Boss | Stage 1 | Stage 2 adds | Stage 3 adds |
+|---|---|---|---|
+| Sahil | Carpet Sweep (sweep) | Bazaar Rain (barrage of rugs) | Magic Carpet Drop (strike) |
+| Bitcoin Obama | Green Candles (march) | Shill Calls (homing phones) | Liquidation (rings) |
+| The Midget | Tantrum Stomp (rings) | To the Moon (strike) | Pig Rain (barrage) |
+| Broccoli Head | Floret Mortar (barrage) | Hotbox (toxic cloud) | Big Exhale (cone) |
+| Glowie | Drone Strike (strike) | Flashbang | Suppressing Fire (sweep) |
+| Tinubu | Hellfire Pillars (march) | Infection (homing skulls that drain mana and end a golden-ticket boost) | Inferno Rings (rings), Meteor Rain (barrage) |
+
+Tuning: each boss's `powers` in [src/campaign/levels.ts](src/campaign/levels.ts) and
+`CONFIG.powers`; rules: `src/spells/BossPowers.ts`; looks: `src/fx/PowerFx.ts`. The soak's
+reference AI reads the telegraphs too (`CONFIG.powers.ai`).
+
+**Arena shifts.** The arena changes with the fight. When the fight reaches stage 2, the floor opens
+hazard pools and a healing spring wells up; at stage 3, vents start erupting. The fire ring pulls
+in a little each stage (27.8 → 26.8 → 25.5 m) and the light and fog turn toward the boss's colour.
+Each change waits for the transformation to finish, is announced ("The Arena Shifts"), fades in
+harmless for 1.8 s, and stays until the round ends. Everything sits on open floor (never on the
+spawn lane, under cover or on someone) and affects the bosses just as much as you.
+
+- **Pools** burn anyone standing in them (feet on the floor: jumping over, the Magic Carpet and
+  a flyer are spared). Sahil's quicksand barely burns but halves your speed.
+- **The spring** heals whoever stands in it (9 HP/s) until it has given 40 HP; then it is dry
+  until stage 3 fills it again.
+- **Vents** glow and fill red for 1.3 s, then erupt: damage and a shove that throws you clear.
+  Rolling through the eruption evades it.
+
+| Boss | Pools (stage 2) | Spring (stage 2) | Vents (stage 3) |
+|---|---|---|---|
+| Sahil | Quicksand (4/s, half speed) | Oasis | Sand Geysers (9) |
+| Bitcoin Obama & The Midget | Liquidation Pits (11/s) | Airdrop | Gas Fees (10) |
+| Broccoli Head | Toxic Runoff (12/s) | Fire Hydrant | Sewer Steam (10) |
+| Glowie | Live Wires (13/s) | Water Cooler | Server Meltdown (11) |
+| Tinubu | Magma Fissures (16/s) | Hot Spring | Eruptions (13) |
+
+In the double fight the arena follows whichever boss is furthest along. The AI keeps out of pools
+and vents, and the soak's reference AI drinks from the spring when hurt. Tuning: each boss's
+`shift` in [src/campaign/levels.ts](src/campaign/levels.ts) and `CONFIG.arenaShifts`; rules and
+looks: `src/arena/ArenaShifts.ts`.
 
 **Safety caps.** A stage still going after 9 minutes pulls the fire ring in to close quarters
 (it opens again when the stage ends); after 35 minutes of fighting the ring closes completely,
@@ -152,18 +240,23 @@ While god mode is on, the boss card's reward line reads "God mode: progress not 
 saved" after god-mode wins). A fight's result is settled the moment it ends: toggling god mode
 before the results show changes nothing.
 
-**The double fight.** In fight 2 you face Bitcoin Obama (tall) and The Midget (short, quick and
-jumpy) at the same time. Each has his own stage bars, AI and palette (both throw phones and pigs),
+**The double fight.** In fight 2 you face Bitcoin Obama (tall) and The Midget (short, much faster
+than anyone, 1.5× walk and sprint, but a little lighter: less health and softer hits) at the same
+time. The Midget's final form flies: he hovers about 1.7 m up (over low cover, fire and lava; your
+blasts and spells reach him, and a stun drops him to the floor until it wears off), riding a jet of
+sparks. Each has his own stage bars, AI and palette (both throw phones and pigs),
 and the two keep apart and try to flank you. Spells never hurt, push, stun, block or clash with
 their own side, so their shots pass through each other. You win once both are knocked out (a
-fallen boss stays down and doesn't block shots). When one of them falls, the other is **enraged**:
-he transforms straight into his last stage with a full last-stage bar. Aim assist locks onto
+fallen boss stays down and doesn't block shots). They are **separate bosses**: each changes stage
+only when his own bar empties (his own transformation, his name on the card), and when one falls
+the other carries on exactly as he was, same stage, same bar. Aim assist locks onto
 whichever standing boss is nearest your crosshair. The Midget's hitbox is 1.25 m tall, so a bolt
 aimed high at Obama can fly over his head. Every boss's hurtbox grows with its stage model.
 
 - Bosses, stages, stage bars, AI profiles, damage multipliers, palettes, themes, intro lines and
   the double fight's `partner`: [src/campaign/levels.ts](src/campaign/levels.ts). Stages:
-  `src/campaign/BossStages.ts` (one per boss wizard); cinematics: `src/campaign/BossCinematic.ts`;
+  `src/campaign/BossStages.ts` (one per boss wizard); cinematics: `src/campaign/BossCinematic.ts`
+  and each boss's own transformation in `src/campaign/transformStyles.ts`;
   life packs: `src/arena/LifePacks.ts`. The partner is a third wizard (`Game.partner`, side 1)
   that joins `Game.wizards` only during that fight. Flow: `src/App.ts`; rounds and the safety
   caps: `src/core/Match.ts`; progress: `src/campaign/Campaign.ts`. Tuning: `CONFIG.campaign`
@@ -191,7 +284,7 @@ never cast these.
 
 | Beat | Spell | Key | Pad | Effect |
 |---|---|---|---|---|
-| Sahil | **Magic Carpet** | Z | D-pad ← | 2.5 s on a flying carpet: 2.2× speed, hovering 0.45 m up (no lava or fire-ring burn; it glides up over low cover like rug piles, car hoods and carts). No casting while you ride; press again to hop off. 12 s cooldown, 20 mana |
+| Sahil | **Magic Carpet** | Z | D-pad ← | 3.5 s on a flying carpet: a burst of speed at takeoff, then 2.2× speed, hovering 0.45 m up and banking into turns (no lava or fire-ring burn; it glides up over low cover like rug piles, car hoods and carts, and skims over shockwaves and sweeping beams, the bosses' Ultimates included). Fire bolts as you fly (no other spells); fly into an enemy at speed to ram it (14 damage and a big knockback, once per enemy per ride); jump to leap off higher than a jump, keeping the carpet's speed; press it again to hop off. 12 s cooldown, 20 mana |
 | Bitcoin Obama & The Midget | **Pump It** | X | D-pad ↑ | 6 s surge: +50% spell damage and 1.5× Ultimate charge. Phones orbit you and a green chart arrow climbs over your head. 20 s cooldown, 25 mana |
 | Broccoli Head | **Vape Cloud** | V | D-pad → | A 5 m smoke screen at your feet for 6 s. Enemies inside it or looking through it lose track of you and fire at your last known spot (the arena vape-cloud perception, `Arena.obscured`). You heal 2 HP/s inside. Attacking from inside gives you away: the AI sees you for 0.5 s after each attack (`CONFIG.ai.castRevealTime`), and the healing pauses for 1 s. 22 s cooldown |
 | Glowie | **Lock-On** | G | D-pad ↓ | 6 s of homing bolts: each bolt turns gently (2.4 rad/s) toward the nearest enemy in a 70° cone in front of you; a green reticle marks it. Rolls still slip them; shields, reflects and clashes work as usual. 20 s cooldown |
@@ -220,24 +313,26 @@ never cast these.
   is in `Wizard.updateMovement`, the smoke in `Arena.addSmoke`. Tuning: `CONFIG.rewardSpells`; keys:
   `CONFIG.controls` / `CONFIG.gamepad.bindings`. Icons: `ui/spells/spell_<id>.png`.
 
-**Reference ladder** (`await __duel.qa.campaignSoak(16, { seed: 2026, spells: 'ladder' })`, the
-reference AI bringing the boss spells it would have learned by then; single-life fights):
+**Reference ladder** with special powers (`await __duel.qa.campaignSoak(12, { seed: 777, spells: 'ladder' })`,
+the reference AI bringing the boss spells it would have learned by then and reading the power
+telegraphs; single-life fights):
 
-| Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Boss damage/s per stage |
-|---|---|---|---|---|---|---|
-| Sahil | none | 100% (16/16) | 15.5 min | 3 | 5.0 / 5.3 / 5.2 | 0.10 / 0.28 / 0.39 |
-| Bitcoin Obama & The Midget | carpet | 69% (11/16) | 14.2 min | 3 / 3 | 5.8 / 6.8 / 3.0 | 0.20 / 0.52 / 0.52 |
-| Broccoli Head | carpet, pump | 44% (7/16) | 13.2 min | 3 | 4.2 / 4.5 / 4.9 | 0.27 / 0.50 / 0.82 |
-| Glowie | carpet, pump, vape | 19% (3/16) | 14.5 min | 3 | 4.8 / 5.4 / 5.9 | 0.35 / 0.53 / 0.84 |
-| Tinubu | carpet, pump, vape, lock-on | 4% (1/24) | 10.1 min | 2.5 | 4.6 / 4.7 / 3.4 | 0.46 / 0.92 / 1.34 |
+| Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Boss damage/s per stage | Power share of damage |
+|---|---|---|---|---|---|---|---|
+| Sahil | none | 100% (12/12) | 15.8 min | 3 | 4.9 / 5.5 / 5.3 | 0.11 / 0.27 / 0.49 | 25% |
+| Bitcoin Obama & The Midget | carpet | 67% (8/12) | 11.9 min | 3 / 3 | 4.7 / 6.0 / 2.6 | 0.25 / 0.53 / 0.78 | 33% |
+| Broccoli Head | carpet, pump | 33% (4/12) | 14.2 min | 3 | 4.6 / 4.8 / 4.8 | 0.24 / 0.47 / 0.80 | 26% (toxic cloud 6%) |
+| Glowie | carpet, pump, vape | 25% (3/12) | 14.6 min | 3 | 5.2 / 5.3 / 5.6 | 0.34 / 0.53 / 0.77 | 14% |
+| Tinubu | carpet, pump, vape, lock-on | 0% (0/12) | 9.7 min | 2 | 4.6 / - / - | 0.35 / 0.88 / - | 24% |
 
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
-fights), so a 16-fight rate moves by roughly ±10 points between runs. Final tuning (after the vape
-cloud was toned down: 2 HP/s, none right after attacking, and attacking from it gives you away):
-the duo ×0.93, Broccoli Head ×1.0, Glowie ×1.0 and Tinubu ×1.0 damage, with Tinubu's last bar at
-800. Every boss hits harder than before the "bosses do more damage" pass (stage damage ×1 / ×1.25 /
-×1.5, up from ×1 / ×1.1 / ×1.25). Tinubu is almost impossible: the reference AI usually dies in his
-second or third form, and in the rare win his final form falls in about 3.5 minutes.
+fights), so a 12-fight rate moves by roughly ±15 points between runs. The special powers added a
+new, dodgeable share of each boss's damage (a quarter to a third for the reference AI, which takes
+about a sixth of what a player standing still would), so the bosses' spell damage came down to
+keep the ladder: Sahil ×0.77, Bitcoin Obama ×0.64 and The Midget ×0.52, Broccoli Head ×0.76,
+Glowie ×0.86, Tinubu ×0.74 (stage damage ×1 / ×1.25 / ×1.5), and powers deal `CONFIG.powers.damageScale`
+(0.4) of their listed damage. A player who stands still takes far more than before. Tinubu is
+almost impossible: the reference AI dies in his second form.
 
 ## God mode (testing)
 
@@ -337,6 +432,9 @@ leaves its caster from a **muzzle** on the current look (`src/wizard/muzzles.ts`
   `CONFIG.camera.bossFade`): within 2 m of the camera or standing between the camera and you, and
   gone entirely when the camera is inside one. Wide models lean less and are lifted while leaning
   so their hems never dip into the floor.
+- **Backed against cover**, the camera has to pull in toward you: it rises over your shoulder (up
+  to 0.6 m, if the space above is clear) and your own character dithers see-through as it gets
+  close, so the view never ends up inside your robe (`CONFIG.camera.closeRise`, `playerFade`).
 
 ## Character animation
 
@@ -353,8 +451,13 @@ Every character moves, rigged or not (`src/wizard/WizardVisual.ts`, `src/wizard/
   hold ~0.35 s, a stun's ice freezes the pose once formed, and hit-stop freezes everything. Root
   motion is pinned at load so the body stays over its collider; the mocap's turned stances are
   turned back (a constant hips yaw per clip, measured at load) and a look-at keeps the eyes on the
-  target. Missing clips fall back gracefully (no strafe clips: the hips turn toward the travel
+  target. Your long staff is kept out of your body: the mocap was made empty-handed, so after each
+  frame's pose the hand turns the staff just enough that its shaft clears the torso, head and coat
+  (`rigged.staff` in the manifest, Animator `keepStaffClear`). Missing clips fall back gracefully (no strafe clips: the hips turn toward the travel
   while the chest keeps facing the target); Tinubu's split wings flap procedurally.
+  Bitcoin Obama and The Midget have their own idle, run, throws and victory (Obama: open-handed
+  talk, a waving jog, a pitch and a crouch-charged throw; The Midget: a boxer's bounce, a leaning
+  sprint, an over-shoulder whip and a slam, and a swimming flight in his last stage).
 - **Procedural motion** on the hip pivot (all of it for static meshes and placeholders, a lighter
   share on top of clips): breathing and idle sway, a lean into movement, acceleration and turns, a
   footstep bob and waddle paced by the stride, jump squash and stretch, a flinch along the
@@ -403,7 +506,7 @@ prompts and specs. Drop a file at its manifest path and it replaces the placehol
 
 ## QA
 
-A QA harness runs inside the game (228 scenarios, about 1.5 to 2.5 minutes in a real-sized window). Open the browser console:
+A QA harness runs inside the game (250 scenarios, about 1.5 to 2.5 minutes in a real-sized window). Open the browser console:
 
 ```js
 await __duel.qa.runAll()            // deterministic scenarios over the real simulation
@@ -411,6 +514,7 @@ await __duel.qa.runAll('muzzles.')  // spells leave each caster's staff, phones,
 await __duel.qa.runAll('anim.')     // rigged files preferred, clip state machine, root pinned, sockets, no leaks
 await __duel.qa.runAll('rewards.')  // boss spells: unlocks, save + migration, each effect, cooldowns, keys, HUD, reveal
 await __duel.qa.runAll('ui.')       // menus fit a 900x560 window (the menus are a size container), banners
+await __duel.qa.runAll('shifts.')   // arena shifts: pools, springs, vents, ring, cleared each round, AI
 await __duel.qa.soak('normal', 6)   // headless AI-vs-AI rounds: pacing, damage share, tickets per side
 await __duel.qa.perf(8)             // real frame-time stats while you play
 ```

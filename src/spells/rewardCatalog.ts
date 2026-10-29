@@ -28,7 +28,7 @@ export const REWARD_SPELL_INFO: Record<RewardSpellId, RewardSpellInfo> = {
   carpet: {
     id: 'carpet',
     name: 'Magic Carpet',
-    description: 'Summon a flying carpet for 2.5 s: more than twice as fast, hovering over lava, fire and low cover. No casting while you ride; press it again to hop off.',
+    description: 'Summon a flying carpet for 3.5 s: a burst of speed, then more than twice as fast, hovering over lava, fire, low cover and shockwaves. Fire bolts as you fly, ram enemies to knock them flying, jump to leap off, or press it again to hop off.',
     short: 'Fly fast for 2.5 s, over lava and fire',
     callout: 'MAGIC CARPET',
     icon: 'ui/spells/spell_carpet.png',

@@ -240,7 +240,7 @@ export class Match {
       case 'fight': {
         if (this.single) {
           // No round clock: a stage (or the fight) past its safety cap pulls the fire ring in.
-          g.arena.fireRadius = this.clock.update(dt, g.fightProgress());
+          g.arena.fireRadius = Math.min(this.clock.update(dt, g.fightProgress()), g.arena.ringCap);
           if (this.capped !== this.capAnnounced) {
             this.capAnnounced = this.capped;
             if (this.capped) events.emit('fightCap', {});

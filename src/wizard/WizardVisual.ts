@@ -658,6 +658,22 @@ export class WizardVisual {
     return this.muzzleRoot.localToWorld(out.copy(slot.home));
   }
 
+  /**
+   * World position of muzzle `index` from the current transforms (a cinematic lifts and turns the
+   * root after the frame's update): its bone socket on a rigged look, else its measured point.
+   */
+  muzzleNow(index: number, out: THREE.Vector3): THREE.Vector3 {
+    const socket = this.slots[index]?.socket;
+    if (!socket) return this.muzzleHomeWorld(index, out);
+    socket.updateWorldMatrix(true, false);
+    return out.setFromMatrixPosition(socket.matrixWorld);
+  }
+
+  /** Index of the look's first muzzle of `type`, or -1. */
+  muzzleOfType(type: MuzzleType): number {
+    return this.muzzles?.points.findIndex((p) => p.type === type) ?? -1;
+  }
+
   /** Muzzle `index` rides a bone socket of a rigged look. */
   muzzleSocketed(index: number): boolean {
     return !!this.slots[index]?.socket && this.slots[index].anchor.visible;
@@ -1181,7 +1197,7 @@ export class WizardVisual {
 
     // Footsteps: one bob per step, paced by the stride (longer for big and heavy looks), with the
     // weight rolling onto the planted foot.
-    const moving = speed > 0.5 && !w.dodging && alive && w.grounded;
+    const moving = speed > 0.5 && !w.dodging && alive && w.grounded && !w.flying;
     if (moving && !frozen) this.stepPhase += ((dt * speed) / (1.75 * w.sizeScale * this.root.scale.x * (1 + 0.25 * heavy))) * Math.PI;
     this.stride = damp(this.stride, moving ? 1 : 0, 8, dt);
     // Idle life (alive, unfrozen): breathing, a slow weight shift and look-around; a looming boss

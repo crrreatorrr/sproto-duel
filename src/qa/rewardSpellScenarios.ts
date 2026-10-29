@@ -198,20 +198,29 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       c.expect(!!lane, 'no clear lane to fly');
       learn(p, ['carpet']);
       const mana = p.mana;
+      p.intent.move.copy(lane!);
       c.expect(cast(c, p, 'carpet') && p.riding, 'the carpet did not start');
       c.near(mana - p.mana, C.manaCost, 1e-6, 'carpet mana');
       c.near(p.rcd.carpet, C.cooldown, 1e-6, 'carpet cooldown');
+      // The takeoff burst, then cruising speed (back at the lane's start, the burst spent).
+      const burst = speedOver(c, p, 0.25, () => p.intent.move.copy(lane!));
+      c.expect(burst > W.moveSpeed * C.speedMultiplier * 1.15, `no takeoff burst (${burst.toFixed(1)} m/s)`);
+      p.pos.set(0, C.hover, -6);
+      p.placeBody();
+      p.carpetTime = C.duration - C.boostTime;
       c.step(0.3, () => p.intent.move.copy(lane!));
       const v = speedOver(c, p, 0.5, () => p.intent.move.copy(lane!));
       c.near(v, W.moveSpeed * C.speedMultiplier, 0.4, 'carpet m/s');
       c.near(p.pos.y, C.hover, 0.05, 'hover height');
-      // No casting on the carpet: bolts, blasts and the shield stay off.
+      // Drive-by: bolts fire from the carpet; blasts and the shield stay off.
       const casts = p.stats.casts;
-      p.intent.press('bolt');
+      p.intent.holdBolt = true;
       p.intent.press('blast');
       p.intent.press('shield');
-      c.step(0.1);
-      c.expect(p.stats.casts === casts && !p.shielded, 'cast while riding');
+      c.step(0.3);
+      p.intent.holdBolt = false;
+      c.expect(p.stats.casts > casts && !p.shielded && p.cast === null, `riding: ${p.stats.casts - casts} casts, shield ${p.shielded}, windup ${p.cast?.spell}`);
+      c.expect(game.spells.pool.active.some((x) => x.owner === p && x.kind === 'bolt'), 'no bolt in flight from the carpet');
       // Over a lava pool and through the fire ring: no burn.
       p.carpetTime = C.duration;
       p.pos.set(pool.x, C.hover, pool.z);
@@ -234,8 +243,56 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       c.expect(!p.riding, 'pressing the carpet again did not land it');
       c.step(1);
       c.expect(p.pos.y < 0.01 && p.health < before, `after landing on lava: y ${p.pos.y.toFixed(2)}, hp ${before} -> ${p.health}`);
-      c.note(`speed ${v.toFixed(1)} m/s`);
+      c.note(`speed ${v.toFixed(1)} m/s, takeoff ${burst.toFixed(1)} m/s`);
     });
+  });
+
+  qa.add('rewards.carpet_ram_leap_and_skim', (c) => {
+    const p = game.player, e = game.enemy;
+    const C = RS.carpet;
+    // Ram: flown into the rival at speed, it takes the hit once and is knocked along the carpet's path.
+    c.setup({ player: [0, -6], enemy: [0, 1] });
+    learn(p, ['carpet']);
+    const rams = record('carpetRam');
+    const dmg = record('damage');
+    c.expect(cast(c, p, 'carpet'), 'no carpet');
+    const z0 = e.pos.z;
+    c.step(1.2, () => p.intent.move.set(0, 0, 1));
+    const hits = dmg().filter((d) => d.target === e && d.kind === 'ram');
+    c.expect(rams().length === 1 && hits.length === 1, `rams ${hits.length}`);
+    c.near(hits[0].amount, C.ramDamage, 1e-6, 'ram damage');
+    c.expect(e.pos.z > z0 + 1.5, `not knocked back (z ${z0.toFixed(1)} -> ${e.pos.z.toFixed(1)})`);
+    // Leap off: higher than a plain jump, keeping the carpet's speed.
+    c.setup({ player: [0, -6], enemy: [-12, 12] });
+    learn(p, ['carpet']);
+    c.expect(cast(c, p, 'carpet'), 'no carpet');
+    c.step(0.3, () => p.intent.move.set(1, 0, 0));
+    p.intent.press('jump');
+    let top = 0, fast = 0;
+    c.step(1.2, () => {
+      p.intent.move.set(1, 0, 0);
+      top = Math.max(top, p.pos.y);
+      if (!p.riding && !p.grounded) fast = Math.max(fast, Math.hypot(p.vel.x, p.vel.z));
+    });
+    const J = W.jump;
+    const plain = (J.velocity * J.velocity) / (2 * J.gravity);
+    c.expect(!p.riding && top > plain * 1.3, `leap peak ${top.toFixed(2)} m vs a jump's ${plain.toFixed(2)}`);
+    c.expect(fast > W.moveSpeed * 1.4, `the leap lost the carpet's speed (${fast.toFixed(1)} m/s)`);
+    // Skim: the rival's Ultimate wave passes under the carpet.
+    c.setup({ player: [0, -6], enemy: [0, 6] });
+    learn(p, ['carpet']);
+    c.expect(cast(c, p, 'carpet'), 'no carpet');
+    p.carpetTime = 30;
+    e.ult = CONFIG.spells.ultimate.chargeMax;
+    e.intent.press('ultimate');
+    const evades = record('dodgeEvade');
+    const hp = p.health;
+    c.step(2.5, () => {
+      p.intent.move.set(0, 0, 0);
+      p.carpetTime = Math.max(p.carpetTime, 1);
+    });
+    c.expect(p.health === hp && evades().some((x) => x.wizard === p), `the wave hit the rider (${hp - p.health})`);
+    p.carpetTime = 0;
   });
 
   qa.add('rewards.carpet_glides_over_rug_piles', (c) => {

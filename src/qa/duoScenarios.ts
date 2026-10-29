@@ -39,7 +39,7 @@ function record<K extends keyof GameEvents>(type: K): () => GameEvents[K][] {
 
 /**
  * Run `fn` in the double fight: both bosses dressed (boss stats, skins, hitboxes) and placed by
- * `setup`. `live`: their stages run (evolution, enrage); otherwise suspended like every QA run.
+ * `setup`. `live`: their stages run (each evolves on its own bar); otherwise suspended like every QA run.
  * The previous rival (and partner) are restored afterwards.
  */
 function withDuo(c: Ctx, game: Game, fn: () => void, opts: { live?: boolean; setup?: SetupOpts } = {}): void {
@@ -88,7 +88,7 @@ const popupShown = (game: Game, text: string) => [...game.ui.querySelectorAll('.
 /**
  * The Boss Gauntlet's double fight (fight 2): Bitcoin Obama and The Midget at once. A third wizard
  * that joins only this fight, team rules (no friendly fire), match rules for two enemies, per-boss
- * stages with enrage, the short hitbox, aim assist between two targets, and the two-plate HUD.
+ * stages each on its own bar (one falling leaves the other as it is), the short hitbox, aim assist between two targets, and the two-plate HUD.
  */
 export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void {
   const sharedList = () => (game.spells as unknown as { wizards: Wizard[] }).wizards;
@@ -233,7 +233,7 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(m.wins[0] === 0 && m.wins[1] === 0, `wins ${m.wins}`);
       c.expect(m.koWinnerSide() === -1 && !m.enemiesDown() && !m.playerDown(), 'side-down helpers with one boss left');
       // The fallen boss stays down and doesn't block shots: a bolt at The Midget passes through the body.
-      c.step(C.evolveTime + 0.1); // The Midget's enrage transformation
+      c.step(C.evolveTime + 0.1);
       c.expect(!e.alive && e.health === 0, 'Obama got back up');
       c.aimAt(p, q);
       const hp = q.health;
@@ -242,7 +242,9 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
       c.expect(q.health < hp, "a fallen boss's body blocked the player's bolt");
       const hit = game.physics.raycast(p.chest(new THREE.Vector3()), new THREE.Vector3(0, 0, 1), 20, GROUP.WIZARD | GROUP.WORLD, p.collider);
       c.expect(hit?.tag.kind === 'wizard' && hit.tag.wizard === q, `the first wizard along the line is ${hit?.tag.kind === 'wizard' ? hit.tag.wizard.name : hit?.tag.kind}`);
-      // Both down: the player's side takes the round.
+      // Both down: the player's side takes the round (The Midget, unchanged by Obama's fall, still has his own bars to go).
+      c.expect(game.partnerStages.stage === 0, `The Midget changed stage when Obama fell (stage ${game.partnerStages.stage + 1})`);
+      jumpLast(game, q);
       const last = record('roundEnd');
       withMatchFlow(game, () => ko(game, q, p));
       const end = last();
@@ -315,7 +317,45 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
     }
   });
 
-  qa.add('duo.stages_per_boss_and_enrage', (c) => {
+  qa.add('duo.midget_quick_light_and_flies_last', (c) => {
+    // The Midget: much faster than everyone (walk and sprint), a little lighter than before, and his
+    // last stage flies (hovering over the floor, fireproof, no jumping), until a stun drops him.
+    withDuo(c, game, () => {
+      const q = game.partner, e = game.enemy;
+      const pst = game.partnerStages;
+      c.expect(q.speedMultiplier === MIDGET.speed && (MIDGET.speed ?? 1) >= 1.4 && e.speedMultiplier === 1, `speeds ${q.speedMultiplier} / ${e.speedMultiplier}`);
+      c.expect(MIDGET.stageHealth.every((h, i) => h < DUO.stageHealth[i] * 1.3) && MIDGET.damageMultiplier < DUO.damageMultiplier, 'The Midget is not lighter');
+      // Walking speed.
+      q.intent.move.set(1, 0, 0);
+      c.step(0.5);
+      const a = q.pos.clone();
+      c.step(0.5);
+      const v = q.pos.distanceTo(a) / 0.5;
+      q.intent.move.set(0, 0, 0);
+      c.near(v, W.moveSpeed * (MIDGET.speed ?? 1), 0.3, 'Midget m/s');
+      c.expect(!q.flying && q.pos.y < 0.01, 'flying before his last stage');
+      // His last stage: up he goes.
+      pst.evolveTo(2);
+      pst.release(0);
+      c.step(1.5);
+      const fly = MIDGET.stages[2].fly ?? 0;
+      c.expect(fly > 1 && q.flying && Math.abs(q.pos.y - fly) < 0.35, `last stage: flying ${q.flying}, y ${q.pos.y.toFixed(2)} (want ~${fly})`);
+      c.expect(q.fireproof && !q.canJump, 'a flyer burns or jumps');
+      // Still flies while moving.
+      q.intent.move.set(-1, 0, 0);
+      c.step(0.6);
+      q.intent.move.set(0, 0, 0);
+      c.expect(q.pos.y > fly - 0.4, `dropped while flying along (y ${q.pos.y.toFixed(2)})`);
+      // A stun drops him to the floor; he takes off again after.
+      q.applyStun(1.2);
+      c.step(1.1);
+      c.expect(!q.flying && q.pos.y < 0.05, `stunned in the air (y ${q.pos.y.toFixed(2)})`);
+      c.step(1.6);
+      c.expect(q.flying && q.pos.y > fly - 0.4, `did not take off again (y ${q.pos.y.toFixed(2)})`);
+    }, { live: true, setup: { player: [0, -8], enemy: [6, 8], partner: [-4, 4] } });
+  });
+
+  qa.add('duo.stages_per_boss_independent', (c) => {
     withDuo(c, game, () => {
       const e = game.enemy, q = game.partner, p = game.player;
       const st = game.stages, pst = game.partnerStages;
@@ -338,53 +378,30 @@ export function registerDuoScenarios(qa: QAHarness, game: Game, app: App): void 
         hitTo(game, e, 0);
         c.expect(st.stage === 1 && pst.stage === 1, 'Obama did not evolve on his own bar');
         finish();
-        // Obama falls (his last bar out): The Midget is enraged, straight to stage 3 on a full last bar.
+        // Obama falls (his last bar out): The Midget stays exactly as he is (stage, bar, AI, look).
         q.health = q.maxHealth * 0.4;
+        const midHp = q.health;
         jumpLast(game, e);
         const evolves = record('bossEvolve');
         ko(game, e, p);
+        c.step(C.evolveTime + 0.1);
         const ev = evolves();
-        c.expect(pst.stage === STAGE_COUNT - 1 && q.evolving, `enrage left The Midget in stage ${pst.stage + 1}`);
-        c.expect(ev.length === 1 && ev[0].wizard === q && ev[0].enraged && ev[0].stage === 2 && ev[0].from === 1, `bossEvolve ${JSON.stringify(ev.map((x) => [x.wizard.name, x.from, x.stage, x.enraged]))}`);
-        const banner = app.hud.root.querySelector('.banner')?.textContent ?? '';
-        c.expect(banner.includes('The Midget is enraged!'), `banner "${banner}"`);
-        c.expect(q.maxHealth === MIDGET.stageHealth[2], `enraged bar ${q.maxHealth}`);
-        c.expect(JSON.stringify(ai.profile) === JSON.stringify(stageProfile(MIDGET, 2)) && ai.attacks?.volley?.name === MIDGET.stages[2].attacks.volley?.name, 'enraged AI not on stage 3');
-        finish();
-        c.expect(pst.modelShown === expectModel(2), `enraged look ${pst.modelShown}`);
-        c.expect(q.health === q.maxHealth && q.maxHealth === MIDGET.stageHealth[2], `enraged Midget ${q.health}/${q.maxHealth}: not a full last bar`);
-        // Mid-transformation, the enrage waits for it to finish.
-        c.setup();
-        jumpLast(game, e);
+        c.expect(!e.alive && pst.stage === 1 && !q.evolving, `Obama's fall moved The Midget to stage ${pst.stage + 1} (evolving ${q.evolving})`);
+        c.expect(ev.length === 0, `bossEvolve after Obama fell: ${JSON.stringify(ev.map((x) => [x.wizard.name, x.from, x.stage]))}`);
+        c.expect(q.health === midHp && q.maxHealth === MIDGET.stageHealth[1], `The Midget's bar changed: ${q.health}/${q.maxHealth}`);
+        c.expect(JSON.stringify(ai.profile) === JSON.stringify(stageProfile(MIDGET, 1)) && ai.attacks === MIDGET.stages[1].attacks, "The Midget's AI left stage 2");
+        c.expect(pst.modelShown === expectModel(1), `The Midget's look changed to ${pst.modelShown}`);
+        // He still changes stage on his own bar afterwards.
         hitTo(game, q, 0);
-        ko(game, e, p);
-        c.expect(pst.stage === 1 && q.evolving, 'enrage cut a transformation short');
-        const late = record('bossEvolve');
+        c.expect(pst.stage === 2 && q.evolving, `The Midget's own bar didn't move him on (stage ${pst.stage + 1})`);
         finish();
-        const l = late();
-        c.expect(pst.stage === 2 && q.evolving && l.length === 1 && l[0].enraged, `queued enrage: stage ${pst.stage + 1}, events ${l.length}`);
-        finish();
-        // Already in stage 3: nothing more.
-        c.setup();
-        pst.evolveTo(2);
-        finish();
-        jumpLast(game, e);
-        const none = record('bossEvolve');
-        ko(game, e, p);
-        c.expect(none().length === 0 && !q.evolving, 'a stage 3 Midget transformed again');
-        // The Midget falls first: Obama is enraged.
+        // The Midget falls first: Obama stays as he is too.
         c.setup();
         jumpLast(game, q);
         const rev = record('bossEvolve');
         ko(game, q, p);
-        const r = rev();
-        c.expect(st.stage === 2 && e.evolving && r.length === 1 && r[0].wizard === e && r[0].enraged, `Obama after The Midget fell: stage ${st.stage + 1}`);
-        // QA stock stats (stages suspended): no enrage.
-        c.setup();
-        st.suspended = pst.suspended = true;
-        ko(game, e, p);
-        c.expect(pst.stage === 0 && !q.evolving, 'enraged while stages were suspended');
-        st.suspended = pst.suspended = false;
+        c.step(C.evolveTime + 0.1);
+        c.expect(st.stage === 0 && !e.evolving && rev().length === 0 && e.health === e.maxHealth, `Obama after The Midget fell: stage ${st.stage + 1}`);
       } finally {
         ai.dispose();
       }

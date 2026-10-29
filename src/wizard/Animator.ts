@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { ModelInstance } from '../assets/AssetLoader';
-import type { ModelAsset, WizardClip } from '../assets/manifest';
+import type { ModelAsset, StaffSpec, WizardClip } from '../assets/manifest';
 import { clipHalves, isLowerBodyTrack, rootBone } from '../assets/rig';
 import { clamp, damp, wrapAngle } from '../core/math';
 import type { PendingCast } from '../spells/types';
@@ -90,6 +90,33 @@ const LOOK_MAX = 1.2;
 const J = CONFIG.wizard.jump;
 const AIRTIME = (2 * J.velocity) / J.gravity;
 const tmpQ = new THREE.Quaternion();
+/** Staff clearance (keepStaffClear): passes per frame, points along the shaft, and the gap kept (m). */
+const STAFF_PASSES = 14;
+const STAFF_SAMPLES = 16;
+const STAFF_MARGIN = 0.02;
+/** Each pass turns by the least-squares answer times this, at most this far (rad). */
+const STAFF_GAIN = 1.6;
+const STAFF_MAX_STEP = 0.35;
+const tmpS = new THREE.Vector3();
+const staffGrip = new THREE.Vector3();
+const staffTip = new THREE.Vector3();
+const staffButt = new THREE.Vector3();
+const staffPt = new THREE.Vector3();
+const staffPush = new THREE.Vector3();
+const capA = new THREE.Vector3();
+const capB = new THREE.Vector3();
+const capC = new THREE.Vector3();
+const staffPivot = new THREE.Vector3();
+const staffR = new THREE.Vector3();
+const staffAxis = new THREE.Vector3();
+
+/** The point of segment a-b closest to p, into out. */
+function closestOnSegment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  out.subVectors(b, a);
+  const len2 = out.lengthSq();
+  const t = len2 > 1e-10 ? clamp(tmpS.subVectors(p, a).dot(out) / len2, 0, 1) : 0;
+  return out.multiplyScalar(t).add(a);
+}
 const tmpQ2 = new THREE.Quaternion();
 const tmpQ3 = new THREE.Quaternion();
 const tmpAxis = new THREE.Vector3();
@@ -130,10 +157,10 @@ class Layer {
     this.w[Src.idle] = 1;
   }
 
-  set(target: Src): void {
+  set(target: Src, fade = FADE[ANIM_SOURCES[target]]): void {
     if (target === this.target) return;
     this.target = target;
-    this.fade = FADE[ANIM_SOURCES[target]];
+    this.fade = fade;
   }
 
   /** Move toward the target: it gains dt/fade, the others share what's left in proportion. */
@@ -211,6 +238,10 @@ export class Animator {
    * chest still faces the target.
    */
   private hipYaw = 0;
+  /** A cinematic's pose (direct): the source both layers play, its time, and the cross-fade into it. */
+  private directed: Src | null = null;
+  private directedTime = 0;
+  private directedFade = 0.15;
   /** State saved by poseRelease() for restorePose(). */
   private saved: { legs: Float32Array; arms: Float32Array; clock: Float32Array; hipYaw: number } | null = null;
   private hips: THREE.Object3D | null;
@@ -230,6 +261,13 @@ export class Animator {
    */
   private readonly corrected: THREE.Object3D[] = [];
   private readonly clipPose: THREE.Quaternion[] = [];
+  /** A long held prop kept out of the body (manifest `rigged.staff`), resolved to bones; null without one. */
+  private staff: {
+    hand: THREE.Object3D; grip: THREE.Vector3; tip: THREE.Vector3; butt: THREE.Vector3; reach: number;
+    body: { from: THREE.Object3D; to: THREE.Object3D; radius: number }[];
+  } | null = null;
+  /** How far the staff was turned on the last frame (rad; QA). */
+  staffTurn = 0;
 
   constructor(model: ModelInstance, spec: ModelAsset) {
     this.root = model.root;
@@ -273,7 +311,8 @@ export class Animator {
     const driven = (o: THREE.Object3D | null) => !!o && !!run && [...run.lower.getClip().tracks, ...run.upper.getClip().tracks].some((t) => t.name === `${o.name}.quaternion`);
     if (!driven(this.hips) || !driven(this.spine)) this.hips = this.spine = null;
     this.measureFacing(model.root, driven);
-    for (const b of [this.hips, this.spine, ...this.lookBones]) {
+    this.resolveStaff(model.root, model.rig?.staff);
+    for (const b of [this.hips, this.spine, ...this.lookBones, this.staff?.hand ?? null]) {
       if (b && !this.corrected.includes(b)) {
         this.corrected.push(b);
         this.clipPose.push(b.quaternion.clone());
@@ -383,6 +422,37 @@ export class Animator {
     return this.hipYaw;
   }
 
+  /** Length of a clip (seconds), 0 without it. */
+  duration(clip: WizardClip): number {
+    return this.byClip.get(clip)?.duration ?? 0;
+  }
+
+  /** The clip a cinematic is playing (direct), or null. */
+  get directedClip(): WizardClip | null {
+    if (this.directed === null) return null;
+    return this.slots.find((s) => s.src === this.directed)?.clip ?? null;
+  }
+
+  /**
+   * A cinematic takes the pose over (BossCinematic's transformations): `clip` on both layers at
+   * `time` seconds (looped for idle, stun and victory, held at its ends otherwise), cross-fading in
+   * over `fade` s. Call every frame with the time it wants; `null` hands the pose back to the state
+   * machine (cross-fading out). False, and nothing changes, if the look has no such clip (or it is
+   * a locomotion clip).
+   */
+  direct(clip: WizardClip | null, time = 0, fade = 0.15): boolean {
+    if (clip === null) {
+      this.directed = null;
+      return true;
+    }
+    const slot = this.byClip.get(clip);
+    if (!slot || slot.src === Src.loco) return false;
+    this.directed = slot.src;
+    this.directedTime = Math.max(0, time);
+    this.directedFade = fade;
+    return true;
+  }
+
   /** Release peak of the cast or cast_big clip (seconds). */
   peak(clip: 'cast' | 'castBig'): number {
     return clip === 'cast' ? this.castPeak : this.castBigPeak;
@@ -396,10 +466,19 @@ export class Animator {
     // Frozen: hit-stop (dt 0), or a stun's ice has formed (or there is no stun clip to play).
     const frozen = w.stunned && (!stunClip || inp.iceFormed);
     const t = frozen ? 0 : dt;
-    this.pickTargets(w, inp);
+    const d = this.directed;
+    if (d !== null) {
+      // A cinematic's pose: its clip on both layers at its time, facing forward (no strafe hip turn).
+      this.legs.set(d, this.directedFade);
+      this.arms.set(d, this.directedFade);
+      this.clock[d] = this.directedTime;
+      this.hipYaw = damp(this.hipYaw, 0, 10, dt);
+    } else {
+      this.pickTargets(w, inp);
+    }
     this.legs.step(t);
     this.arms.step(t);
-    this.advance(w, t, inp);
+    if (d === null) this.advance(w, t, inp);
     this.apply();
   }
 
@@ -633,6 +712,85 @@ export class Animator {
   }
 
   /** Push clocks and weights into the actions and evaluate the pose. */
+  private resolveStaff(root: THREE.Object3D, spec: StaffSpec | undefined): void {
+    if (!spec) return;
+    const bone = (name: string) => {
+      let found: THREE.Object3D | null = null;
+      root.traverse((o) => {
+        if (!found && (o as THREE.Bone).isBone && o.name === name) found = o;
+      });
+      return found as THREE.Object3D | null;
+    };
+    const hand = bone(spec.bone);
+    if (!hand?.parent) return;
+    const body: { from: THREE.Object3D; to: THREE.Object3D; radius: number }[] = [];
+    for (const b of spec.body) {
+      const from = bone(b.from), to = bone(b.to);
+      if (from && to) body.push({ from, to, radius: b.radius });
+    }
+    this.staff = {
+      hand, reach: spec.gripReach, body,
+      grip: new THREE.Vector3(...spec.grip), tip: new THREE.Vector3(...spec.tip), butt: new THREE.Vector3(...spec.butt),
+    };
+  }
+
+  /**
+   * The mocap was made empty-handed, so a long staff swings through the legs and coat in a cast, a
+   * roll or a victory. After the pose is set, turn the hand (about the wrist) just enough that no
+   * point of the shaft is inside a body capsule: the deepest point is pushed straight out of its
+   * capsule, a few passes. The turn follows the penetration, so it comes and goes smoothly.
+   */
+  private keepStaffClear(): void {
+    const st = this.staff;
+    this.staffTurn = 0;
+    if (!st || !st.body.length) return;
+    const hand = st.hand;
+    hand.parent!.updateMatrixWorld(true);
+    // Bone frames are centimetres under the Armature's 0.01; the radii scale with the look's size.
+    const size = hand.getWorldScale(tmpS).x * 100;
+    for (let pass = 0; pass < STAFF_PASSES; pass++) {
+      hand.updateMatrixWorld(true);
+      const m = hand.matrixWorld;
+      staffGrip.copy(st.grip).applyMatrix4(m);
+      staffTip.copy(st.tip).applyMatrix4(m);
+      staffButt.copy(st.butt).applyMatrix4(m);
+      hand.getWorldPosition(staffPivot);
+      // Every point inside a capsule wants out along its radius; one small turn about the wrist
+      // answers all of them at once (sum of r x push over sum of |r|^2), so pushes from two legs
+      // balance instead of fighting.
+      staffAxis.set(0, 0, 0);
+      let worst = 0, weight = 0;
+      for (let i = 0; i <= STAFF_SAMPLES; i++) {
+        staffPt.lerpVectors(staffTip, staffButt, i / STAFF_SAMPLES);
+        if (staffPt.distanceTo(staffGrip) < st.reach) continue;
+        staffR.subVectors(staffPt, staffPivot);
+        for (const c of st.body) {
+          c.from.getWorldPosition(capA);
+          c.to.getWorldPosition(capB);
+          closestOnSegment(staffPt, capA, capB, capC);
+          const d = staffPt.distanceTo(capC);
+          const depth = c.radius * size + STAFF_MARGIN - d;
+          if (depth <= 0) continue;
+          worst = Math.max(worst, depth);
+          staffPush.subVectors(staffPt, capC);
+          if (staffPush.lengthSq() < 1e-8) staffPush.subVectors(staffGrip, capC);
+          staffPush.setLength(depth + STAFF_MARGIN);
+          staffAxis.add(capA.crossVectors(staffR, staffPush));
+          weight += staffR.lengthSq();
+        }
+      }
+      if (worst <= 1e-4 || weight <= 1e-8) break;
+      const angle = Math.min(STAFF_MAX_STEP, staffAxis.length() / weight * STAFF_GAIN);
+      if (angle < 1e-4) break;
+      tmpQ.setFromAxisAngle(staffAxis.normalize(), angle);
+      this.staffTurn += angle;
+      hand.parent!.getWorldQuaternion(tmpQ2);
+      tmpQ3.copy(tmpQ2).invert().multiply(tmpQ).multiply(tmpQ2);
+      hand.quaternion.premultiply(tmpQ3);
+    }
+    hand.updateMatrixWorld(true);
+  }
+
   private apply(): void {
     const legs = this.legs.w, arms = this.arms.w;
     for (const s of this.slots) {
@@ -687,5 +845,6 @@ export class Animator {
         bone.quaternion.premultiply(tmpQ3);
       }
     }
+    this.keepStaffClear();
   }
 }

@@ -5,6 +5,7 @@ import { MODELS, type ModelKey } from '../assets/manifest';
 import { bossFighters, type BossDef, type BossPartner } from '../campaign/levels';
 import { BossStages } from '../campaign/BossStages';
 import { Arena } from '../arena/Arena';
+import { ArenaShifts } from '../arena/ArenaShifts';
 import { FireRing } from '../arena/FireRing';
 import { GoldenTickets } from '../arena/GoldenTickets';
 import { LifePacks } from '../arena/LifePacks';
@@ -29,6 +30,7 @@ export interface TickController {
 
 const tmp = new THREE.Vector3();
 const tmpEye = new THREE.Vector3();
+const tmpColor = new THREE.Color();
 const FADE = CONFIG.camera.bossFade;
 
 /** The standing wizard in `list` nearest `from`, or null if all are down. */
@@ -75,6 +77,8 @@ export class Game {
   readonly tickets: GoldenTickets;
   /** Life packs (health pickups, Boss Gauntlet only): Match enables them during a gauntlet fight. */
   readonly lifePacks: LifePacks;
+  /** Each boss stage reshapes the arena: hazard pools, a healing spring, erupting vents (src/arena/ArenaShifts.ts). */
+  readonly shifts: ArenaShifts;
   /** Drives the enemies inside the fixed tick (App: the rival's AI, and the partner's in a double fight). */
   enemyController: TickController | null = null;
   /** The campaign boss the rival is dressed as, or null for the default rival. */
@@ -179,17 +183,12 @@ export class Game {
     this.spells = new SpellSystem(scene, physics, this.fx, this.wizards, this.arena);
     this.tickets = new GoldenTickets(scene, physics, this.fx, this.wizards, this.arena, assets);
     this.lifePacks = new LifePacks(scene, physics, this.fx, this.player, this.enemies, this.tickets, this.arena, () => this.furthestStage(), assets);
+    this.shifts = new ArenaShifts(scene, this);
     this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemies);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
     this.stages = new BossStages(this, this.enemy, this.player);
     this.partnerStages = new BossStages(this, this.partner, this.player);
     this.parkPartner();
-    // A double fight: when one boss falls, the other is enraged (straight to its last stage).
-    events.on('ko', (e) => {
-      if (!this.partnerActive || e.loser.side !== 1) return;
-      const survivor = e.loser === this.enemy ? this.partner : e.loser === this.partner ? this.enemy : null;
-      if (survivor?.alive) this.stagesOf(survivor)?.enrage();
-    });
 
     const syncPointScale = () => {
       this.fx.setPointScale(this.renderer.pointScale);
@@ -220,7 +219,7 @@ export class Game {
         }
         return;
       }
-      const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' || e.kind === 'scorch' ? 'burn' : 'dmg';
+      const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' || e.kind === 'scorch' || e.kind === 'toxic' || e.kind === 'pool' ? 'burn' : 'dmg';
       this.popups.spawn(e.target.chest(tmp), String(Math.round(e.amount)), style);
     });
     events.on('callout', (e) => this.popups.spawn(e.pos, e.text, e.style));
@@ -237,6 +236,7 @@ export class Game {
     this.tickets.clear();
     this.lifePacks.clearPack();
     this.arena.reset();
+    this.shifts.clear();
     this.fx.clear();
     this.popups.clear();
     feel.reset();
@@ -259,6 +259,7 @@ export class Game {
     e.maxHealth = boss ? boss.stageHealth[0] : CONFIG.wizard.maxHealth;
     e.health = Math.min(e.health, e.maxHealth);
     e.damageMultiplier = boss?.damageMultiplier ?? 1;
+    e.speedMultiplier = boss?.speed ?? 1;
     this.spells.pool.setTeamPalette(e.index, team);
     // The boss throws its objects (rugs, phones, bullets...); the default rival casts orbs.
     e.skins = boss ? boss.skins : null;
@@ -313,6 +314,7 @@ export class Game {
     w.name = def.name;
     w.maxHealth = def.stageHealth[0];
     w.damageMultiplier = def.damageMultiplier;
+    w.speedMultiplier = def.speed ?? 1;
     w.setHitbox(def.hitbox.radius, def.hitbox.height);
     this.spells.pool.setTeamPalette(w.index, def.palette);
     w.skins = def.skins;
@@ -393,12 +395,12 @@ export class Game {
    */
   useDefaultStats(): () => void {
     const saved = this.wizards.map((w) => ({
-      w, max: w.maxHealth, mult: w.damageMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana, cds: w.noCooldowns, ultk: w.ultChargeMultiplier,
+      w, max: w.maxHealth, mult: w.damageMultiplier, spellK: w.spellDamageScale, speed: w.speedMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana, cds: w.noCooldowns, ultk: w.ultChargeMultiplier,
       learned: [...w.learned],
     }));
     for (const w of this.wizards) {
       w.maxHealth = CONFIG.wizard.maxHealth;
-      w.damageMultiplier = w.clashPowerMultiplier = w.ultChargeMultiplier = 1;
+      w.damageMultiplier = w.spellDamageScale = w.speedMultiplier = w.clashPowerMultiplier = w.ultChargeMultiplier = 1;
       w.immune = w.infiniteMana = w.noCooldowns = false;
       // No reward spells either (a scenario that wants some sets them).
       w.learned.clear();
@@ -411,6 +413,8 @@ export class Game {
         s.w.maxHealth = s.max;
         s.w.health = Math.min(s.w.health, s.max);
         s.w.damageMultiplier = s.mult;
+        s.w.spellDamageScale = s.spellK;
+        s.w.speedMultiplier = s.speed;
         s.w.clashPowerMultiplier = s.clash;
         s.w.ultChargeMultiplier = s.ultk;
         s.w.immune = s.immune;
@@ -520,6 +524,8 @@ export class Game {
     this.stages.update(dt);
     this.partnerStages.update(dt);
     this.spells.update(dt);
+    // Before movement: quicksand slows this tick's steps.
+    this.shifts.update(dt);
     for (const w of this.wizards) w.updateMovement(dt, this.physics);
     this.physics.step();
     this.arena.update(dt);
@@ -536,6 +542,7 @@ export class Game {
     for (const w of this.wizards) w.visual.update(w, simDt, alpha);
     this.spells.sync(alpha, this.renderTime, simDt);
     this.fire.updateVisual(simDt, this.arena.fireRadius);
+    this.shifts.updateVisual(simDt);
     this.arena.updateVisual(simDt, this.renderer.camera.position);
     this.tickets.updateVisual(simDt, this.renderer.camera.position);
     this.lifePacks.updateVisual(simDt, this.renderer.camera.position);
@@ -543,6 +550,20 @@ export class Game {
     if (this.dustTimer <= 0) {
       this.dustTimer = 0.06;
       for (const w of this.wizards) if (w.sprinting && w.grounded && w.pos.y === 0) this.fx.footDust(w.pos);
+    }
+    // A flying boss stage rides a jet of sparks in its colours.
+    if (simDt > 0) {
+      const F = CONFIG.campaign.flight;
+      for (const w of this.wizards) {
+        if (!w.flying || !w.visual.root.visible) continue;
+        const v = w.visual.root.position;
+        tmpColor.setHex(w.team.spell);
+        const n = Math.round(F.jetRate * simDt + Math.random() * 0.5);
+        for (let i = 0; i < n; i++) {
+          this.fx.sparks.emit(v.x + (Math.random() - 0.5) * 0.25, v.y + 0.05, v.z + (Math.random() - 0.5) * 0.25,
+            (Math.random() - 0.5) * 0.8, -3 - Math.random() * 3, (Math.random() - 0.5) * 0.8, tmpColor, 2, F.jetSize, F.jetLife, { drag: 1.5 });
+        }
+      }
     }
     this.fx.update(fxDt);
 
@@ -621,8 +642,26 @@ export class Game {
   updateOcclusionFade(dt: number): void {
     const cam = this.renderer.camera.position;
     for (const w of this.wizards) {
-      if (w !== this.player) w.visual.setFade(this.occlusionTarget(w, cam), dt);
+      w.visual.setFade(w === this.player ? this.closeTarget(w, cam) : this.occlusionTarget(w, cam), dt);
     }
+  }
+
+  /**
+   * How visible the player's own look should be (0..1): the camera pulled in against cover can end
+   * up at (or inside) the body, so it dithers away rather than filling the screen from inside.
+   */
+  closeTarget(w: Wizard, cam: THREE.Vector3): number {
+    const PF = CONFIG.camera.playerFade;
+    const v = w.visual;
+    const base = v.root.position;
+    const scale = v.root.scale.x;
+    const out = Math.max(0, Math.hypot(cam.x - base.x, cam.z - base.z) - v.boundsRadius * scale);
+    const vert = Math.max(0, base.y - cam.y, cam.y - (base.y + v.topHeight * scale));
+    const dist = Math.hypot(out, vert);
+    if (dist <= PF.clear) return 0;
+    if (dist >= PF.near || this.director) return 1;
+    const t = (dist - PF.clear) / (PF.near - PF.clear);
+    return PF.minVisible + (1 - PF.minVisible) * t * t * (3 - 2 * t);
   }
 
   /** How visible enemy `w`'s look should be from `cam` (0..1). */

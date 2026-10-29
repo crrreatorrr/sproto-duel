@@ -1,11 +1,14 @@
 import type { Vector3 } from 'three';
 import type { Wizard } from '../wizard/Wizard';
 import type { SpellId } from '../spells/types';
-import type { BossFighter, ProjectileSkin } from '../campaign/levels';
+import type { ArenaShiftDef, BossFighter, PowerDef, ProjectileSkin } from '../campaign/levels';
 import type { RewardSpellId } from '../spells/rewardCatalog';
+import type { CineCue, TransformStyleId } from '../campaign/transformStyles';
 
 /** `breath`: Hellfire Breath's cone; `scorch`: the burning it leaves behind. */
-export type DamageKind = SpellId | 'fire' | 'splash' | 'breath' | 'scorch';
+/** `power`: a boss special power; `toxic`: a toxic cloud's ticks; `ram`: the Magic Carpet flown into someone. */
+/** `pool` / `vent`: an arena shift's hazard pool and erupting vent (src/arena/ArenaShifts.ts). */
+export type DamageKind = SpellId | 'fire' | 'splash' | 'breath' | 'scorch' | 'power' | 'toxic' | 'ram' | 'pool' | 'vent';
 
 /** Everything gameplay announces. UI, audio and FX subscribe; gameplay never calls them directly. */
 export interface GameEvents {
@@ -53,10 +56,18 @@ export interface GameEvents {
    */
   bossStage: { wizard: Wizard; boss: BossFighter | null; stage: number };
   /**
-   * A campaign boss starts transforming from stage `from` into `stage` (its stage's bar ran out).
-   * `enraged`: its partner just fell, so it goes straight to its last stage.
+   * A campaign boss starts transforming from stage `from` into `stage` (its own stage's bar ran out).
    */
-  bossEvolve: { wizard: Wizard; boss: BossFighter; stage: number; from: number; pos: Vector3; enraged: boolean };
+  bossEvolve: { wizard: Wizard; boss: BossFighter; stage: number; from: number; pos: Vector3 };
+  /** The Magic Carpet flew into an enemy (RewardSpells ram). */
+  carpetRam: { wizard: Wizard; target: Wizard; pos: Vector3 };
+  /**
+   * A boss special power (src/spells/BossPowers.ts): `cast` it starts (telegraphs), `lock` a strike's
+   * reticle stops following, `fire` a piece of it goes off (a zone lands, a ring or the sweep sets
+   * off, the cone blasts, a seeker launches, the flashbang pops, the cloud forms), `end` a seeker is
+   * gone. `hazard` is the piece's id (0 for `cast`).
+   */
+  bossPower: { wizard: Wizard; power: PowerDef; phase: 'cast' | 'lock' | 'fire' | 'end'; pos: Vector3; hazard: number };
   /** A boss fired its signature multi-shot (levels.ts VolleyDef). */
   volley: { wizard: Wizard; name: string; count: number; pos: Vector3 };
   /** Text popup without damage, e.g. "PERFECT!" or "DODGE". `spell`: a boss reward spell's name as it is cast. */
@@ -82,13 +93,22 @@ export interface GameEvents {
   lifePackSpawn: { id: number; pos: Vector3; first: boolean; left: number };
   /** The player collected the life pack and healed `healed` HP. */
   lifePackPickup: { id: number; pos: Vector3; wizard: Wizard; healed: number };
+  /** The arena changed for a boss stage (pools and a spring at 1, vents at 2), its new features fading in. */
+  arenaShift: { stage: number; shift: ArenaShiftDef };
+  /** A vent starts its warning, and erupts. */
+  ventWarn: { pos: Vector3; color: number };
+  ventErupt: { pos: Vector3; color: number };
+  /** A spring healed `wizard` (about once a second while it stands in it). */
+  springHeal: { wizard: Wizard; amount: number; pos: Vector3 };
   /** An uncollected life pack vanished (its lifetime ran out, or the closing fire ring reached it). */
   lifePackExpire: { id: number; pos: Vector3 };
   /**
    * A beat of a boss transformation cinematic (BossCinematic): it starts (the world freezes), the
    * boss rises, the old form bursts, he lands, the fight resumes. Audio and the HUD follow it.
    */
-  bossCinematic: { wizard: Wizard; boss: BossFighter; stage: number; beat: 'start' | 'burst' | 'slam' | 'count' | 'resume' | 'end'; enraged: boolean };
+  bossCinematic: { wizard: Wizard; boss: BossFighter; stage: number; beat: 'start' | 'burst' | 'slam' | 'count' | 'resume' | 'end' };
+  /** A boss's own transformation plays a sound cue (src/campaign/transformStyles.ts); `rate` scales its pitch. */
+  bossCinematicCue: { wizard: Wizard; style: TransformStyleId; cue: CineCue; rate: number };
 }
 
 type Handler<T> = (payload: T) => void;

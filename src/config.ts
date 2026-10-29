@@ -500,6 +500,112 @@ export const CONFIG = {
   },
 
   /**
+   * Boss special powers (src/spells/BossPowers.ts, each boss's `powers` in levels.ts): telegraphed on
+   * the floor, then they fire, then they recharge. Rolling (i-frames) evades any of them.
+   */
+  powers: {
+    /** Recharge per stage a power is used in (stage 1, 2, 3): later stages recharge faster. */
+    stageRecharge: [1, 0.85, 0.72] as [number, number, number],
+    /** A stage's first use of each power comes after this share of its recharge. */
+    firstDelay: 0.4,
+    /** Every power's damage is scaled by this (balance against the boss's spells: README ladder). */
+    damageScale: 0.4,
+    /** Seconds between any two powers of the fight's bosses (a double fight takes turns). */
+    gap: 4,
+    /** A boss only starts a power with the target in sight (or a strike, barrage, cloud from the air). */
+    needSight: true,
+    /** A zone hits a wizard whose centre is within its radius plus this share of the wizard's radius. */
+    zoneGrace: 0.5,
+    /** Zones from above: what falls drops from this high (m) over the last `fallTime` s of the warning. */
+    fallHeight: 14,
+    fallTime: 0.45,
+    /** Shockwave rings and the sweep are this tall (m): feet above `CONFIG.wizard.jump.waveClearance` clear them. */
+    ringHeight: 0.8,
+    sweepHeight: 0.55,
+    /** Knockback from a zone, a ring, the sweep (m/s). The cone has its own. */
+    knockback: { zone: 6, ring: 7, sweep: 6 },
+    /** Damage ticks inside a toxic cloud (s) and the cloud's height (m). */
+    cloudTick: 0.5,
+    cloudHeight: 2.6,
+    /** Seekers: hit radius (m), how long one that was rolled through can't hit (s), and pillar damage. */
+    seekerRadius: 0.45,
+    seekerPass: 0.45,
+    seekerPillarDamage: 10,
+    /** Infection (drain seekers): mana drained per hit. */
+    drainMana: 45,
+    /** Hit-stop on a power hit (ms) and the shake. */
+    hitStopMs: 50,
+    shake: 0.45,
+    /** How an AI reads telegraphs (the soak's reference player; bosses never face powers): */
+    ai: {
+      /**
+       * A telegraph shows for a second or so, so it is noticed more often than a fast projectile:
+       * the profile's dodge chance plus this share of what's left (Adept: 0.5 -> 0.8).
+       */
+      notice: 0.6,
+      /** It steers round a standing toxic cloud like lava, by this margin (m). */
+      cloudMargin: 1,
+      /** Extra metres it wants between itself and a zone's edge before it stops running. */
+      zoneMargin: 0.8,
+      /** It runs from a zone firing within this many seconds... */
+      zoneHorizon: 1.6,
+      /** ...and rolls out if it is still inside this close to the hit (s). */
+      rollLead: 0.22,
+      /** Rolls through a seeker this close (s away). */
+      seekerLead: 0.25,
+    },
+  },
+
+  /**
+   * Arena shifts (src/arena/ArenaShifts.ts): each boss stage reshapes a Boss Gauntlet arena, in the
+   * boss's own theme (levels.ts `shift`). Stage 2 opens hazard pools and one healing spring; stage 3
+   * adds erupting vents. The fire ring pulls in a little each stage and the light turns toward the
+   * boss's colour. They stay until the round ends; Quick Duel never shifts.
+   */
+  arenaShifts: {
+    /** Fire ring radius per stage (stage 1 is CONFIG.arena.fireRadius); it eases in at `ringSpeed` m/s. */
+    ringRadius: [27.8, 26.8, 25.5],
+    ringSpeed: 0.9,
+    /** Mood: how far the light and fog turn toward the boss's colour per stage, eased over `moodTime` s. */
+    mood: [0, 0.16, 0.32],
+    moodTime: 2.5,
+    /** A new feature fades in (harmless, its outline blinking) for this long. */
+    growTime: 1.8,
+    /** Placement: clear of every wizard, cover, each other and the fire ring by these (m). */
+    wizardClearance: 4,
+    coverClearance: 1,
+    spacing: 1.5,
+    ringMargin: 3,
+    /** Tries per feature before it is left out. */
+    attempts: 200,
+    pool: {
+      count: 4,
+      radius: [1.7, 2.3],
+    },
+    spring: {
+      radius: 1.5,
+      /**
+       * Health per second to whoever stands in it, `charge` in all; then it is dry until the next
+       * stage's shift fills it again (so it gives at most two fills a fight).
+       */
+      heal: 9,
+      charge: 40,
+    },
+    vent: {
+      count: 3,
+      radius: 1.7,
+      /** Seconds between eruptions (each vent starts at a random point of its cycle), and the warning before one. */
+      period: [7, 9.5],
+      warn: 1.3,
+      /** Strong enough to throw someone standing in the middle clear of it. */
+      knockback: 19,
+    },
+    /** Reference AI (the soak's player): heads for a spring below this health fraction, within this range. */
+    aiSeekHealth: 0.6,
+    aiSeekRange: 16,
+  },
+
+  /**
    * Boss reward spells (src/spells/RewardSpells.ts): beating a Boss Gauntlet boss teaches the player
    * its themed spell for good (Campaign `unlockedSpells`). Only the player ever learns them; bosses
    * never cast them. Cooldowns start on cast. Keys: CONFIG.controls / CONFIG.gamepad.bindings.
@@ -507,11 +613,24 @@ export const CONFIG = {
   rewardSpells: {
     /** Sahil: ride a flying carpet. Fast, hovering (no lava or fire-ring burn), no casting. Press again to land early. */
     carpet: {
-      duration: 2.5,
+      duration: 3.5,
       cooldown: 12,
       manaCost: 20,
       /** Multiplies CONFIG.wizard.moveSpeed while riding (sprint does nothing more). */
       speedMultiplier: 2.2,
+      /** Takeoff burst: this much more speed at summon, fading over `boostTime` s. */
+      boost: 0.8,
+      boostTime: 0.6,
+      /**
+       * Ram: flying into an enemy at more than `ramSpeed` m/s hits it once per ride for `ramDamage`
+       * and knocks it back along the carpet's path (m/s), with this much hit-stop (ms).
+       */
+      ramSpeed: 8,
+      ramDamage: 14,
+      ramKnockback: 15,
+      ramHitStopMs: 60,
+      /** Jump while riding: leap off the carpet, `leap` x a normal jump's takeoff speed, keeping its speed. */
+      leap: 1.35,
       acceleration: 70,
       deceleration: 40,
       /** Feet height above whatever is underneath (m). */
@@ -519,10 +638,10 @@ export const CONFIG = {
       /** Highest low cover (above what is underneath) the carpet rises over (m): rug piles, car hoods, carts. */
       climb: 1.15,
       /** Vertical speeds (m/s) toward the hover height: up over cover, down off it. */
-      rise: 9,
+      rise: 14,
       sink: 4,
       /** How far ahead to look for cover: radius + speed x this (s). */
-      lookAhead: 0.16,
+      lookAhead: 0.24,
     },
     /** Bitcoin Obama & The Midget: a power surge. More spell damage and Ultimate charge. */
     pump: {
@@ -623,6 +742,23 @@ export const CONFIG = {
    * of every round. Any wizard touching one gets a mana boost: a bigger mana pool, refilled at once,
    * and faster regen with no regen delay, for `boostDuration` seconds.
    */
+  /**
+   * How hard pickups (golden tickets, life packs) call for attention: their beam, halo and floor
+   * glow are scaled by these, the beam widened, and a ring pulses out along the floor from each
+   * every `pulseEvery` s (reaching `pulseRadius` m).
+   */
+  pickupHighlight: {
+    beamOpacity: 1.6,
+    beamWidth: 1.5,
+    glowScale: 1.45,
+    glowOpacity: 1.6,
+    floorOpacity: 1.5,
+    emissive: 1.8,
+    pulseEvery: 1.3,
+    pulseRadius: 2.6,
+    pulseTime: 0.9,
+  },
+
   tickets: {
     /** Most tickets on the floor at once. */
     maxActive: 3,
@@ -759,6 +895,13 @@ export const CONFIG = {
      * and the player. `radius` scales the look's bounds for that test (wings and capes stick out).
      */
     bossFade: { clear: 0.4, near: 2, minVisible: 0.25, occluded: 0.3, radius: 1.05 },
+    /**
+     * Backed against cover the camera has to pull in toward the player: it rises over the shoulder
+     * by up to `closeRise` m (more the closer it is, if the space above is clear), and the player's
+     * own look dithers see-through, gone within `clear` m of its bounds and solid again at `near`.
+     */
+    closeRise: 0.6,
+    playerFade: { clear: 0.15, near: 1.1, minVisible: 0.2 },
   },
 
   feel: {
@@ -935,13 +1078,14 @@ export const CONFIG = {
      * freezes (no wizard, spell, fire or lava moves or hurts), the camera swoops around the boss
      * between letterbox bars, he rises, glows, cracks and bursts into his next form, then slams
      * down; the camera returns to the player, a short count resumes the fight, and the boss stays
-     * frozen and immune for `grace` s more. Stage 3 (and an enraged duo survivor) is bigger and
-     * longer. Indexed by the stage being entered (0 unused). Headless runs (QA, soaks) skip it.
+     * frozen and immune for `grace` s more. Stage 3 is bigger and longer. Indexed by the stage being entered (0 unused). Headless runs (QA, soaks) skip it.
      */
     cinematic: {
       enabled: true,
-      duration: [0, 2.5, 3.5] as [number, number, number],
-      enrageDuration: 3.2,
+      duration: [0, 3.2, 4.4] as [number, number, number],
+      /** Seconds at the start the old form reels from the blow that broke its bar (the rig's hit clip), at most this share of the shot. */
+      stagger: 0.45,
+      staggerShare: 0.14,
       /** Slow-mo into the freeze and out of it (s). */
       easeIn: 0.22,
       easeOut: 0.35,
@@ -992,6 +1136,24 @@ export const CONFIG = {
       skipAfter: 0.5,
       skipSpeed: 3.5,
       skipKeys: ['Space', 'Enter', 'Escape'],
+      /**
+       * Each boss's own transformation (src/campaign/transformStyles.ts, BossFighter.transform):
+       * `rise` and `spins` scale the shot's rise and turns; per-stage counts are [-, stage 2, stage 3].
+       */
+      styles: {
+        /** Sahil: a whirlwind of flying carpets and rolled rugs, a sand devil, gold coins at the burst. */
+        bazaar: { rise: 1, spins: 1.25, carpets: [0, 6, 9], rolls: [0, 4, 6], coins: [0, 70, 120], sand: 45 },
+        /** Bitcoin Obama: phones and flying pigs round him, a ring of green candles pumping up that crash red at the burst. */
+        shill: { rise: 0.9, spins: 1, phones: [0, 6, 9], pigs: [0, 3, 5], candles: 16, candleRadius: 7.5, candleHeight: [1.2, 4.2] as [number, number] },
+        /** The Midget: a hopping tantrum in a dust devil, then a leap, a spin and a ground-pound. */
+        tantrum: { rise: 1.35, spins: 1.6, hops: [0, 4, 6], hopHeight: 0.42, phones: [0, 3, 4], dust: 40 },
+        /** Broccoli Head: a huge drag on the vape (he puffs up), then the exhale: a cloud and a smoke ring. */
+        vape: { rise: 0.6, spins: 0.5, inflate: 0.14, florets: [0, 6, 10], ringRadius: [0, 6, 9], puffs: [0, 28, 44] },
+        /** Glowie: glitches in place (snaps, scanner, laser sights), then full auto into the air and a rain of casings. */
+        glitch: { rise: 0.45, spins: 0, snapEvery: 0.15, snapDistance: 0.32, lasers: 4, shots: [0, 10, 16], casings: [0, 26, 44] },
+        /** Tinubu: a summoning circle and a column of hellfire, burning skulls round him, fire from his mouth; it erupts. */
+        hellfire: { rise: 1.25, spins: 0.5, skulls: [0, 5, 8], circleRadius: 3.2, columnHeight: 10, breathEvery: 0.55 },
+      },
     },
     /** The pillar of light engulfing the boss: height and beam width (m), and seconds until it has faded (the new form shows through). */
     pillarHeight: 26,
@@ -1024,6 +1186,22 @@ export const CONFIG = {
     /** Multiplies the boss's damage per stage, on top of BossDef.damageMultiplier: the last stage hurts most. */
     stageDamage: [1, 1.25, 1.5] as [number, number, number],
     /**
+     * Every boss presses harder with his ordinary spells than his base profile (BossStages
+     * stageProfile): shorter pauses between bursts, longer bursts, more blasts, stuns and punishes,
+     * closer in and quicker on his feet. Each of those spells hits for `spellDamage` of what it did,
+     * so the fight is busier to dodge without being much deadlier. Special powers are unchanged.
+     */
+    aggression: {
+      burstPause: 0.5,
+      burstExtra: 1,
+      blastChance: 2.5,
+      stunChance: 2,
+      punishChance: 2,
+      range: 0.85,
+      strafeSpeed: 1.1,
+      spellDamage: 0.7,
+    },
+    /**
      * Ultimate charge rate for bosses. Their stage bars hold several times a wizard's health, and
      * charge comes from damage taken and dealt, so at full rate they would cast it every minute.
      */
@@ -1040,6 +1218,12 @@ export const CONFIG = {
      * and drift apart around the player until `flankDegrees` separate them (`flankWeight`).
      */
     duo: { spawnSpacing: 5, spacing: 4.5, spacingWeight: 0.9, flankDegrees: 50, flankWeight: 0.45 },
+    /**
+     * A flying boss stage (BossStage.fly: The Midget's last): vertical speeds toward its hover height
+     * (m/s), the highest cover it rises over (m), how far ahead it looks for cover (s of travel),
+     * the bob (m, rad/s), and the jet under its feet (particles per second, size, life).
+     */
+    flight: { rise: 3, sink: 3.5, climb: 2.2, lookAhead: 0.25, bob: 0.14, bobRate: 2.4, jetRate: 70, jetSize: 0.16, jetLife: 0.35 },
   },
 
   /**

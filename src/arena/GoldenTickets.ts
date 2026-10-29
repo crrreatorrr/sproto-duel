@@ -41,10 +41,11 @@ const BEAM_FRAG = /* glsl */ `
     float fade = pow(1.0 - vUv.y, 1.6);
     float shimmer = 0.75 + 0.25 * sin(vUv.y * 28.0 - uTime * 5.0);
     float a = fade * shimmer * pow(vFacing, 1.4) * uOpacity;
-    gl_FragColor = vec4(uColor * (1.0 + 1.5 * fade), a);
+    gl_FragColor = vec4(uColor * (1.15 + 2.0 * fade), a);
   }
 `;
 
+const H = CONFIG.pickupHighlight;
 const tmpColor = new THREE.Color();
 const tmpColor2 = new THREE.Color();
 const tmpPos = new THREE.Vector3();
@@ -55,6 +56,8 @@ export class GoldenTicket {
   id = 0;
   /** Centre at hover height (without the bob). */
   readonly pos = new THREE.Vector3();
+  /** Floor pulse ring timer (pickupHighlight). */
+  pulseAcc = 0;
   /** Seconds on the floor (counts only during the fight). */
   age = 0;
   readonly root = new THREE.Group();
@@ -437,16 +440,22 @@ export class GoldenTickets {
         t.glow.position.x = tmpPos.x * 0.4;
         t.glow.position.z = tmpPos.z * 0.4;
       }
-      t.glow.scale.setScalar(2.3 * Math.max(0.001, scale) * (0.92 + 0.08 * Math.sin(time * 4 + t.phase)) * (1 + (far - 1) * 0.5));
-      t.glow.material.opacity = 0.5 * alpha;
+      t.glow.scale.setScalar(2.3 * H.glowScale * Math.max(0.001, scale) * (0.92 + 0.08 * Math.sin(time * 4 + t.phase)) * (1 + (far - 1) * 0.5));
+      t.glow.material.opacity = Math.min(1, 0.5 * H.glowOpacity) * alpha;
       const beam = t.beam.material.uniforms;
       beam.uTime.value = time;
       const themeBoost = T.beamThemeBoost[this.arena.theme] ?? 1;
-      beam.uOpacity.value = Math.min(1, 0.55 * themeBoost) * alpha * Math.min(1, t.active ? t.popTime / POP_TIME : 1) * (0.85 + 0.15 * Math.sin(time * 2.5 + t.phase));
-      t.beam.scale.set(scale * far, 1, scale * far);
-      t.floorGlow.material.opacity = 0.5 * alpha * (0.8 + 0.2 * Math.sin(time * 3 + t.phase));
+      beam.uOpacity.value = Math.min(1, 0.55 * themeBoost * H.beamOpacity) * alpha * Math.min(1, t.active ? t.popTime / POP_TIME : 1) * (0.85 + 0.15 * Math.sin(time * 2.5 + t.phase));
+      t.beam.scale.set(scale * far * H.beamWidth, 1, scale * far * H.beamWidth);
+      t.floorGlow.material.opacity = Math.min(1, 0.5 * H.floorOpacity) * alpha * (0.8 + 0.2 * Math.sin(time * 3 + t.phase));
+      // A ring pulsing out along the floor, so a ticket is seen even with its beam behind cover.
+      if (t.active && (t.pulseAcc += dt) >= H.pulseEvery) {
+        t.pulseAcc -= H.pulseEvery;
+        tmpPos.set(t.root.position.x, 0.08, t.root.position.z);
+        this.fx.ring(tmpPos, GOLD, H.pulseRadius, H.pulseTime);
+      }
     }
-    this.cardMaterial.emissiveIntensity = 0.38 + 0.12 * Math.sin(time * 3.2);
+    this.cardMaterial.emissiveIntensity = (0.38 + 0.12 * Math.sin(time * 3.2)) * H.emissive;
     this.updateAuras(dt, time);
   }
 

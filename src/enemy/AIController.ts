@@ -6,9 +6,10 @@ import { chance, clamp, rand, randInt, wrapAngle } from '../core/math';
 import type { Physics } from '../physics/Physics';
 import type { Arena } from '../arena/Arena';
 import { stageProfile } from '../campaign/BossStages';
-import type { StageAttacks } from '../campaign/levels';
+import type { BossFighter, PowerDef, StageAttacks } from '../campaign/levels';
 import type { GoldenTickets } from '../arena/GoldenTickets';
 import type { LifePacks } from '../arena/LifePacks';
+import type { ArenaShifts } from '../arena/ArenaShifts';
 import type { SpellSystem } from '../spells/SpellSystem';
 import type { Wizard } from '../wizard/Wizard';
 
@@ -27,6 +28,8 @@ const DUO = CONFIG.campaign.duo;
 const TK = CONFIG.tickets;
 const RS = CONFIG.rewardSpells;
 const RAI = CONFIG.ai.rewards;
+const PW = CONFIG.powers;
+const PAI = CONFIG.powers.ai;
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -87,6 +90,8 @@ export class AIController implements TickController {
    * them, so only an AI driving the player (the soak's reference AI) gets them.
    */
   lifePacks: LifePacks | null = null;
+  /** Arena shifts' springs (src/arena/ArenaShifts.ts); null = ignore them (bosses do; the soak's reference AI uses them). */
+  shifts: ArenaShifts | null = null;
   /** The pickup (a ticket or a life pack) this AI is detouring to, if any (checked by id: they are pooled). */
   private ticketGoal: { readonly active: boolean; readonly id: number; readonly pos: THREE.Vector3 } | null = null;
   /** The goal is a life pack (worth more: no give-up check against the opponent's distance). */
@@ -103,6 +108,18 @@ export class AIController implements TickController {
   private volleyAlertAt = -1e9;
   /** Seconds the target has been strafing across our line of fire (Lock-On). */
   private targetStrafe = 0;
+  /** The boss this AI plays and its stage (bossStage), for its special powers; null: none. */
+  private boss: BossFighter | null = null;
+  private stage = 0;
+  /** Boss powers coming at us (evadePowers): when each hazard was first noticed (by id), and those already planned for. */
+  private readonly noticed = new Map<number, number>();
+  private readonly planned = new Set<number>();
+  /** Running out of a telegraphed zone or cone: where to, until when. */
+  private readonly escapeDir = new THREE.Vector3();
+  private escapeUntil = -1;
+  /** Turned away from a flashbang about to pop: which way, until when. */
+  private lookAwayAngle = 0;
+  private lookAwayUntil = -1;
 
   constructor(
     private readonly self: Wizard,
@@ -166,6 +183,10 @@ export class AIController implements TickController {
     this.rewardCheck = 0;
     this.volleyAlertAt = -1e9;
     this.targetStrafe = 0;
+    this.noticed.clear();
+    this.planned.clear();
+    this.escapeUntil = this.lookAwayUntil = -1;
+    this.armPowers();
   }
 
   /** First volley of a stage comes a little after it begins. */
@@ -198,7 +219,10 @@ export class AIController implements TickController {
         if (e.wizard !== this.self) return;
         this.attacks = e.boss ? e.boss.stages[e.stage].attacks : null;
         if (e.boss) this.setProfile(stageProfile(e.boss, e.stage));
+        this.boss = e.boss;
+        this.stage = e.stage;
         this.resetVolley();
+        this.armPowers();
       }),
       events.on('damage', (e) => {
         if (e.target === this.self) this.lastHurtAt = this.time;
@@ -266,12 +290,177 @@ export class AIController implements TickController {
     toTarget.divideScalar(dist || 1);
 
     this.perceiveThreats();
+    this.evadePowers();
     this.runReactions();
     this.chooseState(dist);
     this.thinkTickets(dt);
     this.thinkRewards(dt, toTarget, dist);
     this.steer(dt, toTarget, dist);
+    this.thinkPowers(dist);
     this.aimAndAttack(dt, dist);
+    // Channelling a power (the cone, the sweep, its rings): plant and face it.
+    const pw = this.spells.powers;
+    if (pw.channeling(w)) {
+      intent.move.set(0, 0, 0);
+      this.desiredMove.set(0, 0, 0);
+      intent.sprint = false;
+      intent.holdBolt = false;
+      const f = pw.channelFacing(w);
+      if (f !== null) intent.facing = f;
+    }
+    // Eyes off a flashbang about to pop.
+    if (this.time < this.lookAwayUntil) {
+      intent.facing = this.lookAwayAngle;
+      intent.holdBolt = false;
+    }
+  }
+
+  // ------------------------------------------------------------------ boss powers
+
+  /** A boss's stage starts (or a round): each of its powers comes up after part of its recharge. */
+  private armPowers(): void {
+    const b = this.boss;
+    if (!b) return;
+    const pw = this.spells.powers;
+    for (const d of b.powers) if (d.from <= this.stage) pw.setCooldown(this.self, d, pw.recharge(d, this.stage) * PW.firstDelay * rand(0.8, 1.4));
+  }
+
+  /**
+   * Boss special powers: when the fight's bosses aren't mid-power (CONFIG.powers.gap), start one of
+   * this stage's that has recharged and has the target in range (and in sight, except those that
+   * come from above), picked at random.
+   */
+  private thinkPowers(dist: number): void {
+    const b = this.boss, w = this.self, pw = this.spells.powers;
+    if (!b || b.powers.length === 0 || !pw.open || !w.canAct || pw.busy(w) || this.target.evolving || this.spells.volleyFiring(w)) return;
+    if (this.state !== 'attack' && this.state !== 'approach') return;
+    const sees = this.hasLos && !this.lost;
+    let pick: PowerDef | null = null;
+    let n = 0;
+    for (const d of b.powers) {
+      if (d.from > this.stage || pw.cooldown(w, d) > 0 || dist > d.range) continue;
+      const fromAbove = d.kind === 'strike' || d.kind === 'barrage' || d.kind === 'cloud';
+      if (PW.needSight && !sees && !fromAbove) continue;
+      if (chance(1 / ++n)) pick = d;
+    }
+    if (pick) pw.cast(w, pick, this.target, this.stage);
+  }
+
+  /**
+   * Boss powers coming at us (CONFIG.powers.ai), each noticed with the profile's dodge chance and
+   * reacted to after its reaction time: run out of a zone, a cone or a toxic cloud about to fire (and
+   * roll out if still inside at the last moment), jump a shockwave ring or the sweep as it arrives
+   * (or roll through it), roll through a seeker about to hit, look away from a flashbang. A
+   * strike's reticle can't be outrun while it follows: it is dodged once it locks.
+   */
+  private evadePowers(): void {
+    const w = this.self, p = this.profile, pw = this.spells.powers;
+    if (!w.alive || w.stunned) return;
+    const esc = tmpB.set(0, 0, 0);
+    let roll: THREE.Vector3 | null = null;
+    for (const h of pw.hazards) {
+      if (!h.active || h.owner.side === w.side || h.delay > 0 || h.done.includes(w)) continue;
+      let seen = this.noticed.get(h.id);
+      if (seen === undefined) {
+        seen = chance(p.dodgeChance + (1 - p.dodgeChance) * PAI.notice) ? this.time : Infinity;
+        this.noticed.set(h.id, seen);
+      }
+      if (this.time - seen < p.reactionTime * rand(0.9, 1.1)) continue;
+      const dx = w.pos.x - h.at.x, dz = w.pos.z - h.at.z;
+      const d = Math.hypot(dx, dz);
+      switch (h.kind) {
+        case 'zone':
+        case 'flash':
+        case 'cloud': {
+          if (h.track > 0 || (h.fired && h.kind !== 'cloud')) break;
+          const fires = h.fired ? 0 : h.warn;
+          if (fires > PAI.zoneHorizon) break;
+          if (h.kind === 'flash' && d < h.radius + 1 && fires < 0.4) {
+            this.lookAwayAngle = Math.atan2(dx, dz);
+            this.lookAwayUntil = this.time + fires + 0.15;
+          }
+          const reach = h.radius + w.radius * PW.zoneGrace;
+          if (d > reach + PAI.zoneMargin) break;
+          const k = 1 / Math.max(0.15, fires);
+          if (d > 0.05) esc.x += (dx / d) * k, esc.z += (dz / d) * k;
+          else esc.x += Math.cos(w.facing) * k, esc.z -= Math.sin(w.facing) * k;
+          if (h.kind === 'zone' && d < reach && fires < PAI.rollLead && !roll) roll = tmpC.set(d > 0.05 ? dx / d : Math.cos(w.facing), 0, d > 0.05 ? dz / d : -Math.sin(w.facing));
+          break;
+        }
+        case 'cone': {
+          if (h.fired || d > h.radius + 1.5) break;
+          const off = wrapAngle(Math.atan2(dx, dz) - h.angle);
+          if (Math.abs(off) > h.arc / 2 + 0.35) break;
+          // Out of the side it is nearer to.
+          const side = off >= 0 ? 1 : -1;
+          const sx = Math.cos(h.angle) * side, sz = -Math.sin(h.angle) * side;
+          const k = 1 / Math.max(0.15, h.warn);
+          esc.x += sx * k;
+          esc.z += sz * k;
+          if (h.warn < PAI.rollLead && !roll) roll = tmpC.set(sx, 0, sz);
+          break;
+        }
+        case 'ring':
+        case 'sweep': {
+          if (this.planned.has(h.id)) break;
+          let arrive: number;
+          if (h.kind === 'ring') {
+            const gap = d - w.radius - h.radius;
+            if (gap < 0) break;
+            arrive = (h.fired ? 0 : h.warn) + gap / h.speed;
+          } else {
+            if (d > h.radius + 1) break;
+            const from = h.fired ? h.angle : h.start;
+            const left = wrapAngle(Math.atan2(dx, dz) - from) * h.dir;
+            if (left < 0) break;
+            arrive = (h.fired ? 0 : h.warn) + (left / h.arc) * h.life;
+          }
+          // Jump the moment it is a jump's apex away (so the feet are highest as it passes),
+          // or, if a jump isn't possible, roll through it just before it arrives.
+          const J = CONFIG.wizard.jump;
+          const lead = J.velocity / J.gravity + rand(-1, 1) * J.aiWaveJumpError * (1 - p.dodgeChance);
+          if (w.canJump) {
+            if (arrive > lead) break;
+            this.planned.add(h.id);
+            w.intent.press('jump');
+          } else {
+            if (arrive > CONFIG.wizard.dodge.iframes * 0.5) break;
+            this.planned.add(h.id);
+            if (!roll) roll = tmpC.set(-dx, 0, -dz).normalize();
+          }
+          break;
+        }
+        case 'seeker': {
+          if (h.target !== w) break;
+          const chest = w.chest(tmpA);
+          const dist = chest.distanceTo(h.at);
+          if (dist / Math.max(1, h.speed) > PAI.seekerLead || this.planned.has(h.id)) break;
+          this.planned.add(h.id);
+          const canShield = w.cd.shield <= 0 && w.mana >= SP.shield.manaCost;
+          if (canShield && chance(p.shieldPreference)) this.reactions.push({ at: this.time, action: 'shield', dir: new THREE.Vector3() });
+          else if (!roll) roll = tmpC.set(-h.vel.z, 0, h.vel.x).normalize();
+          break;
+        }
+      }
+    }
+    if (esc.lengthSq() > 1e-6) {
+      this.escapeDir.copy(esc).setY(0).normalize();
+      this.biasAwayFromHazards(this.escapeDir);
+      this.escapeUntil = this.time + 0.2;
+    }
+    if (roll && w.cd.dodge <= 0 && !w.dodging && w.grounded) {
+      this.biasAwayFromHazards(roll);
+      w.intent.move.copy(roll);
+      this.desiredMove.copy(roll);
+      w.intent.press('dodge');
+      this.setState('evade');
+    }
+    if (this.noticed.size > 96) {
+      // Forget hazards long gone.
+      const live = new Set(pw.hazards.map((h) => h.id));
+      for (const id of this.noticed.keys()) if (!live.has(id)) this.noticed.delete(id);
+      for (const id of this.planned) if (!live.has(id)) this.planned.delete(id);
+    }
   }
 
   // ------------------------------------------------------------------ reward spells
@@ -507,6 +696,18 @@ export class AIController implements TickController {
         return;
       }
     }
+    // ...and so does a spring that is still running.
+    const SH = CONFIG.arenaShifts;
+    if (this.shifts && !this.ticketGoal && w.health < w.maxHealth * SH.aiSeekHealth && this.state !== 'evade') {
+      const spring = this.shifts.springFor(w, SH.aiSeekRange);
+      if (spring) {
+        this.ticketGoal = spring;
+        this.ticketGoalId = spring.id;
+        this.ticketGoalTime = 0;
+        this.goalIsPack = true;
+        return;
+      }
+    }
     if (!this.ticketGoal) this.goalIsPack = false;
     if (this.ticketGoal || !this.tickets || this.tickets.activeCount === 0) return;
     this.ticketCheck -= dt;
@@ -629,6 +830,25 @@ export class AIController implements TickController {
       sprint = false;
     }
 
+    // Running out of a telegraphed boss power wins over everything else.
+    const escaping = this.time < this.escapeUntil && this.state !== 'evade';
+    if (escaping) {
+      move.copy(this.escapeDir);
+      sprint = w.mana > CONFIG.wizard.sprintRecoverMana;
+    }
+
+    // Steer round standing toxic clouds (an enemy boss's), like lava.
+    for (const h of this.spells.powers.hazards) {
+      if (!h.active || h.kind !== 'cloud' || !h.fired || h.owner.side === w.side) continue;
+      const dx = w.pos.x - h.at.x, dz = w.pos.z - h.at.z;
+      const d = Math.hypot(dx, dz) || 1e-3;
+      const reach = h.radius + PAI.cloudMargin + w.radius;
+      if (d > reach + 1.5) continue;
+      const push = clamp((reach + 1.5 - d) / 1.5, 0, 2);
+      move.x += (dx / d) * push;
+      move.z += (dz / d) * push;
+    }
+
     // Stay out of lava and the fire.
     this.arena.avoidHazards(w.pos, move);
     const r = Math.hypot(w.pos.x, w.pos.z);
@@ -641,8 +861,9 @@ export class AIController implements TickController {
     }
 
     if (move.lengthSq() > 1) move.normalize();
-    // Smooth direction changes so movement reads as intentional, not jittery.
-    if (this.state !== 'evade') this.desiredMove.lerp(move, 1 - Math.exp(-10 * dt));
+    // Smooth direction changes so movement reads as intentional, not jittery (a dash out of a power is sharp).
+    if (escaping) this.desiredMove.copy(move);
+    else if (this.state !== 'evade') this.desiredMove.lerp(move, 1 - Math.exp(-10 * dt));
     w.intent.move.copy(this.desiredMove);
     w.intent.sprint = sprint;
   }
@@ -720,7 +941,7 @@ export class AIController implements TickController {
       const feetY = Math.max(t.groundY, t.pos.y + t.vy * lead - 0.5 * g * lead * lead);
       aim.y += feetY - t.pos.y;
     }
-    if (usingBlast) aim.y = 0.5; // splash at the feet
+    if (usingBlast) aim.y = t.pos.y + 0.5; // splash at the feet (a flying target's, in the air)
     // A stun beam and the fire breath aim true (the breath is a short cone anyway).
     if (w.cast?.spell !== 'stun' && !w.breathing) aim.add(this.aimNoise);
     intent.facing = Math.atan2(aim.x - w.pos.x, aim.z - w.pos.z);
@@ -729,7 +950,7 @@ export class AIController implements TickController {
     const sees = this.hasLos || this.blind;
     if (this.state !== 'attack' && !(this.state === 'approach' && sees && dist < 22)) return;
     // A transforming boss is immune: hold fire (and let mana recover) until it is done.
-    if (!sees || w.cast || w.stunned || t.evolving || this.spells.volleyFiring(w)) return;
+    if (!sees || w.cast || w.stunned || t.evolving || this.spells.volleyFiring(w) || this.spells.powers.channeling(w)) return;
     // Boss stages gate everything beyond bolts (charge still builds while the Ultimate is locked).
     const a = this.attacks;
     const canBlast = !a || a.blast, canStun = !a || a.stun, canUlt = !a || a.ultimate;

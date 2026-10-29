@@ -117,6 +117,14 @@ Conventions the game relies on:
   turns clips off per model (Tinubu: no `roll` or `jump`, his rigid wings and robe go through the
   floor). Rates: roll is stretched to the 0.34 s dodge (~2.9x), jump to the 0.68 s airtime (~0.83x,
   the game's arc drives the height), run, strafes and run_back share one phase paced by speed.
+- **Character clip sets**: most rigs share the library's clips; Bitcoin Obama and The Midget have
+  their own `idle`, `run`, `cast`, `cast_big` and `victory` so the two read apart in the double
+  fight. Obama talks with open hands, waves as he jogs, pitches (`cast`) and crouch-charges a throw
+  (`cast_big`), and fist-pumps. The Midget bounces on a boxer's guard, sprints leaning forward,
+  whips an over-shoulder throw and slams one down, and hops with his arms up (stage 1 throws
+  mirrored, from his left-hand phone). His flying stage 3 treads air (`idle`) and strokes forward
+  (`run`), tilted upright, with no strafes, `run_back` or `jump`. Their release times are in the
+  manifest (`RIG_CAST_PEAKS`). Rebuild with the rig pipeline's `om2/build.sh`.
 - **Root motion is removed at load** (`src/assets/rig.ts`): every clip's `Hips` horizontal track is
   replaced by the constant that centres the clip's feet on the collider (height kept), so the body
   never drifts off its hitbox; `defeat` keeps its travel (the body falls away backwards).

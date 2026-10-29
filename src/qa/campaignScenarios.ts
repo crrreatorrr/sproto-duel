@@ -68,8 +68,8 @@ const fightHp = (boss: BossDef | null) => (boss ? bossFighters(boss).map((f) => 
 /**
  * Threat of a fight from each opponent's damage per second and health, at `hitRate`. One opponent:
  * the damage it deals in the time you need to kill it. A pair is fought one at a time, in the better
- * order: both hit you until the first falls, then the survivor alone, at `survivorDps` (its enraged,
- * last-stage rate) if given.
+ * order: both hit you until the first falls, then the survivor alone (it keeps its own stage), at
+ * `survivorDps` if given.
  */
 function fightThreat(name: string, dpsBy: number[], hpBy: number[], hitRate: number, survivorDps = dpsBy): ThreatSample {
   const rate = Math.max(0.01, SUSTAINED_BOLT_DPS * hitRate);
@@ -166,13 +166,13 @@ export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile:
 
 /**
  * A boss over its whole fight: each stage probed in turn, damage and hit rate averaged across the
- * stages. In a double fight the survivor fights on enraged, at its last stage's damage.
+ * stages. In a double fight the survivor fights on in its own stage (the other's fall changes nothing).
  */
 function measureBossThreat(c: Ctx, game: Game, boss: BossDef, seed: number, seconds: number, trials: number): ThreatSample {
   const per = Array.from({ length: STAGE_COUNT }, (_, s) => withSeededRandom(seed + s * 101, () => measureThreat(c, game, boss, boss.ai, seconds, trials, s)));
   const dpsBy = per[0].dpsBy.map((_, i) => per.reduce((a, x) => a + x.dpsBy[i], 0) / per.length);
   const hitRate = per.reduce((a, x) => a + x.hitRate, 0) / per.length;
-  const out = fightThreat(bossDisplayName(boss), dpsBy, fightHp(boss), hitRate, per[STAGE_COUNT - 1].dpsBy);
+  const out = fightThreat(bossDisplayName(boss), dpsBy, fightHp(boss), hitRate);
   // One life through every stage: each stage's bars (both bosses') take HP / (sustained bolt damage x
   // that stage's hit rate) to empty, at that stage's damage per second.
   let taken = 0;
@@ -339,11 +339,11 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       c.expect(caps().length === 1 && m.capped && m.phase === 'fight', 'no fightCap at the stage cap');
       withMatchFlow(game, () => c.step(F.capCloseTime));
       c.near(game.arena.fireRadius, F.stageCapRadius, 0.01, 'stage cap floor m');
-      // ...and opens again once the stage ends.
+      // ...and opens again once the stage ends (as far as stage 2's arena shift lets it).
       game.stages.evolveTo(1);
       game.stages.release(0);
       withMatchFlow(game, () => c.step(5));
-      c.expect(game.arena.fireRadius > A.fireRadius - 1 && !m.capped, `ring did not reopen (${game.arena.fireRadius.toFixed(1)})`);
+      c.expect(game.arena.fireRadius > CONFIG.arenaShifts.ringRadius[1] - 1 && !m.capped, `ring did not reopen (${game.arena.fireRadius.toFixed(1)})`);
       // Past the fight's safety cap it closes completely, and the fight ends.
       m.clock.elapsed = F.safetyCap + F.capCloseTime;
       p.health = 30;

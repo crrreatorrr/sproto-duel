@@ -4,6 +4,7 @@ import type { ModelKey } from '../assets/manifest';
 import { BOSS_PORTRAITS } from '../assets/manifest';
 import { gunMuzzle, handAndMouth, phoneMuzzle, staffMuzzle, twoPhones, vapeMuzzle, type MuzzleSet } from '../wizard/muzzles';
 import type { RewardSpellId } from '../spells/rewardCatalog';
+import type { TransformStyleId } from './transformStyles';
 
 export type BossId = keyof typeof BOSS_PORTRAITS;
 
@@ -41,6 +42,48 @@ export interface StageAttacks {
   volley?: VolleyDef;
 }
 
+/**
+ * A boss special power (src/spells/BossPowers.ts): telegraphed on the floor, then it fires; it
+ * recharges on its own cooldown. Each kind is evaded its own way:
+ * - `strike`: a reticle follows you for `track` s, then locks for `warn` s and is hit from above.
+ *   Get out of the circle after it locks (or roll as it lands).
+ * - `barrage`: `count` circles land round you over `duration` s, each `warn` s after it appears.
+ *   Keep moving between them.
+ * - `march`: a line of eruptions from the boss toward where you stood, one after another
+ *   (`step` s apart). Sidestep the line.
+ * - `rings`: `count` shockwaves roll out along the floor from the boss. Jump them or roll through.
+ * - `sweep`: a low beam turns `arc` degrees round the boss in `duration` s. Jump it or roll.
+ * - `cone`: a cone toward you locks, then blasts (knocks you back). Get out of it, or behind cover.
+ * - `seekers`: `count` slow homing objects chase you. Roll through one as it arrives (it loses its
+ *   lock and flies on), shield, or put cover between you and them. `drain`: a hit also drains mana and ends a golden-ticket boost.
+ * - `flash`: a grenade lands and pops: anyone in range looking at it is blinded (stunned). Look away.
+ * - `cloud`: a toxic cloud forms where you stand and hurts every second you stay in it. Get out.
+ * Rolling (i-frames) evades every kind. Damage is per hit, before the boss's multipliers.
+ */
+interface PowerBase {
+  name: string;
+  /** First stage (0, 1 or 2) that has it. */
+  from: number;
+  /** Seconds to recharge after it fires (later stages recharge faster: CONFIG.powers.stageRecharge). */
+  cooldown: number;
+  damage: number;
+  /** Farthest the target may be to start it (m). */
+  range: number;
+  /** What falls, flies or is thrown: one of the boss's own projectile looks. */
+  skin?: Exclude<ProjectileSkin, 'orb'>;
+}
+export type PowerDef =
+  | (PowerBase & { kind: 'strike'; radius: number; track: number; warn: number })
+  | (PowerBase & { kind: 'barrage'; count: number; radius: number; spread: number; duration: number; warn: number })
+  | (PowerBase & { kind: 'march'; count: number; spacing: number; radius: number; warn: number; step: number })
+  | (PowerBase & { kind: 'rings'; count: number; interval: number; speed: number; maxRadius: number; warn: number })
+  | (PowerBase & { kind: 'sweep'; arc: number; duration: number; length: number; warn: number })
+  | (PowerBase & { kind: 'cone'; angle: number; length: number; warn: number; knockback: number })
+  | (PowerBase & { kind: 'seekers'; count: number; speed: number; turn: number; life: number; drain?: boolean })
+  | (PowerBase & { kind: 'flash'; radius: number; warn: number; stun: number; facing: number })
+  | (PowerBase & { kind: 'cloud'; radius: number; warn: number; life: number });
+export type PowerKind = PowerDef['kind'];
+
 /** One of a boss's three forms. Stage 1 starts each fight; each stage has its own health bar (BossFighter.stageHealth). */
 export interface BossStage {
   name: string;
@@ -52,6 +95,11 @@ export interface BossStage {
    * src/wizard/muzzles.ts and ASSETS.md. The placeholder look uses its own props instead.
    */
   muzzle: MuzzleSet;
+  /**
+   * This stage flies: it hovers this high (m) over whatever is underneath, over low cover, fire and
+   * lava (CONFIG.campaign.flight); a stun drops it to the ground until it wears off.
+   */
+  fly?: number;
 }
 
 /**
@@ -78,6 +126,20 @@ export interface BossFighter {
   stageHealth: [number, number, number];
   /** Multiplies all damage the boss deals. */
   damageMultiplier: number;
+  /**
+   * His ordinary spells' share of that (bolts, blasts, stuns, the Ultimate), now that bosses fire
+   * them far more often (CONFIG.campaign.aggression); default `aggression.spellDamage`.
+   */
+  spellDamage?: number;
+  /** Multiplies walk and sprint speed (and acceleration); default 1. */
+  speed?: number;
+  /**
+   * His own transformation cinematic (src/campaign/transformStyles.ts): how he moves, what he
+   * brings and how he sounds when a bar breaks (CONFIG.campaign.cinematic.styles).
+   */
+  transform: TransformStyleId;
+  /** His special powers (PowerDef): each unlocks at its stage and recharges on its own. */
+  powers: PowerDef[];
 }
 
 /**
@@ -87,6 +149,22 @@ export interface BossFighter {
 export interface BossPartner extends BossFighter {
   /** Collision capsule in meters. Spells aim at (and hit) this body: chest, wand and HUD tag follow its height. */
   hitbox: { radius: number; height: number };
+}
+
+/**
+ * How a boss's arena changes as the fight goes on (src/arena/ArenaShifts.ts, CONFIG.arenaShifts):
+ * when the fight reaches stage 2 hazard pools open and a healing spring wells up; at stage 3 vents
+ * start erupting. Everything is in the boss's theme and hurts (or heals) anyone, boss or player.
+ */
+export interface ArenaShiftDef {
+  /** The light and fog turn toward this colour, more each stage. */
+  mood: number;
+  /** Stage 2: pools that burn anyone standing in them (feet on the floor), `slow` scaling their speed. */
+  pools: { name: string; color: number; dps: number; look: 'sand' | 'liquid' | 'magma' | 'electric'; slow?: number };
+  /** Stage 2: a spring that heals anyone standing in it until it runs dry (stage 3 fills it again). */
+  spring: { name: string; color: number };
+  /** Stage 3: vents that warn, then erupt: damage and a shove out of them. */
+  vents: { name: string; color: number; damage: number };
 }
 
 /** One campaign fight: who you face, where, and how hard they are. */
@@ -105,6 +183,8 @@ export interface BossDef extends BossFighter {
    * fight teaches one, once both bosses are down). Bosses never cast these themselves.
    */
   reward: RewardSpellId;
+  /** How the arena changes at stages 2 and 3 (in a double fight, at the furthest stage either boss reaches). */
+  shift: ArenaShiftDef;
 }
 
 /** Everyone the player faces in this fight: the boss, then its partner if any. */
@@ -153,6 +233,13 @@ export const BOSSES: BossDef[] = [
       },
     ],
     skins: { bolt: 'rugRoll', blast: 'carpet' },
+    transform: 'bazaar',
+    shift: { mood: 0xff9a3c, pools: { name: 'Quicksand', color: 0xd9b26a, dps: 4, look: 'sand', slow: 0.5 }, spring: { name: 'Oasis', color: 0x4fe0c8 }, vents: { name: 'Sand Geysers', color: 0xffc070, damage: 9 } },
+    powers: [
+      { kind: 'sweep', name: 'Carpet Sweep', from: 0, cooldown: 15, damage: 7, range: 15, arc: 200, duration: 1.9, length: 15, warn: 1.1, skin: 'carpet' },
+      { kind: 'barrage', name: 'Bazaar Rain', from: 1, cooldown: 17, damage: 7, range: 30, count: 7, radius: 2, spread: 5, duration: 2.4, warn: 1.15, skin: 'rugRoll' },
+      { kind: 'strike', name: 'Magic Carpet Drop', from: 2, cooldown: 16, damage: 13, range: 30, radius: 2.7, track: 1.6, warn: 0.85, skin: 'carpet' },
+    ],
     palette: { name: 'Sahil', robe: 0x7a1f2b, trim: 0xe8b04a, spell: 0xff9a3c, blast: 0xd94a2a, stun: 0xffe2b0, ultimate: 0xffb347 },
     ai: {
       label: 'Sahil',
@@ -172,6 +259,7 @@ export const BOSSES: BossDef[] = [
     },
     stageHealth: [1490, 1660, 1710],
     damageMultiplier: 0.77,
+    spellDamage: 0.45,
   }),
   boss({
     // A double fight: Bitcoin Obama (tall) and The Midget at the same time, each with his own
@@ -199,6 +287,13 @@ export const BOSSES: BossDef[] = [
       },
     ],
     skins: { bolt: 'phone', blast: 'pig' },
+    transform: 'shill',
+    shift: { mood: 0xf7931a, pools: { name: 'Liquidation Pits', color: 0xff3346, dps: 11, look: 'liquid' }, spring: { name: 'Airdrop', color: 0x5dff8a }, vents: { name: 'Gas Fees', color: 0xb26bff, damage: 10 } },
+    powers: [
+      { kind: 'march', name: 'Green Candles', from: 0, cooldown: 15, damage: 8, range: 22, count: 7, spacing: 2.6, radius: 1.5, warn: 0.95, step: 0.14 },
+      { kind: 'seekers', name: 'Shill Calls', from: 1, cooldown: 17, damage: 6, range: 26, count: 3, speed: 8.5, turn: 2.2, life: 5, skin: 'phone' },
+      { kind: 'rings', name: 'Liquidation', from: 2, cooldown: 18, damage: 10, range: 22, count: 3, interval: 0.75, speed: 13, maxRadius: 24, warn: 0.95 },
+    ],
     palette: { name: 'Bitcoin Obama', robe: 0x18181f, trim: 0xe0b23a, spell: 0xf7931a, blast: 0x3fb8ff, stun: 0xfff0c0, ultimate: 0xf7931a },
     ai: {
       label: 'Bitcoin Obama',
@@ -217,10 +312,11 @@ export const BOSSES: BossDef[] = [
       preferredRange: [10, 15],
     },
     // As a pair: Obama is the glass cannon (smaller bars, hits hardest), The Midget the tank (bigger
-    // bars, closes in). Knock out the nearest first and you face an enraged Obama; a sharp player
-    // drops Obama first.
+    // bars, closes in). Two separate bosses: each changes stage only when its own bar empties, and
+    // knocking one out leaves the other as it is; a sharp player drops Obama first.
     stageHealth: [380, 440, 500],
-    damageMultiplier: 0.93,
+    damageMultiplier: 0.64,
+    spellDamage: 0.5,
     partner: {
       // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
       id: 'midget',
@@ -237,11 +333,19 @@ export const BOSSES: BossDef[] = [
         {
           name: 'Short Squeeze',
           model: 'bossMidget3',
+          // His final form flies.
+          fly: 1.7,
           muzzle: twoPhones([0.081, 0.491, 0.231], [0.025, 0.484, -0.325], true),
           attacks: { blast: true, stun: true, ultimate: false, volley: { name: 'Moon Shot', count: 3, spreadDeg: 4, interval: 0.1, cooldown: 5, damageScale: 0.6 } },
         },
       ],
       skins: { bolt: 'phone', blast: 'pig' },
+      transform: 'tantrum',
+      powers: [
+        { kind: 'rings', name: 'Tantrum Stomp', from: 0, cooldown: 19, damage: 7, range: 16, count: 2, interval: 0.6, speed: 12, maxRadius: 18, warn: 0.85 },
+        { kind: 'strike', name: 'To the Moon', from: 1, cooldown: 20, damage: 10, range: 30, radius: 2.4, track: 1.4, warn: 0.85, skin: 'phone' },
+        { kind: 'barrage', name: 'Pig Rain', from: 2, cooldown: 21, damage: 6, range: 28, count: 9, radius: 1.6, spread: 6, duration: 2.4, warn: 0.95, skin: 'pig' },
+      ],
       palette: { name: 'The Midget', robe: 0x1f3f9a, trim: 0xc08a3e, spell: 0x4f86ff, blast: 0xd09a4a, stun: 0xd8e6ff, ultimate: 0x6fa0ff },
       ai: {
         label: 'The Midget',
@@ -260,8 +364,11 @@ export const BOSSES: BossDef[] = [
         preferredRange: [7, 12],
         hopRate: 0.45,
       },
-      stageHealth: [500, 570, 625],
-      damageMultiplier: 0.77,
+      // Much faster than anyone else (1.5x walk and sprint), but a little lighter: less health, softer hits.
+      stageHealth: [450, 515, 560],
+      damageMultiplier: 0.46,
+      spellDamage: 0.5,
+      speed: 1.5,
       hitbox: { radius: 0.32, height: 1.25 },
     },
   }),
@@ -284,6 +391,13 @@ export const BOSSES: BossDef[] = [
       },
     ],
     skins: { bolt: 'floret', blast: 'broccoli' },
+    transform: 'vape',
+    shift: { mood: 0x7dff5a, pools: { name: 'Toxic Runoff', color: 0x7dff5a, dps: 12, look: 'liquid' }, spring: { name: 'Fire Hydrant', color: 0x5ab8ff }, vents: { name: 'Sewer Steam', color: 0xdfe8e0, damage: 10 } },
+    powers: [
+      { kind: 'barrage', name: 'Floret Mortar', from: 0, cooldown: 14, damage: 11, range: 30, count: 8, radius: 2, spread: 5.5, duration: 2.4, warn: 1.0, skin: 'floret' },
+      { kind: 'cloud', name: 'Hotbox', from: 1, cooldown: 18, damage: 8, range: 26, radius: 4.2, warn: 0.95, life: 6 },
+      { kind: 'cone', name: 'Big Exhale', from: 2, cooldown: 14, damage: 20, range: 12, angle: 60, length: 13, warn: 1.05, knockback: 9 },
+    ],
     palette: { name: 'Broccoli Head', robe: 0x2f5a1f, trim: 0x9bd35a, spell: 0x6fe03a, blast: 0x3a9a2a, stun: 0xe6ffd0, ultimate: 0x8fff5a },
     ai: {
       label: 'Broccoli Head',
@@ -302,7 +416,8 @@ export const BOSSES: BossDef[] = [
       preferredRange: [9, 14],
     },
     stageHealth: [880, 900, 1000],
-    damageMultiplier: 1.0,
+    damageMultiplier: 0.76,
+    spellDamage: 0.97,
   }),
   boss({
     id: 'agent',
@@ -328,6 +443,13 @@ export const BOSSES: BossDef[] = [
       },
     ],
     skins: { bolt: 'bullet', blast: 'grenade' },
+    transform: 'glitch',
+    shift: { mood: 0x4fd8ff, pools: { name: 'Live Wires', color: 0x5ae0ff, dps: 13, look: 'electric' }, spring: { name: 'Water Cooler', color: 0x8fd8ff }, vents: { name: 'Server Meltdown', color: 0xffd04a, damage: 11 } },
+    powers: [
+      { kind: 'strike', name: 'Drone Strike', from: 0, cooldown: 14, damage: 17, range: 40, radius: 2.6, track: 1.8, warn: 0.75, skin: 'grenade' },
+      { kind: 'flash', name: 'Flashbang', from: 1, cooldown: 15, damage: 6, range: 22, radius: 7, warn: 1.15, stun: 1.6, facing: 110, skin: 'grenade' },
+      { kind: 'sweep', name: 'Suppressing Fire', from: 2, cooldown: 15, damage: 13, range: 22, arc: 240, duration: 1.6, length: 22, warn: 0.95, skin: 'bullet' },
+    ],
     palette: { name: 'Glowie', robe: 0x16181d, trim: 0xd8dde6, spell: 0xffd27a, blast: 0xff5a2a, stun: 0xbfe8ff, ultimate: 0xff3030 },
     ai: {
       label: 'Glowie',
@@ -347,7 +469,8 @@ export const BOSSES: BossDef[] = [
     },
     // Retuned for the player's carpet, Pump It and vape cloud (the cloud's healing and cover especially).
     stageHealth: [1096, 1118, 1274],
-    damageMultiplier: 1.0,
+    damageMultiplier: 0.86,
+    spellDamage: 1.15,
   }),
   boss({
     id: 'tinubu',
@@ -378,6 +501,14 @@ export const BOSSES: BossDef[] = [
       },
     ],
     skins: { bolt: 'hellfire', blast: 'skull' },
+    transform: 'hellfire',
+    shift: { mood: 0xff4a1a, pools: { name: 'Magma Fissures', color: 0xff5a1a, dps: 16, look: 'magma' }, spring: { name: 'Hot Spring', color: 0x6fe8ff }, vents: { name: 'Eruptions', color: 0xff7a2a, damage: 13 } },
+    powers: [
+      { kind: 'march', name: 'Hellfire Pillars', from: 0, cooldown: 12, damage: 13, range: 24, count: 8, spacing: 2.6, radius: 1.7, warn: 0.85, step: 0.12 },
+      { kind: 'seekers', name: 'Infection', from: 1, cooldown: 15, damage: 8, range: 28, count: 4, speed: 9, turn: 2.6, life: 5.5, skin: 'skull', drain: true },
+      { kind: 'rings', name: 'Inferno Rings', from: 2, cooldown: 16, damage: 12, range: 22, count: 3, interval: 0.6, speed: 14, maxRadius: 26, warn: 0.85 },
+      { kind: 'barrage', name: 'Meteor Rain', from: 2, cooldown: 15, damage: 17, range: 30, count: 10, radius: 2.2, spread: 6, duration: 2.6, warn: 0.95, skin: 'hellfire' },
+    ],
     palette: { name: 'Tinubu', robe: 0xe9dcc0, trim: 0xd4a017, spell: 0xff3a1a, blast: 0xff7a00, stun: 0xffd0c0, ultimate: 0xff2000 },
     ai: {
       label: 'Tinubu',
@@ -397,7 +528,8 @@ export const BOSSES: BossDef[] = [
     },
     // Retuned for the four spells the player brings (bigger bars keep stages at ~5 minutes).
     stageHealth: [1100, 1111, 800],
-    damageMultiplier: 1.0,
+    damageMultiplier: 0.74,
+    spellDamage: 0.8,
   }),
 ];
 

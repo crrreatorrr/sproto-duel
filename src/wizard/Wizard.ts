@@ -59,6 +59,8 @@ const W = CONFIG.wizard;
 const J = W.jump;
 const T = CONFIG.tickets;
 const RS = CONFIG.rewardSpells;
+/** Where along its look-ahead the carpet (or a flyer) checks for low cover (shares of the distance). */
+const LOOK_STEPS = [0.3, 0.6, 1] as const;
 const tmpMove = new Vector3();
 const tmpTarget = new Vector3();
 /** Below this the wizard counts as standing on the floor (y = 0). */
@@ -164,6 +166,16 @@ export class Wizard {
 
   /** Multiplies all damage this wizard deals (boss tuning, god mode). Applied in SpellSystem.dealDamage. */
   damageMultiplier = 1;
+  /** Extra scale on its ordinary spells' damage (a boss's busier attacks each hit softer: CONFIG.campaign.aggression). */
+  spellDamageScale = 1;
+  /** Walk and sprint speed (and how fast it gets there): a quick boss (The Midget) moves faster. */
+  speedMultiplier = 1;
+  /** Ground speed scale from the floor underfoot (an arena shift's quicksand), set every tick; 1 = none. */
+  groundSlow = 1;
+  /** Hover height (m) of a flying boss stage (BossStage.fly), 0 when it walks. */
+  flyHeight = 0;
+  /** Seconds flying (the hover's bob). */
+  private flyClock = 0;
   /** Multiplies the clash power of this wizard's projectiles (god mode). */
   clashPowerMultiplier = 1;
   /** Multiplies Ultimate charge gained (campaign bosses: their big stage bars would charge it far too often). */
@@ -240,9 +252,13 @@ export class Wizard {
   get scorched(): boolean {
     return this.scorchTime > 0;
   }
-  /** Fire and lava can't burn it (riding the carpet). */
+  /** Hovering: a flying boss stage, up and not stunned (a stun drops it to the ground until it wears off). */
+  get flying(): boolean {
+    return this.flyHeight > 0 && this.alive && !this.stunned;
+  }
+  /** Fire and lava can't burn it (riding the carpet, flying). */
   get fireproof(): boolean {
-    return this.riding;
+    return this.riding || this.flying;
   }
   /** Mana cap: the normal max, raised while a golden-ticket boost lasts. */
   get maxMana(): number {
@@ -254,7 +270,7 @@ export class Wizard {
   }
   /** Can leave the ground: standing, or just walked off a ledge (coyote time). No double jump. */
   get canJump(): boolean {
-    return this.alive && !this.stunned && !this.evolving && !this.dodging && !this.riding && (this.grounded || this.coyote > 0);
+    return this.alive && !this.stunned && !this.evolving && !this.dodging && !this.riding && !this.flying && (this.grounded || this.coyote > 0);
   }
   /** Can start a new action (cast/dodge). Riding the carpet or breathing fire rules out casting. */
   get canAct(): boolean {
@@ -364,7 +380,9 @@ export class Wizard {
   }
 
   spawn(x: number, z: number, facing: number): void {
-    this.pos.set(x, 0, z);
+    // A flying stage is placed at its hover height (over open floor), where its bob has it now.
+    const F = CONFIG.campaign.flight;
+    this.pos.set(x, this.flying ? this.flyHeight + Math.sin(this.flyClock * F.bobRate) * F.bob : 0, z);
     this.prevPos.copy(this.pos);
     this.facing = this.prevFacing = this.intent.facing = facing;
     this.vel.set(0, 0, 0);
@@ -382,6 +400,7 @@ export class Wizard {
     if (!keepUlt) this.ult = 0;
     this.ultAnnounced = this.ult >= CONFIG.spells.ultimate.chargeMax;
     this.manaDelay = this.manaBoost = 0;
+    this.groundSlow = 1;
     for (const k in this.cd) this.cd[k as CooldownKey] = 0;
     this.dodgeTime = this.iframes = this.stunTime = this.evolveTime = this.shieldTime = this.shieldAge = 0;
     this.cast = null;
@@ -549,6 +568,16 @@ export class Wizard {
       events.emit('dodge', { wizard: this });
     }
 
+    // Jump off the Magic Carpet: a leap higher than a jump, keeping the carpet's speed.
+    if (intent.wants('jump') && this.riding && this.alive && !frozen) {
+      intent.consume('jump');
+      this.endRide();
+      this.vy = J.velocity * RS.carpet.leap;
+      this.grounded = false;
+      this.coyote = 0;
+      this.jumps++;
+      events.emit('jump', { wizard: this, pos: this.pos });
+    }
     // Jump. Casting continues through it; a press during a roll waits for the roll to end.
     if (intent.wants('jump') && this.canJump) {
       intent.consume('jump');
@@ -571,30 +600,33 @@ export class Wizard {
       // Magic Carpet: much faster, snappy, no sprint (and no mana drain).
       const C = RS.carpet;
       const moving = intent.move.lengthSq() > 0.01;
-      tmpTarget.copy(intent.move).multiplyScalar(W.moveSpeed * C.speedMultiplier);
+      // A burst at takeoff, fading over the first moments of the ride.
+      const boost = 1 + C.boost * Math.min(1, Math.max(0, (this.carpetTime - (C.duration - C.boostTime)) / C.boostTime));
+      tmpTarget.copy(intent.move).multiplyScalar(W.moveSpeed * C.speedMultiplier * boost);
       tmpMove.subVectors(tmpTarget, this.vel);
       const len = tmpMove.length();
       const step = (moving ? C.acceleration : C.deceleration) * dt;
       if (len <= step) this.vel.copy(tmpTarget);
       else this.vel.addScaledVector(tmpMove, step / len);
     } else {
-      let speed = W.moveSpeed;
+      let speed = W.moveSpeed * this.speedMultiplier;
       const moving = intent.move.lengthSq() > 0.01;
       if (this.sprintExhausted && this.mana >= W.sprintRecoverMana) this.sprintExhausted = false;
       if (intent.sprint && moving && this.cast === null && !this.sprintExhausted) {
-        speed = W.sprintSpeed;
+        speed = W.sprintSpeed * this.speedMultiplier;
         this.sprinting = true;
         this.mana = Math.max(0, this.mana - W.sprintManaPerSecond * dt);
         this.manaDelay = W.manaRegenDelay;
         if (this.mana <= 0) this.sprintExhausted = true;
       }
       if (this.cast) speed *= W.castMoveMultiplier;
+      speed *= this.groundSlow;
       if (this.breathing) {
         speed = W.moveSpeed * RS.breath.moveMultiplier;
         this.sprinting = false;
       }
       tmpTarget.copy(intent.move).multiplyScalar(speed);
-      let rate = moving ? W.acceleration : W.deceleration;
+      let rate = (moving ? W.acceleration : W.deceleration) * this.speedMultiplier;
       // Reduced air control: steer a little, and momentum mostly carries without input.
       if (!this.grounded) rate *= moving ? J.airControl : J.airBrake;
       // Move velocity toward target at a fixed rate: crisp starts and stops.
@@ -612,9 +644,15 @@ export class Wizard {
     // to notice walking off it. The floor is the plane y = 0.
     let dy = 0;
     // On the carpet: hold the hover height over whatever is underneath, rising over low cover ahead.
+    // A flying boss stage does the same, higher, with a slow bob.
     const riding = this.riding && this.alive && !frozen;
+    const flying = !riding && this.flying && !this.evolving;
     if (riding) {
       dy = this.rideStep(dt, physics);
+      this.vy = 0;
+    } else if (flying) {
+      this.flyClock += dt;
+      dy = this.flyStep(dt, physics);
       this.vy = 0;
     } else if (!this.grounded) {
       dy = this.vy * dt - 0.5 * J.gravity * dt * dt;
@@ -629,8 +667,8 @@ export class Wizard {
     this.pos.x += tmpTarget.x;
     this.pos.z += tmpTarget.z;
     this.pos.y = Math.max(0, this.pos.y + tmpTarget.y);
-    if (riding) {
-      // The carpet is the footing: the visual stands on it and the jump/landing logic stays out.
+    if (riding || flying) {
+      // The carpet (or the air) is the footing: the visual stands on it and the jump/landing logic stays out.
       this.grounded = true;
       this.coyote = 0;
       this.groundY = this.pos.y;
@@ -653,12 +691,39 @@ export class Wizard {
     let base = Number.isFinite(under) ? under : this.pos.y;
     const speed = Math.hypot(this.vel.x, this.vel.z);
     if (speed > 1) {
+      // Several points along the way (one far point skips cover in between at takeoff speed).
       const look = this.radius + speed * C.lookAhead;
-      const ahead = physics.surfaceBelow(this.pos.x + (this.vel.x / speed) * look, this.pos.z + (this.vel.z / speed) * look, r, base + C.climb);
-      if (Number.isFinite(ahead)) base = Math.max(base, ahead);
+      const floor = base;
+      for (const k of LOOK_STEPS) {
+        const ahead = physics.surfaceBelow(this.pos.x + (this.vel.x / speed) * look * k, this.pos.z + (this.vel.z / speed) * look * k, r, floor + C.climb);
+        if (Number.isFinite(ahead)) base = Math.max(base, ahead);
+      }
     }
     const d = base + C.hover - this.pos.y;
     return Math.max(-C.sink * dt, Math.min(C.rise * dt, d));
+  }
+
+  /**
+   * Vertical step (m) for one flying tick: toward `flyHeight` above the highest surface under the
+   * wizard (or ahead of it, low cover only), bobbing gently (CONFIG.campaign.flight).
+   */
+  private flyStep(dt: number, physics: Physics): number {
+    const F = CONFIG.campaign.flight;
+    const r = this.radius * 0.9;
+    const under = physics.surfaceBelow(this.pos.x, this.pos.z, r, this.pos.y + 0.02);
+    let base = Number.isFinite(under) ? under : 0;
+    const speed = Math.hypot(this.vel.x, this.vel.z);
+    if (speed > 1) {
+      const look = this.radius + speed * F.lookAhead;
+      const floor = base;
+      for (const k of LOOK_STEPS) {
+        const ahead = physics.surfaceBelow(this.pos.x + (this.vel.x / speed) * look * k, this.pos.z + (this.vel.z / speed) * look * k, r, floor + F.climb);
+        if (Number.isFinite(ahead)) base = Math.max(base, ahead);
+      }
+    }
+    const bob = Math.sin(this.flyClock * F.bobRate) * F.bob;
+    const d = base + this.flyHeight + bob - this.pos.y;
+    return Math.max(-F.sink * dt, Math.min(F.rise * dt, d));
   }
 
   /** Ground contact after a move: landing, walking off ledges, coyote time, heads. */

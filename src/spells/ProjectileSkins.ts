@@ -37,6 +37,8 @@ export interface SkinTarget {
   readonly caster: Wizard;
   /** The current owner's spell colour: trails and glow switch to whoever reflected it. */
   readonly color: number;
+  /** Seconds of tumble and flicker to pose at, instead of render time since launch (cinematic props, which spin through the freeze). */
+  readonly age?: number;
 }
 
 // ------------------------------------------------------------- pose scratch
@@ -298,7 +300,7 @@ class SkinBatch {
     if (n === 0) return;
     for (let i = 0; i < n; i++) {
       const s = this.active[i];
-      pose(s, time - s.born);
+      pose(s, s.target!.age ?? time - s.born);
       this.solid.setMatrixAt(i, poseSolid);
       if (this.aura) this.aura.setMatrixAt(i, poseAura);
       if (this.phases) this.phases.setX(i, s.phase);
@@ -430,6 +432,8 @@ export class ProjectileSkins {
   private readonly list: SkinBatch[] = [];
   private readonly palettes: TeamPalette[] = [...CONFIG.teams];
   private time = 0;
+  /** Real seconds of transformation cinematics so far: a carpet prop's ripple runs on through the freeze. */
+  cineTime = 0;
 
   constructor(private readonly scene: THREE.Scene, private readonly fx: Effects | null) {}
 
@@ -553,7 +557,7 @@ export class ProjectileSkins {
   /** Once per render frame, after projectiles placed their groups. */
   sync(time: number): void {
     this.time = time;
-    rippleTime.value = time;
+    rippleTime.value = time + this.cineTime;
     for (let i = 0; i < this.list.length; i++) this.list[i].sync(time);
   }
 

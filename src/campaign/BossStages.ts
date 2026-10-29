@@ -29,6 +29,7 @@ const smoothstep = (a: number, b: number, x: number) => {
 export function stageProfile(boss: BossFighter, stage: number): AIProfile {
   const s = clamp(Math.floor(stage), 0, STAGE_COUNT - 1);
   const A = C.stageAI;
+  const G = C.aggression;
   const b = boss.ai;
   const cap = (v: number) => Math.min(A.maxChance, v);
   return {
@@ -36,14 +37,15 @@ export function stageProfile(boss: BossFighter, stage: number): AIProfile {
     reactionTime: b.reactionTime * A.reactionTime[s],
     aimError: b.aimError * A.aimError[s],
     leadFactor: Math.min(1, b.leadFactor + A.leadBonus[s]),
-    burst: [b.burst[0] + A.burstBonus[s], b.burst[1] + A.burstBonus[s]],
-    burstPause: [b.burstPause[0] * A.burstPause[s], b.burstPause[1] * A.burstPause[s]],
-    strafeSpeed: b.strafeSpeed * A.strafeSpeed[s],
+    burst: [b.burst[0] + A.burstBonus[s], b.burst[1] + A.burstBonus[s] + G.burstExtra],
+    burstPause: [b.burstPause[0] * A.burstPause[s] * G.burstPause, b.burstPause[1] * A.burstPause[s] * G.burstPause],
+    strafeSpeed: b.strafeSpeed * A.strafeSpeed[s] * G.strafeSpeed,
+    preferredRange: [b.preferredRange[0] * G.range, b.preferredRange[1] * G.range],
     dodgeChance: cap(b.dodgeChance * A.dodgeChance[s]),
     perfectShieldChance: cap(b.perfectShieldChance * A.perfectShieldChance[s]),
-    blastChance: cap(b.blastChance * A.blastChance[s]),
-    stunChance: cap(b.stunChance * A.stunChance[s]),
-    punishChance: cap(b.punishChance * A.punishChance[s]),
+    blastChance: cap(b.blastChance * A.blastChance[s] * G.blastChance),
+    stunChance: cap(b.stunChance * A.stunChance[s] * G.stunChance),
+    punishChance: cap(b.punishChance * A.punishChance[s] * G.punishChance),
   };
 }
 
@@ -67,7 +69,6 @@ interface Transform {
   refillFrom: number;
   /** Progress 0 -> 1. */
   t: number;
-  enraged: boolean;
 }
 
 /**
@@ -86,9 +87,10 @@ interface Transform {
  *
  * Everything is keyed to one `owner` wizard and its own bars, so each boss wizard has its own
  * instance: Game.stages for the rival and Game.partnerStages for a double fight's partner. Game
- * calls `setBoss` from setupEnemy, `reset` from resetArena (every round start), `update` every
- * tick, and `enrage` on the survivor when one of a pair falls. With no boss (Quick Duel, the
- * default rival, a parked partner) it idles.
+ * calls `setBoss` from setupEnemy, `reset` from resetArena (every round start) and `update` every
+ * tick. A double fight's bosses are separate: each changes stage only when its own bar empties, and
+ * one falling leaves the other as it is. With no boss (Quick Duel, the default rival, a parked
+ * partner) it idles.
  */
 export class BossStages {
   /** The boss the owner is dressed as, or null (then nothing here runs). */
@@ -97,7 +99,7 @@ export class BossStages {
   stage = 0;
   /**
    * QA scenarios run on stock stats (Game.useDefaultStats): no per-stage bars (a 0 HP boss is
-   * KO'd), no stage damage, no enrage and no `bossStage` events, so the AI keeps every attack.
+   * KO'd), no stage damage and no `bossStage` events, so the AI keeps every attack.
    */
   suspended = false;
   /** Stage model currently on the rival, or null for the primitive placeholder. */
@@ -105,8 +107,6 @@ export class BossStages {
   /** Visual-root scale for the current look, before the transformation pop. */
   private scale = 1;
   private swapPending = false;
-  /** The partner fell mid-transformation: enrage as soon as this one is done. */
-  private enragePending = false;
   private tf: Transform | null = null;
   /** BossCinematic is driving the current transformation (no sim-time progress). */
   private driven = false;
@@ -176,11 +176,6 @@ export class BossStages {
     return this.tf ? this.tf.t : 1;
   }
 
-  /** The current transformation is the enraged one (a double fight's survivor). */
-  get enragedTransform(): boolean {
-    return !!this.tf?.enraged;
-  }
-
   /** Model key on the boss right now (null: the primitive placeholder). */
   get modelShown(): ModelKey | null {
     return this.shownModel;
@@ -218,9 +213,8 @@ export class BossStages {
   /**
    * Start the transformation into `stage` (1 or 2) now. An emptied bar calls this; public for QA
    * and screenshots. Ignored without a boss, mid-transformation, or for a stage not above the current.
-   * `enraged`: the partner fell (see `enrage`), announced as such.
    */
-  evolveTo(stage: number, enraged = false): void {
+  evolveTo(stage: number): void {
     const boss = this.boss;
     const g = this.game;
     const e = this.owner, p = this.target;
@@ -231,8 +225,8 @@ export class BossStages {
     this.swapPending = true;
     this.driven = false;
     this.applyStats();
-    this.tf = { from, refillFrom, t: 0, enraged };
-    // The new bar starts where the old one left off (empty, or the survivor's share) and refills.
+    this.tf = { from, refillFrom, t: 0 };
+    // The new bar starts where the old one left off (empty) and refills.
     if (this.active) e.health = e.maxHealth * refillFrom;
 
     // Frozen and immune for the whole transformation; whatever it was doing stops.
@@ -267,22 +261,8 @@ export class BossStages {
       feel.shakeAt(e.pos, C.evolveShake, 40);
     }
 
-    events.emit('bossEvolve', { wizard: e, boss, stage, from, pos: e.pos, enraged });
+    events.emit('bossEvolve', { wizard: e, boss, stage, from, pos: e.pos });
     this.announce();
-  }
-
-  /**
-   * A double fight's other boss just fell: go straight to the last stage (its AI, attacks, damage,
-   * look and a full last-stage bar) with an "enraged" transformation, unless already there.
-   * Mid-transformation it waits for the current one to finish. Ignored while suspended (QA stock
-   * stats), without a boss, or KO'd. Returns true if this boss will enrage.
-   */
-  enrage(): boolean {
-    const last = STAGE_COUNT - 1;
-    if (!this.active || !this.owner.alive || this.stage >= last) return false;
-    if (this.owner.evolving) this.enragePending = true;
-    else this.evolveTo(last, true);
-    return true;
   }
 
   /**
@@ -311,7 +291,7 @@ export class BossStages {
     this.owner.evolveTime = Math.max(0, grace);
   }
 
-  /** Every fixed tick (Game.tick): the transformation's progress, aura motes, a waiting enrage. */
+  /** Every fixed tick (Game.tick): the transformation's progress and aura motes. */
   update(dt: number): void {
     const boss = this.boss;
     if (!boss) return;
@@ -324,18 +304,14 @@ export class BossStages {
     }
     // Never stand at 0 HP with a stage left (a refused transformation): transform now.
     if (this.active && e.alive && !e.evolving && e.health <= 0) this.checkHealth();
-    if (this.enragePending && !e.evolving) {
-      this.enragePending = false;
-      if (e.alive && this.active) this.evolveTo(STAGE_COUNT - 1, true);
-    }
     if (this.tf && !this.driven) this.emitPillar(boss);
     else if (this.auraLevel > 0 && e.alive && dt > 0) this.emitMotes(boss, dt);
   }
 
   /**
    * The stage this boss belongs in right now, never below the current one. The single place a
-   * stage change is decided: the next stage once the current stage's own bar is empty.
-   * (`enrage` is the only other trigger.)
+   * stage change is decided: the next stage once the current stage's own bar is empty (in a
+   * double fight, each boss's own: the other's never moves it).
    */
   desiredStage(): number {
     const e = this.owner;
@@ -385,7 +361,6 @@ export class BossStages {
     const e = this.owner;
     this.stage = stage;
     this.swapPending = false;
-    this.enragePending = false;
     this.tf = null;
     this.driven = false;
     e.evolveTime = 0;
@@ -406,12 +381,16 @@ export class BossStages {
    * max health; its Ultimate charges at CONFIG.campaign.ultCharge. Left alone while suspended (QA stock stats).
    */
   private applyStats(): void {
+    // A stage that flies (The Midget's last) hovers its owner; any other stage walks.
+    this.owner.flyHeight = this.boss?.stages[this.stage].fly ?? 0;
     if (!this.boss) {
       this.owner.ultChargeMultiplier = 1;
+      this.owner.spellDamageScale = 1;
       return;
     }
     if (this.suspended) return;
     this.owner.damageMultiplier = this.boss.damageMultiplier * C.stageDamage[this.stage];
+    this.owner.spellDamageScale = this.boss.spellDamage ?? C.aggression.spellDamage;
     this.owner.maxHealth = this.stageHealth();
     this.owner.ultChargeMultiplier = C.ultCharge;
   }

@@ -9,10 +9,12 @@ import type { VolleyDef } from '../campaign/levels';
 import type { Pillar } from '../arena/Pillar';
 import type { Effects } from '../fx/Effects';
 import { MuzzleFx } from '../fx/MuzzleFx';
+import { PowerFx } from '../fx/PowerFx';
 import { SpellFx, type WaveFx } from '../fx/SpellFx';
 import type { CastKind } from '../wizard/muzzles';
 import type { Wizard } from '../wizard/Wizard';
 import { ProjectilePool, type Projectile } from './Projectile';
+import { BossPowers } from './BossPowers';
 import { RewardSpells } from './RewardSpells';
 import type { ChanneledSpell } from './types';
 
@@ -63,6 +65,9 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
  * spells, and same-side projectiles never clash. A reflect hands the spell to the shielder's side.
  * `wizards` is Game.wizards, shared by reference (a double fight's partner joins it while active).
  */
+/** Damage from ordinary spells (a boss's busier attacks are scaled by Wizard.spellDamageScale). */
+const SPELL_DAMAGE: ReadonlySet<DamageKind> = new Set<DamageKind>(['bolt', 'blast', 'stun', 'ultimate', 'splash']);
+
 export class SpellSystem {
   readonly pool: ProjectilePool;
   readonly spellFx: SpellFx;
@@ -70,6 +75,9 @@ export class SpellSystem {
   readonly muzzleFx: MuzzleFx;
   /** The boss reward spells (carpet, pump, vape, lock-on, breath): their rules and effects. */
   readonly rewards: RewardSpells;
+  /** Boss special powers (telegraphed zones, rings, sweeps, cones, seekers...), and how they look. */
+  readonly powers: BossPowers;
+  readonly powerFx: PowerFx;
   private readonly waves: UltWave[] = [];
   /** Burst volleys in flight, matched by caster (one per caster at a time); grows only if every slot is busy. */
   private readonly volleys: PendingVolley[];
@@ -85,7 +93,9 @@ export class SpellSystem {
     this.spellFx = new SpellFx(scene);
     this.muzzleFx = new MuzzleFx(scene, fx);
     this.volleys = wizards.map(() => this.newVolleySlot());
-    this.rewards = new RewardSpells(scene, physics, fx, wizards, arena, (t, s, a, p, k) => this.dealDamage(t, s, a, p, k), (w) => this.noMana(w));
+    this.rewards = new RewardSpells(scene, physics, fx, wizards, arena, (t, s, a, p, k, d, n) => this.dealDamage(t, s, a, p, k, d, n), (w) => this.noMana(w));
+    this.powers = new BossPowers(physics, wizards, arena, (t, s, a, p, k, d, n) => this.dealDamage(t, s, a, p, k, d, n), (p, t, st) => this.callout(p, t, st));
+    this.powerFx = new PowerFx(scene, fx, this.pool.skins, () => wizards[0]);
     // Every attack (not a shield) restarts Wizard.sinceAttack: it gives a vape-cloud hider away.
     events.on('cast', (e) => {
       if (e.spell !== 'shield') e.wizard.sinceAttack = 0;
@@ -104,6 +114,7 @@ export class SpellSystem {
       this.handleIntents(w);
     }
     this.rewards.update(dt);
+    this.powers.update(dt);
     this.updateVolleys(dt);
     this.updateProjectiles(dt);
     this.resolveClashes();
@@ -115,6 +126,8 @@ export class SpellSystem {
     for (const w of this.waves) if (w.fx) this.spellFx.releaseWave(w.fx);
     this.waves.length = 0;
     for (const v of this.volleys) v.active = false;
+    this.powers.clear();
+    this.powerFx.clear();
     this.spellFx.clear();
     this.muzzleFx.clear();
     this.rewards.clear();
@@ -131,12 +144,14 @@ export class SpellSystem {
       this.waves.splice(i, 1);
     }
     for (const v of this.volleys) if (v.wizard === w) v.active = false;
+    this.powers.cancel(w);
   }
 
   /** Render-time sync (interpolation, shader time). */
   sync(alpha: number, time: number, dt: number): void {
     this.pool.sync(alpha, time);
     this.spellFx.update(dt);
+    this.powerFx.update(dt, this.powers);
     this.muzzleFx.update(dt, this.wizards);
     this.rewards.sync(dt, this.pool.active);
   }
@@ -157,6 +172,11 @@ export class SpellSystem {
     }
     // Boss reward spells (only wizards that learned them: the player).
     if (w.learned.size > 0 || w.side === 0) this.rewards.handleIntents(w);
+    // On the Magic Carpet: bolts only (drive-by), nothing that needs both feet planted.
+    if (w.riding) {
+      if (!w.dodging && w.cast === null && (intent.holdBolt || intent.wants('bolt')) && this.castBolt(w)) intent.consume('bolt');
+      return;
+    }
     if (!w.canAct) return;
 
     for (const spell of ['ultimate', 'stun', 'blast'] as const) {
@@ -865,8 +885,9 @@ export class SpellSystem {
   private waveHit(wave: UltWave, o: Wizard): void {
     const U = S.ultimate;
     const chest = o.chest(new THREE.Vector3());
-    // Rolling through it, or feet high enough above the ground as the wavefront passes underneath.
-    if (o.invulnerable || o.airHeight >= CONFIG.wizard.jump.waveClearance) {
+    // Rolling through it, feet high enough above the ground as the wavefront passes underneath, or
+    // skimming over it on the Magic Carpet.
+    if (o.invulnerable || o.airHeight >= CONFIG.wizard.jump.waveClearance || o.riding) {
       this.callout(chest, 'EVADED', 'perfect');
       events.emit('dodgeEvade', { wizard: o, pos: chest });
       return;
@@ -911,7 +932,10 @@ export class SpellSystem {
     if (!target.alive) return 0;
     if (source && source !== target && source.side === target.side) return 0;
     // Boss tuning and god mode, and Pump It's surge.
-    if (source && source !== target) amount *= source.damageMultiplier * (source.pumped ? CONFIG.rewardSpells.pump.damageMultiplier : 1);
+    if (source && source !== target) {
+      amount *= source.damageMultiplier * (source.pumped ? CONFIG.rewardSpells.pump.damageMultiplier : 1);
+      if (SPELL_DAMAGE.has(kind)) amount *= source.spellDamageScale;
+    }
     if (target.immune || target.evolving) {
       // God mode or a transforming boss: the hit still reads (flash, sound, "IMMUNE" popup) but
       // removes no HP. God mode still takes the knockback; a transforming boss stands its ground.

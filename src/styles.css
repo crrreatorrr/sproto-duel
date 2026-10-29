@@ -512,6 +512,22 @@ html, body {
 /* ---------------------------------------------------------- double fights */
 /* Bitcoin Obama & The Midget: the partner's plate sits under the rival's, a little smaller, in its own palette. */
 .plates-right { display: grid; gap: 10px; min-width: 0; }
+/* Boss special powers: a chip each, filling while it recharges, lit when ready, flashing while it plays out. */
+.plate-powers { display: none; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 3px; }
+.plate.staged .plate-powers { display: flex; }
+.plate-powers .pw {
+  position: relative; overflow: hidden; padding: 2px 7px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.5); font: 700 10px/1.2 var(--hud); letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6); white-space: nowrap;
+}
+.plate-powers .pw i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: color-mix(in srgb, var(--rival, var(--red)) 45%, transparent); }
+.plate-powers .pw b { position: relative; font-weight: 700; }
+.plate-powers .pw.locked { opacity: 0.35; }
+.plate-powers .pw.locked b::before { content: '\1F512\FE0E  '; font-size: 8px; }
+.plate-powers .pw.ready { color: #fff; border-color: var(--rival-hi, #ffd2a8); box-shadow: 0 0 8px var(--rival, var(--red)); }
+.plate-powers .pw.firing { color: #fff; border-color: #fff; animation: pw-fire 0.18s steps(2) infinite; }
+@keyframes pw-fire { 50% { background: var(--rival, var(--red)); } }
+.plate-partner .plate-powers .pw { font-size: 9px; padding: 1px 5px; }
 .plate-partner { display: none; }
 .hud.duo .plate-partner { display: grid; width: 86%; justify-self: end; gap: 4px; }
 .plate-partner .plate-name { font-size: 14px; }
@@ -522,7 +538,6 @@ html, body {
 .plate-partner .plate-stage { font-size: 11px; }
 .plate.down { opacity: 0.45; filter: grayscale(0.7); }
 .enemy-tag.partner { width: 54px; }
-.banner.enrage .banner-main { font-size: clamp(30px, 6.5vw, 64px); }
 /* Each name on one line (two lines in all), so the duo's card fits 1280x800 and 1366x768 like the others. */
 .boss-name.duo { font-size: clamp(28px, 3.2cqw, 42px); }
 .boss-name.duo span { display: block; }
@@ -645,7 +660,35 @@ html, body {
   text-transform: uppercase; color: #fff; text-shadow: 0 0 22px var(--rival, var(--red)), 0 0 6px var(--rival, var(--red));
 }
 .cine.tier2 .cine-title { font-size: clamp(26px, 6.4vh, 64px); }
-.cine.enrage .cine-title { color: #ffd0c4; text-shadow: 0 0 26px #ff2a10, 0 0 8px #ff2a10; }
+/* Each boss's own card (BossCinematic adds .style-<transformation>). */
+.cine.style-bazaar .cine-title { color: #ffe9a8; text-shadow: 0 0 22px #e8a23a, 0 2px 0 #7a1f2b, 0 0 6px #ffb347; }
+.cine.style-shill .cine-eyebrow::after { content: ' \25B2'; color: #4dff88; }
+.cine.style-shill .cine-title { color: #e9fff0; text-shadow: 0 0 20px #f7931a, 0 0 6px #3dff7a; animation: cine-ticker 0.9s steps(2) infinite; }
+.cine.style-tantrum .cine-title { animation: cine-shake 0.14s steps(2) infinite; }
+.cine.style-vape .cine-title { color: #f2fff0; text-shadow: 0 0 28px #9bd35a, 0 0 60px rgba(230, 255, 230, 0.7); animation: cine-drift 2.4s ease-in-out infinite; }
+.cine.style-glitch .cine-title { color: #f4f7ff; text-shadow: 2px 0 #ff2a4a, -2px 0 #2af0ff, 0 0 16px #ffd27a; animation: cine-glitch-text 0.6s steps(1) infinite; }
+.cine.style-hellfire .cine-title { color: #ffe2c0; text-shadow: 0 0 18px #ff5a10, 0 -6px 26px #ff2000, 0 0 4px #ffd36a; animation: cine-flicker 0.22s steps(3) infinite; }
+@keyframes cine-ticker { 50% { text-shadow: 0 0 20px #f7931a, 0 0 12px #3dff7a; } }
+@keyframes cine-shake { 0% { transform: translate(-2px, 1px) rotate(-1deg); } 50% { transform: translate(2px, -1px) rotate(1deg); } }
+@keyframes cine-drift { 50% { transform: translateY(-3px); filter: blur(0.4px); } }
+@keyframes cine-glitch-text {
+  0%, 70% { transform: none; clip-path: none; }
+  72% { transform: translateX(-4px); clip-path: inset(10% 0 55% 0); }
+  76% { transform: translateX(3px); clip-path: inset(50% 0 12% 0); }
+  80% { transform: none; clip-path: none; }
+}
+@keyframes cine-flicker { 50% { text-shadow: 0 0 24px #ff7a10, 0 -8px 30px #ff2000, 0 0 4px #ffd36a; } }
+/* Glowie's burst: the screen drops frames (scanlines and a colour split for a moment). */
+.cine.glitch::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen;
+  background: repeating-linear-gradient(0deg, rgba(42, 240, 255, 0.12) 0 2px, transparent 2px 5px), linear-gradient(90deg, rgba(255, 42, 74, 0.18), transparent 30%, transparent 70%, rgba(42, 240, 255, 0.18));
+  animation: cine-glitch-screen 0.09s steps(2) infinite;
+}
+@keyframes cine-glitch-screen { 0% { transform: translateX(-6px); } 50% { transform: translate(5px, 2px); } }
+@media (prefers-reduced-motion: reduce) {
+  .cine.style-shill .cine-title, .cine.style-tantrum .cine-title, .cine.style-vape .cine-title,
+  .cine.style-glitch .cine-title, .cine.style-hellfire .cine-title, .cine.glitch::before { animation: none; }
+}
 .cine-hp { position: relative; height: 7px; width: min(36vw, 420px); margin-top: 4px; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
 .cine-hp i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, var(--rival-lo, #e2381f), var(--rival-hi, #ff9a6a)); box-shadow: 0 0 12px var(--rival, var(--red)); }
 .cine-count {

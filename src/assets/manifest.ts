@@ -54,6 +54,25 @@ export interface RiggedModel {
   castBigPeak?: number;
   /** Clips this model must not play (Tinubu's rigid wings and robe go through the floor in a roll or jump). */
   skipClips?: readonly WizardClip[];
+  /**
+   * A long prop held in one hand (the player's staff): its two ends in the bone's local centimetres.
+   * Every frame the hand turns it just enough to keep the shaft out of the body, head and legs (the
+   * mocap was made empty-handed). See Animator `keepStaffClear`.
+   */
+  staff?: StaffSpec;
+}
+
+type Vec3 = readonly [number, number, number];
+
+export interface StaffSpec {
+  bone: string;
+  /** The grip (left alone within `gripReach` m of it) and the two ends, in the bone's local cm. */
+  grip: Vec3;
+  tip: Vec3;
+  butt: Vec3;
+  gripReach: number;
+  /** Body stand-ins: capsules between two bones (by name), radius in metres at the model's fitted size. */
+  body: readonly { from: string; to: string; radius: number }[];
 }
 
 /** How a character carries itself (procedural motion and clip speeds). Both 0..1, default 0. */
@@ -159,6 +178,41 @@ export const RIG_SOCKETS: Readonly<Record<string, Readonly<Record<string, BoneSo
   bossTinubu3: { hand: { bone: 'RightHand', offset: [-23.94, 22.29, 35.52] }, mouth: { bone: 'Head', offset: [5.79, 4.71, 48.92] } },
 };
 
+/**
+ * Release times (s into cast / cast_big, the throwing hand furthest forward) of the rigs whose
+ * throws are their own clips rather than the library's: Bitcoin Obama pitches and crouch-throws,
+ * The Midget whips an over-shoulder throw and slams. Others keep the library's defaults.
+ */
+const RIG_CAST_PEAKS: Readonly<Record<string, { castPeak: number; castBigPeak: number }>> = {
+  bossObama1: { castPeak: 0.667, castBigPeak: 0.933 },
+  bossObama2: { castPeak: 0.667, castBigPeak: 0.9 },
+  bossObama3: { castPeak: 0.667, castBigPeak: 0.9 },
+  bossMidget1: { castPeak: 0.733, castBigPeak: 0.9 },
+  bossMidget2: { castPeak: 0.733, castBigPeak: 0.9 },
+  bossMidget3: { castPeak: 0.733, castBigPeak: 0.867 },
+};
+
+/**
+ * The player's staff, measured from the rig (the shaft's principal axis through the vertices bound to
+ * the right hand): a full-length walking staff, the orb at `tip`. The coat makes the legs about 0.2 m
+ * thick, the spiky hair the head about 0.22 m.
+ */
+const PLAYER_STAFF: StaffSpec = {
+  bone: 'RightHand',
+  grip: [-4.2, 9.7, -10.3],
+  tip: [-40.5, 39.1, -61.8],
+  butt: [58.7, -41.2, 78.6],
+  gripReach: 0.25,
+  body: [
+    { from: 'Hips', to: 'neck', radius: 0.2 },
+    { from: 'neck', to: 'head_end', radius: 0.22 },
+    { from: 'LeftUpLeg', to: 'LeftLeg', radius: 0.19 },
+    { from: 'LeftLeg', to: 'LeftFoot', radius: 0.17 },
+    { from: 'RightUpLeg', to: 'RightLeg', radius: 0.19 },
+    { from: 'RightLeg', to: 'RightFoot', radius: 0.17 },
+  ],
+};
+
 /** Clips a boss's rigs must not play: Tinubu's rigid wings and robe go through the floor in a roll or jump (procedural flip instead). */
 const RIG_SKIP_CLIPS: Readonly<Record<string, readonly WizardClip[]>> = { tinubu: ['dodge', 'jump'] };
 
@@ -180,7 +234,7 @@ function bossStages<Id extends string>(id: Id, heights: [number, number, number]
     const key = `${name}${(i + 1) as 1 | 2 | 3}` as const;
     out[key] = {
       path: `models/bosses/${id}/stage${i + 1}.glb`, fitHeight, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS,
-      rigged: { path: `models/rigged/${id}_stage${i + 1}.glb`, sockets: RIG_SOCKETS[key], skipClips: RIG_SKIP_CLIPS[id] },
+      rigged: { path: `models/rigged/${id}_stage${i + 1}.glb`, sockets: RIG_SOCKETS[key], skipClips: RIG_SKIP_CLIPS[id], ...RIG_CAST_PEAKS[key] },
       motion: motion[i],
     };
   });
@@ -198,7 +252,7 @@ export const MODELS = {
   wizardPlayer: {
     path: 'models/wizard_player.glb', fitHeight: 1.9, rotationY: -90, doubleSided: true, anchor: 'feet', clips: WIZARD_CLIPS,
     muzzle: { points: { staff: { type: 'staff', at: [0.076, 0.916, 0.203] } } },
-    rigged: { path: 'models/rigged/wizard_player.glb', sockets: RIG_SOCKETS.wizardPlayer },
+    rigged: { path: 'models/rigged/wizard_player.glb', sockets: RIG_SOCKETS.wizardPlayer, staff: PLAYER_STAFF },
   },
   wizardRival: { path: 'models/wizard_rival.glb', fitHeight: 1.85, clips: WIZARD_CLIPS },
   pillar: { path: 'models/pillar.glb', fitHeight: 5.5 },

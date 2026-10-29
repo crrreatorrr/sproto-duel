@@ -134,7 +134,7 @@ function playFight(game: Game, player: AIController, enemies: AIController[], im
       out.damageTaken += ev.amount;
     }),
     events.on('bossEvolve', (ev) => {
-      if (ev.wizard !== e || ev.enraged) return;
+      if (ev.wizard !== e) return;
       out.stageSeconds.push(t - stageStart);
       stageStart = t;
     }),
@@ -152,6 +152,7 @@ function playFight(game: Game, player: AIController, enemies: AIController[], im
   game.lifePacks.enabled = true;
   for (const b of brains) b.tickets = game.tickets;
   player.lifePacks = game.lifePacks;
+  player.shifts = game.shifts;
   try {
     while (t < hardStop && p.alive && game.enemies.some((w) => w.alive)) {
       const foe = nearestStanding(p, game.enemies);
@@ -178,6 +179,7 @@ function playFight(game: Game, player: AIController, enemies: AIController[], im
     game.lifePacks.enabled = false;
     game.tickets.spawnInterval = CONFIG.tickets.spawnInterval;
     player.lifePacks = null;
+    player.shifts = null;
   }
   out.seconds = t;
   out.won = p.alive && game.enemies.every((w) => !w.alive);
