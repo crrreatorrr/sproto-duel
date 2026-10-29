@@ -1,0 +1,1 @@
+{"version":3,"file":"errors.d.ts","sourceRoot":"","sources":["../src/errors.ts"],"names":[],"mappings":"AAAA,qBAAa,WAAY,SAAQ,KAAK;IACpC,QAAQ,CAAC,IAAI,EAAE,MAAM,CAAC;IACtB,QAAQ,CAAC,MAAM,CAAC,EAAE,MAAM,CAAC;gBAEb,IAAI,EAAE,MAAM,EAAE,OAAO,EAAE,MAAM,EAAE,MAAM,CAAC,EAAE,MAAM;CAM3D"}

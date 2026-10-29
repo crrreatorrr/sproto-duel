@@ -1,5 +1,7 @@
 node_modules/
 dist/
+!vendor/hub-sdk/dist/
+!vendor/hub-sdk/dist/**
 .qa-build/
 .DS_Store
 .claude/worktrees/

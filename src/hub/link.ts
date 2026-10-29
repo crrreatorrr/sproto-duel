@@ -1,4 +1,4 @@
-import { earnTickets, exchange, exit, init, reportEvent, submitScore, HubError, type HubSdk, type HubSession } from '@metaverse/hub-sdk';
+import { createHubSdk, HubSdkError, readTicketParam, type HubSdk, type InitResult } from '@metaverse/hub-sdk';
 import { HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
 import { planDuelWin, type DuelWin } from './report';
 
@@ -16,11 +16,14 @@ export type ExchangeView =
 
 type Notify = (title: string, sub: string) => void;
 
-const browserApi: HubSdk = { init, reportEvent, earnTickets, exchange, submitScore, exit };
+/** Written by the SDK when a portal ticket or a cached visit is live. */
+const HUB_SESSION_KEY = `hub:${HUB_GAME_ID}:session`;
 
 /**
- * The game's view of one hub visit. Standalone (no portal ticket, no cached session)
- * leaves `connected` false and never calls the server.
+ * The game's view of one hub visit.
+ * `init` returns a profile even for standalone play. This visit is hub-connected only when
+ * sessionStorage holds `hub:sproto:session`. Otherwise the game plays on its own and does not
+ * report wins or exchange Tickets.
  */
 export class HubLink {
   connected = false;
@@ -29,13 +32,13 @@ export class HubLink {
   ticketsCapLeft: number | null = null;
   error: string | null = null;
 
-  constructor(private readonly api: HubSdk = browserApi) {}
+  constructor(private readonly api: HubSdk = createBrowserSdk()) {}
 
   static standalone(): HubLink {
     return new HubLink();
   }
 
-  attach(session: HubSession | null): void {
+  attach(session: InitResult | null): void {
     this.connected = session !== null;
     this.ranked = session?.ranked ?? false;
     this.ticketsCapLeft = session?.ticketsCapLeft ?? null;
@@ -60,10 +63,14 @@ export class HubLink {
   /**
    * Report a finished duel. Losses and standalone visits do nothing.
    * God-mode wins still earn Tickets and can grant Tinubu's Crown; they do not post a score.
+   * The match id is the operation id (`sproto:win:<id>`, `sproto.boss_defeated:<id>`).
+   * On a queued error the SDK has already saved that id and resends it on the next init,
+   * so this does not call again with a new one.
    */
   async onDuelWin(win: Omit<DuelWin, 'matchId' | 'ranked'>, notify: Notify = () => {}): Promise<void> {
     if (!this.connected) return;
-    const calls = planDuelWin({ ...win, ranked: this.ranked, matchId: crypto.randomUUID() });
+    const matchId = crypto.randomUUID();
+    const calls = planDuelWin({ ...win, ranked: this.ranked, matchId });
     let title = '';
     let sub = '';
     for (const call of calls) {
@@ -80,7 +87,7 @@ export class HubLink {
           await this.api.submitScore(call.boardId, call.value, call.meta);
         }
       } catch (err) {
-        const message = err instanceof HubError && err.queued
+        const message = err instanceof HubSdkError && err.code === 'queued'
           ? err.message
           : err instanceof Error
             ? err.message
@@ -100,8 +107,10 @@ export class HubLink {
     if (!Number.isInteger(tickets) || tickets <= 0 || tickets % TICKETS_PER_VERSE !== 0) {
       return { ok: false, message: `Exchange ${TICKETS_PER_VERSE} Tickets at a time (that is 1 Verse).` };
     }
+    // One operation id for this attempt. A queued error is flushed on the next init, not retried here.
+    const operationId = `sproto:exchange:${crypto.randomUUID()}`;
     try {
-      const result = await this.api.exchange(tickets, `sproto:exchange:${crypto.randomUUID()}`);
+      const result = await this.api.exchange(tickets, operationId);
       this.balance = result.ticketsLeft;
       return { ok: true, verse: result.verse, ticketsLeft: result.ticketsLeft, receiptId: result.receiptId };
     } catch (err) {
@@ -109,18 +118,76 @@ export class HubLink {
     }
   }
 
+  /** The SDK chooses the return URL (`/hub/#from=sproto`). */
   exitHub(): void {
     this.api.exit('return');
   }
 }
 
 /** Redeem a portal ticket when the fragment has one, or resume a cached session. Never throws. */
-export async function connectHub(api: HubSdk = browserApi): Promise<HubLink> {
-  const link = new HubLink(api);
+export async function connectHub(api?: HubSdk): Promise<HubLink> {
+  const sdk = api ?? createBrowserSdk();
+  const link = new HubLink(sdk);
   try {
-    link.attach(await api.init(HUB_GAME_ID));
+    const profile = await sdk.init(HUB_GAME_ID);
+    // A standalone profile is not a hub visit. Only a saved session is.
+    link.attach(hubSessionPresent() ? profile : null);
   } catch (err) {
     link.fail(err);
   }
   return link;
+}
+
+function createBrowserSdk(): HubSdk {
+  const serverUrl = (import.meta.env.VITE_NAKAMA_URL || 'http://127.0.0.1:7350').replace(/\/$/, '');
+  const httpKey = import.meta.env.VITE_NAKAMA_HTTP_KEY || 'localhttpkey';
+  return createHubSdk({ serverUrl, httpKey, hubUrl: browserHubUrl() });
+}
+
+/** `exit` appends `#from=<game>` to this URL, so it always ends in `/hub/`. */
+function browserHubUrl(): string {
+  const configured = import.meta.env.VITE_HUB_ORIGIN?.trim();
+  if (configured) return resolveHubUrl(configured);
+  if (typeof window !== 'undefined') {
+    const ticket = readTicketParam(window.location.hash);
+    const hint = ticket ? ticketHubHint(ticket) : undefined;
+    if (hint) return resolveHubUrl(hint);
+  }
+  return '/hub/';
+}
+
+function resolveHubUrl(origin: string): string {
+  const raw = origin.trim().split('#')[0]?.replace(/\/+$/, '') ?? '';
+  if (!raw) return '/hub/';
+  if (raw.endsWith('/hub')) return `${raw}/`;
+  return `${raw}/hub/`;
+}
+
+/** Unsigned origin a portal ticket may carry. The server still checks the ticket. */
+function ticketHubHint(ticket: string): string | undefined {
+  const parts = ticket.split('.');
+  const payload = parts[1];
+  if (!payload || parts.length < 2) return undefined;
+  try {
+    const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = (4 - (padded.length % 4)) % 4;
+    const json: unknown = JSON.parse(atob(padded + '='.repeat(pad)));
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return undefined;
+    const record = json as Record<string, unknown>;
+    for (const key of ['hub', 'hub_origin', 'hubOrigin']) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function hubSessionPresent(): boolean {
+  try {
+    return typeof sessionStorage !== 'undefined' && sessionStorage.getItem(HUB_SESSION_KEY) !== null;
+  } catch {
+    return false;
+  }
 }

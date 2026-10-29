@@ -1,12 +1,20 @@
+import type { EventResult, HubSdk, InitResult } from '@metaverse/hub-sdk';
 import { describe, expect, it, vi } from 'vitest';
-import type { HubSdk } from '@metaverse/hub-sdk';
-import { HubLink } from './link';
+import { connectHub, HubLink } from './link';
+
+const profile = (): InitResult => ({
+  playerId: 'player-1',
+  ranked: false,
+  relics: [],
+  effects: {},
+  ticketsCapLeft: 0,
+});
 
 function fakeApi(): HubSdk & { calls: unknown[][] } {
   const calls: unknown[][] = [];
   const api: HubSdk = {
-    init: vi.fn(async () => null),
-    reportEvent: vi.fn(async (...args) => {
+    init: vi.fn(async (): Promise<InitResult> => profile()),
+    reportEvent: vi.fn(async (...args): Promise<EventResult> => {
       calls.push(['event', ...args]);
       return { granted: 'tinubu_crown' };
     }),
@@ -24,6 +32,15 @@ function fakeApi(): HubSdk & { calls: unknown[][] } {
 }
 
 describe('HubLink', () => {
+  it('calls init with the sproto game id and stays standalone without a hub session', async () => {
+    const api = fakeApi();
+    const link = await connectHub(api);
+    expect(api.init).toHaveBeenCalledTimes(1);
+    expect(api.init).toHaveBeenCalledWith('sproto');
+    expect(link.connected).toBe(false);
+    expect(link.error).toBeNull();
+  });
+
   it('does not call the hub for a standalone win', async () => {
     const api = fakeApi();
     const link = new HubLink(api);
