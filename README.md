@@ -71,12 +71,12 @@ enough hits.
 The HUD shows each wizard's health, mana and Ultimate charge at the top (yours on the left), the
 round timer and won rounds in the middle, and your spells with their cooldowns at the bottom (a
 second row above them holds the boss spells you have learned). A golden mana bar with a countdown
-chip means that wizard has a golden-ticket boost. The plates, the clock and the spell rows sit on a
+chip means that wizard has a Golden Tickets boost. The plates, the clock and the spell rows sit on a
 translucent, blurred dark backing so they read over any sky; the HUD steps aside behind menus.
 
-## Golden tickets
+## Golden Tickets
 
-During every round's fight (Quick Duel and the Boss Gauntlet), a floating golden ticket appears
+During every round's fight (Quick Duel and the Boss Gauntlet), a Golden Tickets pickup appears
 every 6–12 seconds at a random open spot inside the fire ring, at most 3 at a time; look for the
 gold light beams. Touch one (walking or mid-jump) to collect it: for **15 seconds** your max mana
 rises from 100 to **150** and refills at once, so you can chain far more spells. Tickets and life

@@ -1,4 +1,5 @@
 import { CONFIG } from '../config';
+import type { ExchangeView, HubStatus } from '../hub/link';
 import { padGlyph, type InputDevice, type PadStyle } from '../core/Gamepad';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
 import { rewardIcon } from './icons';
@@ -157,6 +158,12 @@ export interface MenuHandlers {
   savedSpells(): ReadonlySet<RewardSpellId>;
   /** Settings: forget the learned reward spells. */
   forgetSpells(): void;
+  /** Hub session, if this visit was opened from a portal. */
+  hubStatus(): HubStatus;
+  /** Spend Tickets for Verse. The server enforces the rate and the daily cap. */
+  exchangeTickets(tickets: number): Promise<ExchangeView>;
+  /** Close the hub session and go back to the Sproto Duel portal. */
+  exitHub(): void;
 }
 
 const CONTROLS: [string, string][] = [
@@ -316,6 +323,10 @@ export class Menus {
           <button class="ghost" data-act="howto">How to Play</button>
           <button class="ghost" data-act="settings">Settings</button>
         </div>
+        <div class="row">
+          <button class="ghost" data-act="exchange">Exchange<small>${CONFIG.hub.ticketsPerVerse} Tickets = 1 Verse</small></button>
+          <button class="ghost" data-act="exit">Return to Hub<small>Sproto Duel portal</small></button>
+        </div>
         <p class="tip">Tip: raise your Shield just as a spell arrives to send it back.</p>
       </div>`, 'main');
     this.on(s, '[data-act="start"]', () => this.h.start());
@@ -323,6 +334,72 @@ export class Menus {
     this.on(s, '[data-act="continue"]', () => this.h.continueGauntlet());
     this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showMain()));
     this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showMain()));
+    this.on(s, '[data-act="exchange"]', () => this.showExchange());
+    this.on(s, '[data-act="exit"]', () => this.h.exitHub());
+  }
+
+  /** Tickets to Verse. The rate is fixed; the daily cap is enforced by the hub. */
+  showExchange(): void {
+    const rate = CONFIG.hub.ticketsPerVerse;
+    const cap = CONFIG.hub.verseDailyCap;
+    const s = this.mount(`
+      <div class="menu-panel exchange">
+        <h2>Exchange</h2>
+        <p class="note">Spend Tickets for Verse. ${rate} Tickets = 1 Verse, and this game can grant at most ${cap} Verse a day. The hub enforces the cap.</p>
+        <p class="note hub-balance"></p>
+        <label class="setting"><span>Verse</span>
+          <input type="range" min="1" max="${cap}" step="1" value="1" data-verse data-autofocus>
+          <output>1</output></label>
+        <p class="note exchange-cost"></p>
+        <p class="exchange-result" role="status"></p>
+        <div class="menu-actions">
+          <button class="primary" data-act="confirm">Exchange</button>
+          <button data-act="back" data-back>Back</button>
+        </div>
+      </div>`, 'exchange');
+    const balance = s.querySelector('.hub-balance')!;
+    const cost = s.querySelector('.exchange-cost')!;
+    const result = s.querySelector('.exchange-result')!;
+    const slider = s.querySelector<HTMLInputElement>('[data-verse]')!;
+    const output = s.querySelector('output')!;
+    const paintStatus = () => {
+      const now = this.h.hubStatus();
+      if (now.error) balance.textContent = now.error;
+      else if (!now.connected) balance.textContent = 'Not linked to the hub. Enter Sproto Duel from a portal to exchange.';
+      else if (now.balance === null) {
+        const left = now.ticketsCapLeft === null ? '' : ` Tickets still earnable today: ${now.ticketsCapLeft}.`;
+        balance.textContent = `Linked to the hub.${left} Your Ticket balance shows after a win or an exchange.`;
+      } else {
+        balance.textContent = `Tickets: ${now.balance}`;
+      }
+    };
+    const paintCost = () => {
+      const verse = Number(slider.value);
+      output.textContent = String(verse);
+      cost.textContent = `${verse * rate} Tickets = ${verse} Verse`;
+    };
+    paintStatus();
+    paintCost();
+    slider.addEventListener('input', paintCost);
+    this.on(s, '[data-act="back"]', () => this.showMain());
+    this.on(s, '[data-act="confirm"]', () => {
+      const button = s.querySelector<HTMLButtonElement>('[data-act="confirm"]')!;
+      const tickets = Number(slider.value) * rate;
+      button.disabled = true;
+      result.className = 'exchange-result';
+      result.textContent = 'Exchanging…';
+      void this.h.exchangeTickets(tickets).then((view) => {
+        button.disabled = false;
+        paintStatus();
+        if (view.ok) {
+          result.className = 'exchange-result ok';
+          result.textContent = `Received ${view.verse} Verse. Tickets left: ${view.ticketsLeft}. Receipt ${view.receiptId}.`;
+        } else {
+          result.className = 'exchange-result err';
+          result.textContent = view.message;
+        }
+      });
+    });
   }
 
   showHowTo(back: () => void): void {

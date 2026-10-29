@@ -206,7 +206,7 @@ html, body {
 .menus.open { pointer-events: auto; }
 .menu-screen { position: absolute; inset: 0; display: grid; place-items: center; animation: fade-in 0.25s ease-out; }
 .menu-screen.main { place-items: center start; padding-left: clamp(16px, 7cqw, 120px); background: linear-gradient(90deg, rgba(7, 5, 16, 0.88) 0%, rgba(7, 5, 16, 0.55) 45%, transparent 75%); }
-.menu-screen.pause, .menu-screen.howto, .menu-screen.settings, .menu-screen.results, .menu-screen.reveal { background: rgba(7, 5, 16, 0.62); backdrop-filter: blur(6px); }
+.menu-screen.pause, .menu-screen.howto, .menu-screen.settings, .menu-screen.results, .menu-screen.reveal, .menu-screen.exchange { background: rgba(7, 5, 16, 0.62); backdrop-filter: blur(6px); }
 .menu-screen.click { background: rgba(7, 5, 16, 0.4); cursor: pointer; }
 @keyframes fade-in { from { opacity: 0; } }
 .menu-panel { display: grid; gap: 12px; width: min(440px, calc(100cqw - 32px)); }
@@ -275,6 +275,9 @@ html, body {
 .menus button small { display: block; margin-top: 4px; font-size: 12px; letter-spacing: 0.08em; color: var(--ink-dim); }
 .menu-panel h3 { margin: 10px 0 0; font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; }
 .menu-panel .note { margin: 0; color: var(--ink-dim); font-size: 15px; }
+.exchange-result { margin: 0; min-height: 3.2em; font-size: 15px; color: var(--ink-dim); white-space: pre-wrap; }
+.exchange-result.ok { color: #b7f0c8; }
+.exchange-result.err { color: #ffc6b4; }
 
 /* ------------------------------------------------------------- gamepad */
 /* While a controller drives the menus: gold focus ring, mouse hover suspended until the mouse moves. */

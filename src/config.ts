@@ -1243,6 +1243,19 @@ export const CONFIG = {
     godCheatWindowMs: 600,
   },
 
+  /**
+   * Hub Tickets (the currency) and the Tickets-to-Verse exchange.
+   * The server is authoritative for the rate, the balance and the daily Verse cap.
+   */
+  hub: {
+    /** Flat Tickets for each duel win. No difficulty scaling. */
+    ticketsPerWin: 20,
+    /** Tickets spent for one Verse. */
+    ticketsPerVerse: 10,
+    /** Most Verse this game may grant in a day. Shown in the menu; the server enforces it. */
+    verseDailyCap: 50,
+  },
+
   controls: {
     forward: ['KeyW'],
     back: ['KeyS'],
