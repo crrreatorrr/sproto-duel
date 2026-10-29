@@ -1,13 +1,31 @@
-import { SPROTO_STAFF, isStaffId, staffName, type StaffId } from './catalog';
+import { SPROTO_STAFF, STAFF_IDS, isStaffId, staffName, type StaffId } from './catalog';
 
 /**
- * Offline stand-in for the hub session loadout.
+ * The only place Sproto Duel reads which staffs are owned and which one is equipped.
  *
- * Ownership and the equipped staff are read here, and only here. Sproto is always owned.
- * M3 can later swap this module for the server `loadout/sproto` RPC without touching the
- * rack or the gameplay. Do not add hub SDK, Ticket or RPC calls in this file.
+ * A hub visit passes the relic ids `init` already returned (`setSessionRelics`). Ownership is
+ * the starter staff plus the staff for each relic that unlocks one in this game. Tinubu's Crown
+ * is earned here and unlocks nothing. With no session, the local `arcane-duel-loadout` cache is
+ * the fallback (starter only when that cache is empty).
+ *
+ * Equipping writes that cache's staff slot. It does not grant a Relic, change Tickets, touch the
+ * campaign save, or post a score. Server loadout and `equip_change` come later. Do not add hub
+ * SDK, Ticket or RPC calls in this file.
  */
 export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
+
+/**
+ * Relic → staff in this game. One staff slot, so these never stack.
+ * Absent on purpose: `tinubu_crown` (earned in Duel).
+ */
+const STAFF_BY_RELIC: Readonly<Record<string, StaffId>> = {
+  hpos10i_core: 'duel_staff_momentum',
+  genesis_shard: 'duel_staff_moonward',
+  cones_tip: 'duel_staff_nobu',
+};
+
+/** Relics from the current hub init, or null when this visit has no session. */
+let sessionRelics: readonly string[] | null = null;
 
 export interface StaffLoadout {
   staff: StaffId;
@@ -73,8 +91,42 @@ function write(save: Save): void {
   }
 }
 
-/** Staffs the player owns. Sproto is always included. Unknown ids are ignored. */
+/**
+ * Remember relic ids the hub init result already contained.
+ * Null means there is no hub session, so ownership falls back to the local cache.
+ * This stores a snapshot for `getOwnedStaffs` and refreshes that cache's owned list.
+ * It does not write Relics, Tickets, beaten flags, or leaderboards.
+ */
+export function setSessionRelics(relics: readonly string[] | null): void {
+  sessionRelics = relics === null ? null : relics.slice();
+  if (sessionRelics === null) return;
+  const save = read();
+  const owned = staffsForRelics(sessionRelics);
+  if (sameIds(save.owned, owned)) return;
+  write({ ...save, owned, cachedAt: Date.now() });
+}
+
+/**
+ * Staffs the player owns. Sproto is always included.
+ * An empty relic list (a hub visit that owns none) is not the local cache: only a null session is.
+ */
 export function getOwnedStaffs(): StaffId[] {
+  if (sessionRelics !== null) return staffsForRelics(sessionRelics);
+  return staffsFromCache();
+}
+
+/** Starter, plus one staff per relic that unlocks one here. Stable catalog order. */
+function staffsForRelics(relics: readonly string[]): StaffId[] {
+  const unlocked = new Set<StaffId>();
+  for (const relic of relics) {
+    const staff = STAFF_BY_RELIC[relic];
+    if (staff) unlocked.add(staff);
+  }
+  return STAFF_IDS.filter((id) => id === SPROTO_STAFF || unlocked.has(id));
+}
+
+/** Local fallback. Unknown ids are ignored. Sproto is always included. */
+function staffsFromCache(): StaffId[] {
   const save = read();
   const owned: StaffId[] = [SPROTO_STAFF];
   for (const id of save.owned) {
@@ -83,6 +135,13 @@ export function getOwnedStaffs(): StaffId[] {
     else warnUnknown(id);
   }
   return owned;
+}
+
+function sameIds(saved: readonly string[], owned: readonly StaffId[]): boolean {
+  if (saved.length !== owned.length) return false;
+  const seen = new Set(saved);
+  if (seen.size !== saved.length) return false;
+  return owned.every((id) => seen.has(id));
 }
 
 /**
@@ -111,7 +170,10 @@ export function getLoadout(): StaffLoadout {
   return { staff, owned, replaced };
 }
 
-/** Persist a new staff. Returns false when it is unknown or not owned (the save is unchanged). */
+/**
+ * Persist the one equipped staff. Returns false when it is unknown or not owned (the save is unchanged).
+ * One slot: the previous staff is replaced. This does not grant ownership.
+ */
 export function setSelectedStaff(id: string): boolean {
   if (!isStaffId(id)) {
     warnUnknown(id);
