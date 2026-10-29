@@ -1,6 +1,8 @@
 import { type HubSdkEnv } from './env';
 import type { NakamaClient } from './nakama';
 import { type HubSdk } from './types';
+/** IndexedDB database for earn, event, and exchange writes that have not been acked. */
+export declare const HUB_OUTBOX_DB = "hub-outbox";
 /**
  * Hub SDK backed by Nakama. `init` reads `#t=<ticket>`, strips it, and exchanges it
  * for a game-scoped session cached in sessionStorage. Without a ticket or a cached
