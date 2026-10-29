@@ -1,5 +1,5 @@
-import { createHubSdk, HubSdkError, readTicketParam, type HubSdk, type InitResult } from '@metaverse/hub-sdk';
-import { HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
+import { createHubSdk, HubSdkError, type HubSdk, type InitResult } from '@metaverse/hub-sdk';
+import { HUB_EXIT_SLUG, HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
 import { planDuelWin, type DuelWin } from './report';
 
 export interface HubStatus {
@@ -118,9 +118,17 @@ export class HubLink {
     }
   }
 
-  /** The SDK chooses the return URL (`/hub/#from=sproto`). */
+  /**
+   * Close the hub session, then leave for the portal.
+   * Games are hosted on `play.<domain>`, so the return URL is the absolute hub
+   * (`VITE_HUB_URL`, `/hub/` in dev) plus `#from=sproto-duel`. The SDK only navigates
+   * when a session is open, and it would use `#from=sproto`, so this always sends
+   * the portal slug.
+   */
   exitHub(): void {
+    const sdkNavigates = this.connected;
     this.api.exit('return');
+    if (!sdkNavigates) redirectToHub();
   }
 }
 
@@ -141,47 +149,29 @@ export async function connectHub(api?: HubSdk): Promise<HubLink> {
 function createBrowserSdk(): HubSdk {
   const serverUrl = (import.meta.env.VITE_NAKAMA_URL || 'http://127.0.0.1:7350').replace(/\/$/, '');
   const httpKey = import.meta.env.VITE_NAKAMA_HTTP_KEY || 'localhttpkey';
-  return createHubSdk({ serverUrl, httpKey, hubUrl: browserHubUrl() });
+  return createHubSdk({
+    serverUrl,
+    httpKey,
+    hubUrl: hubPageUrl(),
+    // The SDK appends `#from=<game id>`. Replace that with the portal slug.
+    assign: () => redirectToHub(),
+  });
 }
 
-/** `exit` appends `#from=<game>` to this URL, so it always ends in `/hub/`. */
-function browserHubUrl(): string {
-  const configured = import.meta.env.VITE_HUB_ORIGIN?.trim();
-  if (configured) return resolveHubUrl(configured);
-  if (typeof window !== 'undefined') {
-    const ticket = readTicketParam(window.location.hash);
-    const hint = ticket ? ticketHubHint(ticket) : undefined;
-    if (hint) return resolveHubUrl(hint);
-  }
-  return '/hub/';
+/** Build-time hub page. Dev default is same-origin `/hub/`; production is `https://<domain>/hub`. */
+function hubPageUrl(): string {
+  const configured = import.meta.env.VITE_HUB_URL?.trim();
+  return configured ? configured.split('#')[0] : '/hub/';
 }
 
-function resolveHubUrl(origin: string): string {
-  const raw = origin.trim().split('#')[0]?.replace(/\/+$/, '') ?? '';
-  if (!raw) return '/hub/';
-  if (raw.endsWith('/hub')) return `${raw}/`;
-  return `${raw}/hub/`;
+/** `https://<domain>/hub` + `#from=sproto-duel`, or `/hub/#from=sproto-duel` in dev. */
+function hubExitUrl(): string {
+  return `${hubPageUrl()}#from=${HUB_EXIT_SLUG}`;
 }
 
-/** Unsigned origin a portal ticket may carry. The server still checks the ticket. */
-function ticketHubHint(ticket: string): string | undefined {
-  const parts = ticket.split('.');
-  const payload = parts[1];
-  if (!payload || parts.length < 2) return undefined;
-  try {
-    const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const pad = (4 - (padded.length % 4)) % 4;
-    const json: unknown = JSON.parse(atob(padded + '='.repeat(pad)));
-    if (!json || typeof json !== 'object' || Array.isArray(json)) return undefined;
-    const record = json as Record<string, unknown>;
-    for (const key of ['hub', 'hub_origin', 'hubOrigin']) {
-      const value = record[key];
-      if (typeof value === 'string' && value.trim()) return value.trim();
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
+function redirectToHub(): void {
+  if (typeof window === 'undefined') return;
+  window.location.assign(hubExitUrl());
 }
 
 function hubSessionPresent(): boolean {
