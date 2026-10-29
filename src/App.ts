@@ -13,6 +13,8 @@ import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
 import { HubLink } from './hub/link';
+import { equipStaff, staffCard, staffModelPath } from './staff/catalog';
+import { getLoadout, setSelectedStaff } from './staff/loadout';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
 
@@ -131,6 +133,8 @@ export class App {
       hubStatus: () => this.hub.status(),
       exchangeTickets: (tickets) => this.hub.exchangeTickets(tickets),
       exitHub: () => this.hub.exitHub(),
+      staffRack: () => this.staffRack(),
+      selectStaff: (id) => this.selectStaff(id),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
     this.applySettings(this.settings);
@@ -138,7 +142,50 @@ export class App {
     game.onFrame((dt) => this.frame(dt));
     events.on('matchEnd', (e) => this.onMatchEnd(e.winner));
     this.bindInput();
+    this.applyStaff();
     this.toMenu();
+  }
+
+  /**
+   * Equip the saved staff on the player. Ranked (`HubLink.ranked`, from the vendored SDK init)
+   * keeps the mesh and colours and uses starter stats. There is no mid-fight swap: menus call
+   * this, and every match start calls it again.
+   */
+  private applyStaff(): void {
+    const load = getLoadout();
+    if (load.replaced) this.menus.toast('Gear unavailable', load.replaced);
+    // Ranked flag is already on the hub session. Standalone play leaves it false.
+    const ranked = this.hub.ranked;
+    const equipped = equipStaff(load.staff, ranked);
+    const player = this.game.player;
+    player.staff = equipped;
+    if (player.visual.mountedStaffId === equipped.id) {
+      player.visual.setStaff(equipped);
+      return;
+    }
+    const path = staffModelPath(load.staff);
+    const prop = this.game.assets.instantiateProp(path);
+    if (!prop) console.warn(`[staff] missing ${path}, using a placeholder staff`);
+    player.visual.setStaff(equipped, prop);
+  }
+
+  private staffRack() {
+    const load = getLoadout();
+    return {
+      owned: load.owned.map((id) => staffCard(id)),
+      selected: load.staff,
+      ranked: this.hub.ranked,
+    };
+  }
+
+  /** Rack clicks. Ignored during a fight so a staff can't change between casts. */
+  private selectStaff(id: string): void {
+    if (this.state === 'playing' || this.state === 'paused') return;
+    if (!setSelectedStaff(id)) {
+      this.menus.toast('Gear unavailable', id);
+      return;
+    }
+    this.applyStaff();
   }
 
   private bindInput(): void {
@@ -402,6 +449,7 @@ export class App {
     this.audio.gameplayMuted = false;
     g.player.intent.clear();
     this.syncLearned();
+    this.applyStaff();
     // God mode's stats come back on the player (the menu's background duel fights without them).
     g.holdGodMode(false);
     this.gauntletOutcome = null;

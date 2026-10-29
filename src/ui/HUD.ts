@@ -41,6 +41,7 @@ interface Slot {
   root: HTMLElement;
   sweep: HTMLElement;
   time: HTMLElement;
+  label: HTMLElement;
 }
 
 /** A learned reward spell's slot in the HUD's second row. */
@@ -127,6 +128,7 @@ export class HUD {
   private readonly packIcons: HTMLElement[] = [];
   private readonly packRow: HTMLElement;
   private readonly dodge: HTMLElement;
+  private readonly dodgeLabel: HTMLElement;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
   private healFlash = 0;
@@ -221,6 +223,7 @@ export class HUD {
       this.packIcons.push(el);
     }
     this.dodge = q('.dodge-fill');
+    this.dodgeLabel = q('.dodge-bar span');
 
     const slotRoot = q('.slots');
     SLOTS.forEach((s, i) => {
@@ -228,7 +231,7 @@ export class HUD {
       el.className = `slot slot-${s.spell}`;
       el.innerHTML = `<div class="slot-icon">${spellIcon(s.spell)}</div><div class="slot-sweep"></div><div class="slot-time"></div><kbd>${KEY_LABELS[i]}</kbd><span class="slot-label">${s.label}</span>`;
       slotRoot.appendChild(el);
-      this.slots.push({ spell: s.spell, root: el, sweep: q('.slot-sweep', el), time: q('.slot-time', el) });
+      this.slots.push({ spell: s.spell, root: el, sweep: q('.slot-sweep', el), time: q('.slot-time', el), label: q('.slot-label', el) });
       this.slotKeys.push(q('kbd', el));
     });
     this.rewardRow = q('.reward-slots');
@@ -483,8 +486,16 @@ export class HUD {
     this.updateSlots(p);
     this.updateRewardSlots(p);
     this.updateReticle(p);
-    const dodgeReady = 1 - p.cd.dodge / (W.dodge.duration + W.dodge.cooldown);
-    this.set('dodge', this.dodge, 'transform', `scaleX(${dodgeReady.toFixed(3)})`);
+    const blink = p.staff?.blink;
+    if (blink) {
+      const ready = 1 - p.cd.blink / Math.max(0.001, blink.cooldown);
+      this.set('dodge', this.dodge, 'transform', `scaleX(${Math.max(0, Math.min(1, ready)).toFixed(3)})`);
+      this.set('dodgelabel', this.dodgeLabel, 'text', 'BLINK');
+    } else {
+      const dodgeReady = 1 - p.cd.dodge / (W.dodge.duration + W.dodge.cooldown);
+      this.set('dodge', this.dodge, 'transform', `scaleX(${dodgeReady.toFixed(3)})`);
+      this.set('dodgelabel', this.dodgeLabel, 'text', 'ROLL');
+    }
 
     // Crosshair hit marker.
     this.hitMarker = Math.max(0, this.hitMarker - dt);
@@ -603,6 +614,7 @@ export class HUD {
       const noMana = p.mana < cost;
       const active = (s.spell === 'shield' && p.shielded) || p.cast?.spell === s.spell;
       const id = s.spell;
+      if (s.spell === 'bolt') this.set('boltlabel', s.label, 'text', p.staff?.boltLabel ?? 'Bolt');
       this.set(`sw${id}`, s.sweep, 'style', `${(frac * 360).toFixed(1)}deg`, '--cd');
       this.set(`st${id}`, s.time, 'text', seconds > 0.25 && s.spell !== 'bolt' ? seconds.toFixed(seconds < 1 ? 1 : 0) : '');
       const cls = `slot slot-${s.spell}${frac > 0 && s.spell !== 'bolt' ? ' cooling' : ''}${noMana ? ' nomana' : ''}${active ? ' active' : ''}${s.spell === 'ultimate' && ready ? ' ready' : ''}`;

@@ -206,7 +206,7 @@ export class Game {
   private readonly immunePopupAt = new Map<Wizard, number>();
 
   private bindPopups(): void {
-    events.on('dodge', (e) => this.fx.roll(e.wizard.pos, e.wizard.dodgeDir, e.wizard.team.spell));
+    events.on('dodge', (e) => this.fx.roll(e.wizard.pos, e.wizard.dodgeDir, e.wizard.staff?.trailColor || e.wizard.team.spell));
     events.on('jump', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), 2, 0.5));
     events.on('land', (e) => this.fx.dust(tmp.set(e.pos.x, e.pos.y + 0.1, e.pos.z), Math.round(2 + e.speed * 0.6), 1.1));
     events.on('damage', (e) => {

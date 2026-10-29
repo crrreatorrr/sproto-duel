@@ -796,6 +796,20 @@ html, body {
 }
 
 /* Buttons at the foot of a panel. On long screens (How to Play, Settings) they stay pinned in view. */
+.staff-rack { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; width: 100%; }
+.staff-kicker { flex: 1 0 100%; margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); }
+.menus button.staff-pick {
+  flex: 1 1 140px; display: flex; flex-direction: row; align-items: center; gap: 8px;
+  padding: 8px 10px; text-align: left; text-transform: none; letter-spacing: 0.04em;
+}
+.staff-pick .staff-orb { flex: none; width: 14px; height: 14px; border-radius: 50%; background: var(--bolt); box-shadow: 0 0 10px var(--bolt); }
+.staff-pick .staff-copy { display: grid; min-width: 0; }
+.staff-pick .staff-copy b { font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+.menus button.staff-pick.equipped {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 16px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.staff-ranked, .staff-lock { margin: 0; font-size: 13px; letter-spacing: 0.04em; color: var(--gold); }
 .menu-actions { display: grid; gap: 10px; }
 .menu-actions.row { grid-auto-flow: column; grid-auto-columns: 1fr; }
 .menu-screen.howto .menu-actions, .menu-screen.settings .menu-actions {

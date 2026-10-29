@@ -241,6 +241,31 @@ export class Physics {
   }
 
   /**
+   * How far `collider` can travel along horizontal `dir` before a wall, pillar or the wizards-only
+   * barrier. `dir` need not be unit length. Returns metres, never more than `maxDist`.
+   */
+  sweepWizard(collider: RAPIER.Collider, dir: Vector3, maxDist: number): number {
+    const len = Math.hypot(dir.x, dir.z);
+    if (len < 1e-6 || maxDist <= 0) return 0;
+    this.unitDir.x = dir.x / len;
+    this.unitDir.y = 0;
+    this.unitDir.z = dir.z / len;
+    const hit = this.world.castShape(
+      collider.translation(),
+      collider.rotation(),
+      this.unitDir,
+      collider.shape,
+      0,
+      maxDist,
+      true,
+      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+      groups(0xffff, GROUP.WORLD | GROUP.BARRIER),
+      collider,
+    );
+    return hit ? Math.max(0, hit.time_of_impact) : maxDist;
+  }
+
+  /**
    * Sweep a sphere from `origin` along `motion`. Returns the first hit within the motion length.
    * `skip` lets callers ignore colliders (e.g. a wizard with i-frames).
    */

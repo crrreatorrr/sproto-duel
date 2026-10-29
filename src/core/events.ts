@@ -8,7 +8,8 @@ import type { CineCue, TransformStyleId } from '../campaign/transformStyles';
 /** `breath`: Hellfire Breath's cone; `scorch`: the burning it leaves behind. */
 /** `power`: a boss special power; `toxic`: a toxic cloud's ticks; `ram`: the Magic Carpet flown into someone. */
 /** `pool` / `vent`: an arena shift's hazard pool and erupting vent (src/arena/ArenaShifts.ts). */
-export type DamageKind = SpellId | 'fire' | 'splash' | 'breath' | 'scorch' | 'power' | 'toxic' | 'ram' | 'pool' | 'vent';
+/** `trail`: the Momentum Staff's Blink Dash ribbon. Not a spell, so it is not in SPELL_DAMAGE. */
+export type DamageKind = SpellId | 'fire' | 'splash' | 'breath' | 'scorch' | 'power' | 'toxic' | 'ram' | 'pool' | 'vent' | 'trail';
 
 /** Everything gameplay announces. UI, audio and FX subscribe; gameplay never calls them directly. */
 export interface GameEvents {
@@ -27,6 +28,8 @@ export interface GameEvents {
   block: { wizard: Wizard; pos: Vector3; perfect: boolean; spell: SpellId };
   clash: { pos: Vector3; winner: SpellId | null };
   dodge: { wizard: Wizard };
+  /** Momentum Staff: a swept Blink Dash just started. The trail reads `wizard.blinkFrom` / `wizard.pos`. */
+  blink: { wizard: Wizard; color: number; width: number; dps: number; life: number };
   dodgeEvade: { wizard: Wizard; pos: Vector3 };
   /** Takeoff. `pos` is the feet. */
   jump: { wizard: Wizard; pos: Vector3 };

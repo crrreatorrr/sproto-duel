@@ -17,6 +17,7 @@ import { ProjectilePool, type Projectile } from './Projectile';
 import { BossPowers } from './BossPowers';
 import { RewardSpells } from './RewardSpells';
 import type { ChanneledSpell } from './types';
+import { BlinkTrails } from '../staff/BlinkTrail';
 
 const S = CONFIG.spells;
 const PROJECTILE_MASK = GROUP.WORLD | GROUP.WIZARD | GROUP.GROUND;
@@ -81,6 +82,8 @@ export class SpellSystem {
   private readonly waves: UltWave[] = [];
   /** Burst volleys in flight, matched by caster (one per caster at a time); grows only if every slot is busy. */
   private readonly volleys: PendingVolley[];
+  /** Momentum Staff blink ribbons. */
+  private readonly blinkTrails: BlinkTrails;
 
   constructor(
     scene: THREE.Scene,
@@ -96,6 +99,8 @@ export class SpellSystem {
     this.rewards = new RewardSpells(scene, physics, fx, wizards, arena, (t, s, a, p, k, d, n) => this.dealDamage(t, s, a, p, k, d, n), (w) => this.noMana(w));
     this.powers = new BossPowers(physics, wizards, arena, (t, s, a, p, k, d, n) => this.dealDamage(t, s, a, p, k, d, n), (p, t, st) => this.callout(p, t, st));
     this.powerFx = new PowerFx(scene, fx, this.pool.skins, () => wizards[0]);
+    this.blinkTrails = new BlinkTrails(scene, wizards, (t, s, a, p) => this.dealDamage(t, s, a, p, 'trail'), fx);
+    events.on('blink', (e) => this.blinkTrails.spawn(e));
     // Every attack (not a shield) restarts Wizard.sinceAttack: it gives a vape-cloud hider away.
     events.on('cast', (e) => {
       if (e.spell !== 'shield') e.wizard.sinceAttack = 0;
@@ -119,6 +124,7 @@ export class SpellSystem {
     this.updateProjectiles(dt);
     this.resolveClashes();
     this.updateWaves(dt);
+    this.blinkTrails.update(dt);
   }
 
   clear(): void {
@@ -131,6 +137,7 @@ export class SpellSystem {
     this.spellFx.clear();
     this.muzzleFx.clear();
     this.rewards.clear();
+    this.blinkTrails.clear();
   }
 
   /** Remove everything `w` has in flight (a boss partner leaving the fight). */
@@ -144,6 +151,7 @@ export class SpellSystem {
       this.waves.splice(i, 1);
     }
     for (const v of this.volleys) if (v.wizard === w) v.active = false;
+    this.blinkTrails.releaseOwned(w);
     this.powers.cancel(w);
   }
 
@@ -286,7 +294,8 @@ export class SpellSystem {
     w.cd.bolt = B.fireInterval;
     const muzzle = w.muzzleIndex('bolt');
     this.muzzleOrigin(w, 'bolt', muzzle, B.radius, tmpFrom);
-    if (this.launchBolt(w, tmpFrom, this.aimDirection(w, tmpFrom, tmpDir), B.damage, 'bolt', muzzle)) w.castPulse = 1;
+    const damage = B.damage * (w.staff?.boltDamageMult ?? 1);
+    if (this.launchBolt(w, tmpFrom, this.aimDirection(w, tmpFrom, tmpDir), damage, 'bolt', muzzle)) w.castPulse = 1;
     return true;
   }
 
@@ -305,6 +314,9 @@ export class SpellSystem {
     p.owner = p.caster = w;
     p.radius = B.radius;
     p.damage = damage;
+    p.knockback = w.staff?.boltKnockback ?? B.knockback;
+    p.boltColor = w.staff?.boltColor ?? 0;
+    p.trailColor = w.staff?.trailColor ?? 0;
     p.power = p.basePower = B.power * w.clashPowerMultiplier;
     p.life = B.lifetime;
     // Lock-On: the bolt curves toward the nearest enemy in front of the caster.
@@ -708,7 +720,7 @@ export class SpellSystem {
     if (tag.kind === 'wizard') {
       const target = tag.wizard;
       tmpDir.copy(p.vel).setY(0);
-      this.dealDamage(target, p.owner, p.damage, p.pos, 'bolt', tmpDir, S.bolt.knockback);
+      this.dealDamage(target, p.owner, p.damage, p.pos, 'bolt', tmpDir, p.knockback);
       this.fx.impact(p.pos, hit.normal, color, p.reflected ? 1.6 : 1);
       feel.freeze(S.bolt.hitStopMs, !p.reflected);
       if (target === feel.local || p.owner === feel.local) feel.shake(S.bolt.shake);
