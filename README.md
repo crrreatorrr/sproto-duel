@@ -1,4 +1,6 @@
-# Arcane Duel
+# Sproto Duel
+
+A third-person wizard duel. Pick a staff, face the boss gauntlet, and earn your spells one fight at a time.
 
 Arena wizard duels in the browser. Quick Duel: best of three rounds against an AI wizard, 60–90
 seconds a round. Boss Gauntlet: five long single-life boss fights, each boss with three stages and

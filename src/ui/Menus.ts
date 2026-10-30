@@ -371,8 +371,8 @@ export class Menus {
     // A heading only labels the Continue / New Gauntlet pair: it never repeats a button's own title.
     const s = this.mount(`
       <div class="menu-panel main">
-        <h1 class="title">Arcane<span>Duel</span></h1>
-        <p class="tagline">Wands up. One life against each boss.</p>
+        <h1 class="title">Sproto<span>Duel</span></h1>
+        <p class="tagline">Staffs up. One life against each boss.</p>
         <div class="mode-block gauntlet-block">
           ${g.canContinue ? '<h3>Boss Gauntlet</h3>' : ''}
           <div class="row">
