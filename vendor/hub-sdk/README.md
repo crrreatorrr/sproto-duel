@@ -1,6 +1,6 @@
 # @metaverse/hub-sdk
 
-Client for a game page that was opened from the hub. The hub puts a short-lived signed ticket in the URL fragment (`#t=`). `init` strips that fragment and exchanges the ticket for a game-scoped Nakama session. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
+Client for a game page that was opened from the hub. The hub puts a short-lived signed ticket in the URL fragment (`#t=`). `init` strips that fragment and redeems the ticket with Nakama custom authentication (`t:` + ticket, `create=false`, `vars.game`). Later calls send only the session token from that redeem. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
 Version 0.1.0 is the surface Sproto Duel should build against. Method names, argument order, game ids, relic ids, and event ids below stay stable.
 

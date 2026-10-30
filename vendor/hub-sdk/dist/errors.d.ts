@@ -3,4 +3,3 @@ export declare class HubSdkError extends Error {
     readonly status?: number;
     constructor(code: string, message: string, status?: number);
 }
-//# sourceMappingURL=errors.d.ts.map

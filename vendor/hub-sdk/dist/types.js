@@ -42,4 +42,3 @@ export function isRelicId(value) {
 export function isBoardId(value) {
     return BOARD_IDS.includes(value);
 }
-//# sourceMappingURL=types.js.map

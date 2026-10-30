@@ -101,9 +101,9 @@ async function forget(key) {
     });
 }
 /**
- * Hub SDK backed by Nakama. `init` reads `#t=<ticket>`, strips it, and exchanges it
- * for a game-scoped session cached in sessionStorage. Without a ticket or a cached
- * session every call no-ops so the game still runs standalone.
+ * Hub SDK backed by Nakama. `init` reads `#t=<ticket>`, strips it, and redeems it
+ * with custom auth. Later calls send only that session token. Without a ticket or a
+ * cached session every call no-ops so the game still runs standalone.
  */
 export function createLiveHubSdk(env, client) {
     const resolved = resolveHubEnv(env);
@@ -192,19 +192,21 @@ export function createLiveHubSdk(env, client) {
         async init(gameId) {
             if (!isGameId(gameId))
                 throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
-            const token = readTicketParam(resolved.readHash());
-            if (token) {
-                const body = await client.rpc('session.redeem', { ticket: token, gameId }, { httpKey: true });
-                if (!body.token || !body.playerId || !body.sid) {
+            const ticket = readTicketParam(resolved.readHash());
+            if (ticket) {
+                const auth = await client.authenticateCustom(`t:${ticket}`, false, { game: gameId });
+                const body = await client.rpc('session.redeem', { gameId }, { token: auth.token });
+                const playerId = typeof body.playerId === 'string' && body.playerId ? body.playerId : auth.userId;
+                if (!auth.token || !playerId || !body.sid) {
                     throw new HubSdkError('ticket_invalid', 'Redeem did not return a session');
                 }
                 resolved.writeHash(stripTicketParam(resolved.readHash()));
                 writeCached({
                     game: gameId,
-                    playerId: body.playerId,
+                    playerId,
                     ranked: body.ranked === true,
                     sid: body.sid,
-                    token: body.token,
+                    token: auth.token,
                     effects: flatEffects(body.effects),
                     relics: asRelics(body.relics),
                     ticketsCapLeft: typeof body.ticketsCapLeft === 'number' ? body.ticketsCapLeft : 0,
@@ -290,4 +292,3 @@ export function createLiveHubSdk(env, client) {
         },
     };
 }
-//# sourceMappingURL=live.js.map
