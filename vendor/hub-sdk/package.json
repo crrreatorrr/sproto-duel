@@ -10,6 +10,12 @@
     "url": "git+https://github.com/crrreatorrr/metaverse-hub.git",
     "directory": "packages/hub-sdk"
   },
+  "vendorSource": {
+    "repository": "https://github.com/crrreatorrr/metaverse-hub.git",
+    "directory": "packages/hub-sdk",
+    "branch": "cursor/ticket-redeem-custom-auth-c054",
+    "sha": "947ed4c"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

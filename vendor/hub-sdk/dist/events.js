@@ -52,4 +52,3 @@ export function relicForEvent(game, eventId, data) {
     }
     return undefined;
 }
-//# sourceMappingURL=events.js.map

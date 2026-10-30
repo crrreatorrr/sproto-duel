@@ -1,13 +1,10 @@
-/** Local compose defaults. The HTTP key is a dev credential used only to exchange a portal ticket. */
+/** Local Nakama origin. This client never embeds a server credential. */
 export declare const LOCAL_NAKAMA: {
     readonly serverUrl: "http://127.0.0.1:7350";
-    readonly serverKey: "defaultkey";
-    readonly httpKey: "localhttpkey";
 };
 export interface NakamaRpcOptions {
+    /** Session token from custom auth. The only credential an RPC sends. */
     token?: string;
-    /** Exchange a portal ticket before a user session exists. */
-    httpKey?: boolean;
     keepalive?: boolean;
 }
 export interface NakamaClient {
@@ -15,12 +12,18 @@ export interface NakamaClient {
         token: string;
         userId: string;
     }>;
+    /**
+     * Redeem a portal ticket (`id` is `t:` + ticket, `create` is false).
+     * Returns the session token used for every later call.
+     */
+    authenticateCustom(id: string, create?: boolean, vars?: Record<string, string>): Promise<{
+        token: string;
+        userId: string;
+    }>;
     rpc<T>(id: string, body: object, opts?: NakamaRpcOptions): Promise<T>;
 }
 export interface NakamaClientOptions {
     serverUrl: string;
-    serverKey?: string;
-    httpKey?: string;
     fetchImpl?: typeof fetch;
 }
 export interface ProfileResult {
@@ -61,4 +64,3 @@ export interface RecoveryRedeemResult {
 }
 export declare function userIdFromToken(token: string): string;
 export declare function createNakamaClient(options: NakamaClientOptions): NakamaClient;
-//# sourceMappingURL=nakama.d.ts.map

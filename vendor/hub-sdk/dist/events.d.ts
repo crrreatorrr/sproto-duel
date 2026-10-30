@@ -18,4 +18,3 @@ export type HubEventId = (typeof HubEvent)[keyof typeof HubEvent];
  * or undefined when the payload is not that game's completion trigger.
  */
 export declare function relicForEvent(game: GameId, eventId: string, data: object): RelicId | undefined;
-//# sourceMappingURL=events.d.ts.map

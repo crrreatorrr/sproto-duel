@@ -30,4 +30,3 @@ export declare function verifyMockTicket(token: string): Promise<TicketClaims | 
 export declare function readTicketParam(hash: string): string | null;
 export declare function stripTicketParam(hash: string): string;
 export {};
-//# sourceMappingURL=ticket.d.ts.map

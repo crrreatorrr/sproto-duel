@@ -10,4 +10,3 @@ export type { HubSdkEnv };
 export declare function createHubSdk(env?: HubSdkEnv): HubSdk;
 /** Puts the SDK on `window.hubSdk` for the Godot JavaScriptBridge and plain script tags. */
 export declare function installHubSdk(sdk?: HubSdk): HubSdk;
-//# sourceMappingURL=createHubSdk.d.ts.map
