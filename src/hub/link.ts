@@ -155,10 +155,8 @@ export async function connectHub(api?: HubSdk): Promise<HubLink> {
 
 function createBrowserSdk(): HubSdk {
   const serverUrl = (import.meta.env.VITE_NAKAMA_URL || 'http://127.0.0.1:7350').replace(/\/$/, '');
-  const httpKey = import.meta.env.VITE_NAKAMA_HTTP_KEY || 'localhttpkey';
   return createHubSdk({
     serverUrl,
-    httpKey,
     hubUrl: hubPageUrl(),
     // The SDK appends `#from=<game id>`. Replace that with the portal slug.
     assign: () => redirectToHub(),

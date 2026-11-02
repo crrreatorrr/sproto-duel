@@ -82,4 +82,3 @@ export function stripTicketParam(hash) {
     const next = params.toString();
     return next ? `#${next}` : '';
 }
-//# sourceMappingURL=ticket.js.map

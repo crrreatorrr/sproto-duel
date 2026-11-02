@@ -12,4 +12,3 @@ export { HubSdkError } from './errors';
 export { HUB_OUTBOX_DB } from './live';
 export { LOCAL_NAKAMA, createNakamaClient, userIdFromToken, } from './nakama';
 export type { NakamaClient, NakamaClientOptions, PortalEnterResult, ProfileResult, RecoveryCodeResult, RecoveryRedeemResult, RedeemResult, } from './nakama';
-//# sourceMappingURL=index.d.ts.map

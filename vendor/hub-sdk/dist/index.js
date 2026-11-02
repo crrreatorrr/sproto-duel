@@ -6,4 +6,3 @@ export { createHubSdk, installHubSdk } from './createHubSdk';
 export { HubSdkError } from './errors';
 export { HUB_OUTBOX_DB } from './live';
 export { LOCAL_NAKAMA, createNakamaClient, userIdFromToken, } from './nakama';
-//# sourceMappingURL=index.js.map

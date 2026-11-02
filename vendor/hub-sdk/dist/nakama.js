@@ -1,10 +1,8 @@
 import { HubSdkError } from './errors';
 import { base64UrlToBytes } from './ticket';
-/** Local compose defaults. The HTTP key is a dev credential used only to exchange a portal ticket. */
+/** Local Nakama origin. This client never embeds a server credential. */
 export const LOCAL_NAKAMA = {
     serverUrl: 'http://127.0.0.1:7350',
-    serverKey: 'defaultkey',
-    httpKey: 'localhttpkey',
 };
 export function userIdFromToken(token) {
     const part = token.split('.')[1];
@@ -24,39 +22,44 @@ export function userIdFromToken(token) {
 }
 export function createNakamaClient(options) {
     const serverUrl = options.serverUrl.replace(/\/$/, '');
-    const serverKey = options.serverKey ?? LOCAL_NAKAMA.serverKey;
-    const httpKey = options.httpKey ?? LOCAL_NAKAMA.httpKey;
     const fetchImpl = options.fetchImpl ?? fetch;
+    async function postJson(url, body) {
+        const response = await fetchImpl(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const text = await response.text();
+        if (!response.ok)
+            throw new HubSdkError('auth_failed', text || `HTTP ${response.status}`);
+        const parsed = text ? JSON.parse(text) : {};
+        if (!parsed.token)
+            throw new HubSdkError('auth_failed', 'Auth did not return a session token');
+        return { token: parsed.token, userId: userIdFromToken(parsed.token) };
+    }
     return {
         async authenticateDevice(deviceId, vars) {
-            const response = await fetchImpl(`${serverUrl}/v2/account/authenticate/device?create=true`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Basic ${btoa(`${serverKey}:`)}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(vars ? { id: deviceId, vars } : { id: deviceId }),
-            });
-            const text = await response.text();
-            if (!response.ok)
-                throw new HubSdkError('auth_failed', text || `HTTP ${response.status}`);
-            const body = JSON.parse(text);
-            if (!body.token)
-                throw new HubSdkError('auth_failed', 'Device auth did not return a token');
-            return { token: body.token, userId: userIdFromToken(body.token) };
+            return postJson(`${serverUrl}/v2/account/authenticate/device?create=true`, vars ? { id: deviceId, vars } : { id: deviceId });
+        },
+        /**
+         * Exchange a portal ticket for a Nakama session.
+         * The body is the custom id (`t:` + ticket). No server credential is sent.
+         * Callers then authorize every RPC with the returned session token.
+         */
+        async authenticateCustom(id, create = false, vars) {
+            const params = new URLSearchParams({ create: create ? 'true' : 'false' });
+            return postJson(`${serverUrl}/v2/account/authenticate/custom?${params}`, vars ? { id, vars } : { id });
         },
         async rpc(id, body, opts) {
-            const params = new URLSearchParams({ unwrap: 'true' });
-            const headers = { 'Content-Type': 'application/json' };
-            if (opts?.token)
-                headers.Authorization = `Bearer ${opts.token}`;
-            else if (opts?.httpKey)
-                params.set('http_key', httpKey);
-            else
+            if (!opts?.token)
                 throw new HubSdkError('unauthorized', 'Missing session');
+            const params = new URLSearchParams({ unwrap: 'true' });
             const response = await fetchImpl(`${serverUrl}/v2/rpc/${encodeURIComponent(id)}?${params}`, {
                 method: 'POST',
-                headers,
+                headers: {
+                    Authorization: `Bearer ${opts.token}`,
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify(body),
                 keepalive: opts?.keepalive,
             });
@@ -70,4 +73,3 @@ export function createNakamaClient(options) {
         },
     };
 }
-//# sourceMappingURL=nakama.js.map

@@ -9,4 +9,3 @@ export declare function browserKeyValue(kind: 'local' | 'session'): KeyValue;
 export declare function getOrCreateDeviceId(storage?: KeyValue): string;
 export declare function readNumber(storage: KeyValue, key: string): number;
 export declare function writeNumber(storage: KeyValue, key: string, value: number): void;
-//# sourceMappingURL=storage.d.ts.map

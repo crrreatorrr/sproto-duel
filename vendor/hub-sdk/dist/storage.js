@@ -43,4 +43,3 @@ export function readNumber(storage, key) {
 export function writeNumber(storage, key, value) {
     storage.setItem(key, String(value));
 }
-//# sourceMappingURL=storage.js.map

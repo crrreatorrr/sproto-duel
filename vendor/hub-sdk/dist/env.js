@@ -40,4 +40,3 @@ export function resolveHubEnv(env) {
         clearBeforeUnload: env.clearBeforeUnload ?? browser?.clearBeforeUnload ?? (() => undefined),
     };
 }
-//# sourceMappingURL=env.js.map

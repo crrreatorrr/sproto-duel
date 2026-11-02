@@ -8,4 +8,3 @@ export class HubSdkError extends Error {
         this.status = status;
     }
 }
-//# sourceMappingURL=errors.js.map
