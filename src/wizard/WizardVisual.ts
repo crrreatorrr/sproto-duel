@@ -330,7 +330,10 @@ export class WizardVisual {
   private staffDef: EquippedStaff | null = null;
   private staffProp: PropInstance | null = null;
   private staffObject: THREE.Object3D | null = null;
-  /** Staff parts that spin (`userData.spin`, rad/s) or bob (`userData.bob`, m): the Fighter's Might fallback head. */
+  /**
+   * Staff parts moved in code: `userData.spin` (rad/s), `userData.bob` (m), or `userData.castPush`
+   * (m up the shaft with the cast flash, added after the idle clip; the Fighter's Might gauntlet).
+   */
   private staffMovers: THREE.Object3D[] = [];
   private staffMixer: THREE.AnimationMixer | null = null;
   private staffGlow: THREE.MeshStandardMaterial | null = null;
@@ -500,7 +503,8 @@ export class WizardVisual {
       return;
     }
     const root = this.staffProp?.root ?? this.proceduralStaff(def);
-    if (!this.staffProp) this.staffProp = { root, animations: [] };
+    // The procedural Fighter's Might carries its idle clip on the group (no GLB to read it from).
+    if (!this.staffProp) this.staffProp = { root, animations: (root.userData.animations as THREE.AnimationClip[] | undefined) ?? [] };
     root.position.set(0, 0, 0);
     root.quaternion.identity();
     root.scale.set(1, 1, 1);
@@ -509,7 +513,7 @@ export class WizardVisual {
     this.mountedStaffId = def.id;
     this.staffMovers = [];
     root.traverse((o) => {
-      if (o.userData.spin || o.userData.bob) this.staffMovers.push(o);
+      if (o.userData.spin || o.userData.bob || o.userData.castPush) this.staffMovers.push(o);
     });
     this.showPlaceholderStaff(false);
     const clip = this.staffProp.animations.find((c) => c.name === def.clip);
@@ -596,18 +600,24 @@ export class WizardVisual {
 
   private tickStaff(w: Wizard, dt: number): void {
     this.staffMixer?.update(dt);
+    const cast = w.cast !== null || w.castPulse > 0.35;
+    const pulse = this.staffDef?.pulse;
+    const blink = !!pulse && w.blinking && pulse.onBlink != null;
+    this.staffCast = damp(this.staffCast, blink || cast ? 1 : 0, blink || cast ? 12.5 : 2.86, dt);
     for (const o of this.staffMovers) {
       if (o.userData.spin) o.rotation.y += o.userData.spin * dt;
       if (o.userData.bob) o.position.y = o.userData.baseY + Math.sin(this.time * 2.2) * o.userData.bob;
+      if (o.userData.castPush) {
+        // The idle clip rewrites the position every frame and the push adds on top. Without a clip,
+        // start from the rest height each frame so the push never accumulates.
+        if (!this.staffMixer) o.position.y = (o.userData.restY ??= o.position.y);
+        o.position.y += o.userData.castPush * this.staffCast;
+      }
     }
     const glow = this.staffGlow;
-    const pulse = this.staffDef?.pulse;
     if (!glow || !pulse) return;
-    const cast = w.cast !== null || w.castPulse > 0.35;
-    const blink = w.blinking && pulse.onBlink != null;
     const idle = pulse.min + (pulse.max - pulse.min) * (0.5 + 0.5 * Math.sin(Math.PI * 2 * pulse.hz * this.time));
     const peak = blink ? pulse.onBlink! : pulse.onCast;
-    this.staffCast = damp(this.staffCast, blink || cast ? 1 : 0, blink || cast ? 12.5 : 2.86, dt);
     glow.emissiveIntensity = idle + (peak - idle) * this.staffCast;
   }
 

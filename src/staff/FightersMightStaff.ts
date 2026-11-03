@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { FIST_COLORS, FIST_LOOK } from '../spells/skinLooks';
+import { FIGHTERS_MIGHT_IDLE, FIGHTERS_MIGHT_NODES as NODE, fightersMightIdleClip } from './fightersMightIdle';
 
 /**
  * Procedural stand-in for the Fighter's Might staff while its GLB
@@ -12,9 +13,11 @@ import { FIST_COLORS, FIST_LOOK } from '../spells/skinLooks';
  * Same frame as every staff prop: +Y up the shaft, grip at the origin, about 1.894 m long (-1.093
  * to the gauntlet's knuckles a little above 0.801). Geometry and materials are built once and shared; the gauntlet's material carries the
  * staff pulse name (CONFIG.staffs.fighters_might.pulse.material) so it glows like a GLB's would.
- * Children with `userData.spin` (rad/s about their own Y) or `userData.bob` (m) are animated by
- * WizardVisual.tickStaff.
+ * The head parts carry the node names of `fightersMightIdle.ts`, and the group's
+ * `userData.animations` holds its idle clip, which WizardVisual plays like a GLB staff's clip. The
+ * gauntlet's `userData.castPush` (m) punches it up the shaft on each cast.
  */
+let idleClip: THREE.AnimationClip | null = null;
 
 const PULSE_MATERIAL = CONFIG.staffs.fighters_might.pulse.material;
 const BOTTOM = -1.093;
@@ -31,6 +34,7 @@ interface Kit {
   ring: THREE.TorusGeometry;
   ringInner: THREE.TorusGeometry;
   clamp: THREE.BoxGeometry;
+  shard: THREE.OctahedronGeometry;
   fist: THREE.BufferGeometry;
   blue: THREE.MeshStandardMaterial;
   red: THREE.MeshStandardMaterial;
@@ -79,6 +83,7 @@ function buildKit(): Kit {
     ring: new THREE.TorusGeometry(0.15, 0.014, 6, 28),
     ringInner: new THREE.TorusGeometry(0.125, 0.007, 4, 28),
     clamp: new THREE.BoxGeometry(0.035, 0.11, 0.05),
+    shard: new THREE.OctahedronGeometry(0.022, 0),
     fist: FIST_LOOK.solid(n),
     blue: new THREE.MeshStandardMaterial({ color: FIST_COLORS.blue, roughness: 0.4, metalness: 0.45 }),
     red: new THREE.MeshStandardMaterial({ color: FIST_COLORS.red, roughness: 0.18, metalness: 0.25 }),
@@ -114,33 +119,55 @@ export function buildFightersMightStaff(): THREE.Group {
   for (let i = 0; i < 8; i++) g.add(part(k.tape, i % 2 ? k.yellow : k.red, -0.14 + i * 0.036, false));
 
   // Head: the spinning holographic belt ring, flat round the shaft top.
+  // Outer and inner rings are separate nodes so they spin against each other.
   const ring = new THREE.Group();
-  ring.name = 'fighters_might_ring';
+  ring.name = NODE.ring;
   ring.position.y = 0.6;
-  ring.userData.spin = 2.4;
   const outer = new THREE.Mesh(k.ring, k.holoYellow);
+  outer.rotation.x = Math.PI / 2;
+  ring.add(outer);
+  const innerRing = new THREE.Group();
+  innerRing.name = NODE.ringInner;
+  innerRing.position.y = 0.6;
   const inner = new THREE.Mesh(k.ringInner, k.holoRed);
-  outer.rotation.x = inner.rotation.x = Math.PI / 2;
-  ring.add(outer, inner);
-  g.add(ring);
+  inner.rotation.x = Math.PI / 2;
+  innerRing.add(inner);
+  g.add(ring, innerRing);
+
+  // Three hard-light shards orbiting the gauntlet (yellow, red, blue).
+  const shards = new THREE.Group();
+  shards.name = NODE.shards;
+  shards.position.y = FIGHTERS_MIGHT_IDLE.gauntletY;
+  [k.holoYellow, k.holoRed, k.blue].forEach((mat, i) => {
+    const a = (i / 3) * Math.PI * 2;
+    const shard = new THREE.Mesh(k.shard, mat);
+    shard.position.set(Math.cos(a) * 0.15, (i - 1) * 0.03, Math.sin(a) * 0.15);
+    shard.rotation.set(a, a * 0.5, 0);
+    shards.add(shard);
+  });
+  g.add(shards);
 
   // Two blue magnetic clamps reaching up either side of the gauntlet.
   for (const side of [-1, 1]) {
     const c = part(k.clamp, k.blue, 0.74);
-    c.position.x = side * 0.1;
+    c.name = side < 0 ? NODE.clampL : NODE.clampR;
+    c.position.x = side * FIGHTERS_MIGHT_IDLE.clampX;
     c.rotation.z = side * 0.25;
     g.add(c);
   }
 
-  // The floating gauntlet: the bolt's fist, knuckles up, bobbing a little between the clamps.
+  // The floating gauntlet: the bolt's fist, knuckles up between the clamps. The idle clip bobs,
+  // sways and jabs it; each cast punches it further up the shaft.
   const fist = new THREE.Mesh(k.fist, k.gauntlet);
-  fist.name = 'fighters_might_gauntlet';
+  fist.name = NODE.gauntlet;
   fist.rotation.x = -Math.PI / 2;
   fist.scale.setScalar(0.85);
   fist.position.y = TOP - 0.02;
-  fist.userData.bob = 0.015;
-  fist.userData.baseY = fist.position.y;
+  fist.userData.castPush = FIGHTERS_MIGHT_IDLE.castPush;
   fist.castShadow = true;
   g.add(fist);
+
+  idleClip ??= fightersMightIdleClip();
+  g.userData.animations = [idleClip];
   return g;
 }
