@@ -76,6 +76,25 @@ second row above them holds the boss spells you have learned). A golden mana bar
 chip means that wizard has a Golden Tickets boost. The plates, the clock and the spell rows sit on a
 translucent, blurred dark backing so they read over any sky; the HUD steps aside behind menus.
 
+## Staffs
+
+Pick a staff on the Staff Rack. Everyone starts with the Sproto Staff; each hub Relic earned in
+another game unlocks one more (`src/staff/loadout.ts`, `STAFF_BY_RELIC`). One staff is equipped at
+a time. In Ranked the mesh, bolt colour and bolt look stay, and the gameplay change is off.
+Numbers are in `CONFIG.staffs` ([src/config.ts](src/config.ts)).
+
+| Staff | Item id | Unlocked by | Effect |
+|---|---|---|---|
+| Sproto Staff | `duel_staff_sproto` | starter | Stock bolt: 4 damage every 0.17 s |
+| Momentum Staff | `duel_staff_momentum` | `hpos10i_core` (HPOS10I) | Sprint + Dodge is a 6 m Blink Dash that leaves a damaging trail (4 s cooldown) |
+| Moonward Staff | `duel_staff_moonward` | `genesis_shard` (People's Bitcoin) | COOM Bolt: 1.5× bolt damage (6) |
+| Nobu Staff | `duel_staff_nobu` | `cones_tip` (Nobu) | Bark Bolt: knockback 6 instead of 2.4 |
+| Fighter's Might | `duel_staff_fighters_might` | `tidebreaker_belt` (Sproto Fighter) | Fist Bolt: 2× bolt damage (8), but 1.85× the time between bolts (0.31 s). Held-fire DPS is 1.08× the starter: fewer, heavier hits. Bolts fly as a glowing yellow fist with red edges and a blue/yellow streak |
+
+Tinubu's Crown is earned in Sproto Duel and unlocks nothing here. Fighter's Might has no GLB yet:
+until `models/staffs/staff_fighters_might-lod1.glb` is on disk the player holds a procedural
+version of its concept (see [ASSETS.md](ASSETS.md#staffs-modelsstaffs)).
+
 ## Golden Tickets
 
 During every round's fight (Quick Duel and the Boss Gauntlet), a Golden Tickets pickup appears
@@ -488,6 +507,8 @@ src/
   spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate,
                         boss projectile skins (instanced rugs, phones, pigs, bullets...: ProjectileSkins.ts),
                         boss reward spells (RewardSpells.ts, rewardCatalog.ts)
+  staff/                staff catalog and relic unlocks (catalog.ts, loadout.ts), Blink Dash trail,
+                        Fighter's Might procedural fallback staff
   fx/                   particle systems, effect recipes, spell shaders, procedural textures
   arena/                floor, sky, wall, destructible pillars, fire ring, debris, environment themes, golden tickets
   camera/               over-the-shoulder rig with collision and trauma shake

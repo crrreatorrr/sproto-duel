@@ -309,6 +309,38 @@ NormalMap-Online) rather than a prompt.
 > stars, a large pale moon, faint aurora, distant silhouetted mountains on the horizon, no ground
 > objects in the centre, seamless left and right edges
 
+## Staffs (`models/staffs/`)
+
+Held props, not fitted: the grip is the origin, +Y runs up the shaft, about 1.894 m long. The game
+attaches `staff_<slug>-lod1.glb` to the player's `socket_staff` (`src/staff/catalog.ts`
+`staffModelPath`); the full `staff_<slug>.glb` sits beside it for a later close-up. An optional
+looping clip named `staff_<slug>_idle` plays on the prop, and the material named in
+`CONFIG.staffs.<slug>.pulse.material` pulses its emissive and flares on cast. A missing file is
+never fetched: the player holds a procedural staff instead.
+
+| Staff | Files | Glow material | Status |
+|---|---|---|---|
+| Sproto Staff | `models/staffs/staff_sproto-lod1.glb`, `staff_sproto.glb` | `staff_sproto_orb_glow_mat` | delivered |
+| Momentum Staff | `models/staffs/staff_momentum-lod1.glb`, `staff_momentum.glb` | `staff_momentum_core_glow_mat` | delivered |
+| Moonward Staff | `models/staffs/staff_moonward-lod1.glb`, `staff_moonward.glb` | `staff_moonward_moon_glow_mat` | delivered |
+| Nobu Staff | `models/staffs/staff_nobu-lod1.glb`, `staff_nobu.glb` | `staff_nobu_bone_glow_mat` | delivered |
+| Fighter's Might | `models/staffs/staff_fighters_might-lod1.glb`, `staff_fighters_might.glb` | `staff_fighters_might_gauntlet_glow_mat` | **missing** (Higgsfield; procedural fallback in `src/staff/FightersMightStaff.ts`) |
+
+**Fighter's Might** (`duel_staff_fighters_might`, unlocked by the Tidebreaker Belt): save the
+Higgsfield GLB, decimated to the same LOD1 budget as the other staffs (with the empty rig, under
+10k triangles), at `public/assets/models/staffs/staff_fighters_might-lod1.glb`, and the full mesh
+at `public/assets/models/staffs/staff_fighters_might.glb`. Name the floating gauntlet's emissive
+material `staff_fighters_might_gauntlet_glow_mat` so it pulses; an optional `staff_fighters_might_idle`
+clip can spin the belt ring. Staff Rack cards use colour swatches, so Duel needs no icon file; the
+hub's own staff icons live in the hub repo (`apps/hub/public/world/v2/staffs/icons/<slug>.webp`).
+The bolt (a flying fist) is built in code (`src/spells/skinLooks.ts`, `FIST`) and needs no asset.
+
+> Techno-futurist wizard staff, game prop, royal-blue metal shaft with glossy red armour segments
+> and glowing yellow LED bands, red-and-yellow taped grip, at the head a floating hard-light yellow
+> gauntlet fist with glowing red edges held by two blue magnetic clamps, above a spinning red and
+> yellow holographic championship-belt ring, stylized, chunky readable silhouette, game-ready
+> low-poly, plain background
+
 ## UI icons (optional)
 
 Square PNG or WebP, transparent background, 256². Without these, built-in vector glyphs are used.
