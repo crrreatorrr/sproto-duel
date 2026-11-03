@@ -751,6 +751,34 @@ export const CONFIG = {
       boltLabel: 'Bark Bolt',
       pulse: { material: 'staff_nobu_bone_glow_mat', min: 0.8, max: 2, hz: 1, onCast: 3 },
     },
+    /** Unlocked by the Tidebreaker Belt (Sproto Fighter). Bolts fly as a glowing fist (skin 'fist'). */
+    fighters_might: {
+      name: "Fighter's Might",
+      /** Hard-light yellow, the hub matrix `bolt_color`. */
+      bolt: 0xffd21f,
+      core: 0xfff3b0,
+      /** Royal blue. */
+      trail: 0x2f5bff,
+      /** Glossy armour red. */
+      accent: 0xe8262b,
+      /** Bolt damage × this (4 → 8). Hub matrix `bolt_damage_mult`. */
+      boltDamageMult: 2,
+      /**
+       * Time between bolts × this (0.17 s → 0.3145 s, 3.2 bolts/s). Hub matrix `bolt_interval_mult`.
+       * Held-fire DPS is damage / interval: starter 4 / 0.17 = 23.5, Momentum and Nobu the same
+       * (they trade in Blink Dash and knockback instead), Moonward 6 / 0.17 = 35.3 (1.5×). Fighter's
+       * Might is 8 / 0.3145 = 25.4, 2 / 1.85 = 1.08× the starter, inside the ~1.1× sidegrade cap
+       * (1.82 is the break-even for 1.1×). It trades rate for spike: fewer, bigger hits that are
+       * easier to dodge or shield and lose more when one misses. Mana per bolt is unchanged, so
+       * damage per mana is 2× (Moonward's is 1.5×): a full bar still holds 20 bolts.
+       */
+      boltIntervalMult: 1.85,
+      boltLabel: 'Fist Bolt',
+      /** Cosmetic, kept in Ranked: bolts fly as a fist (src/spells/skinLooks.ts FIST). */
+      boltSkin: 'fist' as const,
+      /** Material name the GLB (and the procedural fallback) gives the floating gauntlet. */
+      pulse: { material: 'staff_fighters_might_gauntlet_glow_mat', min: 1, max: 2.4, hz: 1.2, onCast: 3.6 },
+    },
   },
 
   clash: {

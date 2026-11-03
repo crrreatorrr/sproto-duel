@@ -161,6 +161,8 @@ export class App {
     const equipped = equipStaff(load.staff, ranked);
     const player = this.game.player;
     player.staff = equipped;
+    // A staff bolt look (Fighter's Might fist): build it now so it doesn't compile on the first shot.
+    if (equipped.boltSkin) this.game.spells.pool.skins.warm(player.index, equipped.boltSkin);
     if (player.visual.mountedStaffId === equipped.id) {
       player.visual.setStaff(equipped);
       return;

@@ -1,3 +1,4 @@
+import type { ProjectileSkin } from '../campaign/levels';
 import { CONFIG } from '../config';
 
 /**
@@ -8,22 +9,32 @@ import { CONFIG } from '../config';
  * LOD1 is the mesh the socketed wizard was authored with, and together with the empty rig it stays
  * under the 10k triangle budget. The full `staff_<name>.glb` files sit beside it for a later close-up.
  */
-export type StaffId = 'duel_staff_sproto' | 'duel_staff_momentum' | 'duel_staff_moonward' | 'duel_staff_nobu';
+export type StaffId =
+  | 'duel_staff_sproto'
+  | 'duel_staff_momentum'
+  | 'duel_staff_moonward'
+  | 'duel_staff_nobu'
+  | 'duel_staff_fighters_might';
 
 export const STAFF_IDS: readonly StaffId[] = [
   'duel_staff_sproto',
   'duel_staff_momentum',
   'duel_staff_moonward',
   'duel_staff_nobu',
+  'duel_staff_fighters_might',
 ];
 
 export const SPROTO_STAFF: StaffId = 'duel_staff_sproto';
 
-const SLUG: Record<StaffId, 'sproto' | 'momentum' | 'moonward' | 'nobu'> = {
+type StaffSlug = keyof typeof CONFIG.staffs;
+
+/** Also the file stem (`staff_<slug>-lod1.glb`), the CONFIG.staffs key and the idle clip (`staff_<slug>_idle`). */
+const SLUG: Record<StaffId, StaffSlug> = {
   duel_staff_sproto: 'sproto',
   duel_staff_momentum: 'momentum',
   duel_staff_moonward: 'moonward',
   duel_staff_nobu: 'nobu',
+  duel_staff_fighters_might: 'fighters_might',
 };
 
 export interface StaffPulse {
@@ -54,10 +65,14 @@ export interface EquippedStaff {
   slug: string;
   clip: string;
   boltDamageMult: number;
+  /** Time between held-fire bolts × this (CONFIG.spells.bolt.fireInterval). 1 = the stock rate. */
+  boltIntervalMult: number;
   /** Null: use CONFIG.spells.bolt.knockback. */
   boltKnockback: number | null;
   boltLabel: string;
   blink: StaffBlink | null;
+  /** Cosmetic bolt look (kept in Ranked). Null: the spell orb. */
+  boltSkin: Exclude<ProjectileSkin, 'orb'> | null;
   boltColor: number;
   trailColor: number;
   accent: string;
@@ -83,7 +98,11 @@ export function staffSlug(id: StaffId): string {
   return SLUG[id];
 }
 
-/** LOD1 prop, relative to `public/assets/`. Loaded through `import.meta.env.BASE_URL`. */
+/**
+ * LOD1 prop, relative to `public/assets/`. Loaded through `import.meta.env.BASE_URL`. A missing file
+ * (Fighter's Might until its GLB lands: `models/staffs/staff_fighters_might-lod1.glb`) is never
+ * fetched; WizardVisual builds a procedural staff instead.
+ */
 export function staffModelPath(id: StaffId): string {
   return `models/staffs/staff_${SLUG[id]}-lod1.glb`;
 }
@@ -104,12 +123,24 @@ export function staffLine(id: StaffId): string {
       return `COOM Bolt · damage ${damage * s.moonward.boltDamageMult}`;
     case 'duel_staff_nobu':
       return `Bark Bolt · knockback ${s.nobu.boltKnockback}`;
+    case 'duel_staff_fighters_might':
+      return `Fist Bolt · damage ${damage * s.fighters_might.boltDamageMult}, slower`;
   }
 }
 
 export function staffCard(id: StaffId): StaffCard {
   const def = CONFIG.staffs[SLUG[id]];
   return { id, name: def.name, line: staffLine(id), accent: cssHex(def.accent), bolt: cssHex(def.bolt) };
+}
+
+/** Damage of one held-fire bolt from `staff` (null: the starter bolt). */
+export function staffBoltDamage(staff: Pick<EquippedStaff, 'boltDamageMult'> | null): number {
+  return CONFIG.spells.bolt.damage * (staff?.boltDamageMult ?? 1);
+}
+
+/** Seconds between held-fire bolts from `staff` (null: the starter rate). */
+export function staffBoltInterval(staff: Pick<EquippedStaff, 'boltIntervalMult'> | null): number {
+  return CONFIG.spells.bolt.fireInterval * (staff?.boltIntervalMult ?? 1);
 }
 
 /**
@@ -121,6 +152,7 @@ export function equipStaff(id: StaffId, ranked: boolean): EquippedStaff {
   const def = CONFIG.staffs[slug];
   const blink = !ranked && 'blink' in def ? def.blink : null;
   const mult = !ranked && 'boltDamageMult' in def ? def.boltDamageMult : 1;
+  const interval = !ranked && 'boltIntervalMult' in def ? def.boltIntervalMult : 1;
   const knock = !ranked && 'boltKnockback' in def ? def.boltKnockback : null;
   const label = ranked ? 'Bolt' : 'boltLabel' in def ? def.boltLabel : 'Bolt';
   return {
@@ -130,9 +162,11 @@ export function equipStaff(id: StaffId, ranked: boolean): EquippedStaff {
     slug,
     clip: `staff_${slug}_idle`,
     boltDamageMult: mult,
+    boltIntervalMult: interval,
     boltKnockback: knock,
     boltLabel: label,
     blink,
+    boltSkin: 'boltSkin' in def ? def.boltSkin : null,
     boltColor: def.bolt,
     trailColor: def.trail,
     accent: cssHex(def.accent),

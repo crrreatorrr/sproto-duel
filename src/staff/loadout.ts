@@ -22,6 +22,8 @@ const STAFF_BY_RELIC: Readonly<Record<string, StaffId>> = {
   hpos10i_core: 'duel_staff_momentum',
   genesis_shard: 'duel_staff_moonward',
   cones_tip: 'duel_staff_nobu',
+  // Sproto Fighter's relic. The vendored SDK's RELIC_IDS is patched to keep it (vendor/hub-sdk/VENDOR.md).
+  tidebreaker_belt: 'duel_staff_fighters_might',
 };
 
 /** Relics from the current hub init, or null when this visit has no session. */

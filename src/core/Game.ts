@@ -396,7 +396,7 @@ export class Game {
   useDefaultStats(): () => void {
     const saved = this.wizards.map((w) => ({
       w, max: w.maxHealth, mult: w.damageMultiplier, spellK: w.spellDamageScale, speed: w.speedMultiplier, clash: w.clashPowerMultiplier, immune: w.immune, mana: w.infiniteMana, cds: w.noCooldowns, ultk: w.ultChargeMultiplier,
-      learned: [...w.learned],
+      learned: [...w.learned], staff: w.staff,
     }));
     for (const w of this.wizards) {
       w.maxHealth = CONFIG.wizard.maxHealth;
@@ -404,6 +404,8 @@ export class Game {
       w.immune = w.infiniteMana = w.noCooldowns = false;
       // No reward spells either (a scenario that wants some sets them).
       w.learned.clear();
+      // Nor the equipped staff's bolt changes (Moonward's 1.5×, Fighter's Might's fist and slower fire).
+      w.staff = null;
     }
     const stagesSuspended = this.stages.suspended;
     const partnerSuspended = this.partnerStages.suspended;
@@ -422,6 +424,7 @@ export class Game {
         s.w.noCooldowns = s.cds;
         s.w.learned.clear();
         for (const id of s.learned) s.w.learned.add(id);
+        s.w.staff = s.staff;
       }
       this.stages.suspended = stagesSuspended;
       this.partnerStages.suspended = partnerSuspended;

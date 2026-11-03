@@ -34,6 +34,8 @@ const SKIN_SOUNDS: Record<Exclude<ProjectileSkin, 'orb'>, { key: SoundKey; rate:
   grenade: { key: 'grenadeThump', rate: 1, volume: 1 },
   hellfire: { key: 'fireRoar', rate: 1.2, volume: 0.8 },
   skull: { key: 'fireRoar', rate: 0.85, volume: 1 },
+  // Fighter's Might: the stock bolt cast pitched down, a heavier punch for the 2× bolt.
+  fist: { key: 'boltCast', rate: 0.78, volume: 1 },
 };
 
 /** What each boss transformation's cues sound like (rate and volume; the cue's own rate multiplies in). */
@@ -220,6 +222,7 @@ export class AudioManager {
     on('cast', (e) => {
       // Bolts and blasts thrown as objects sound on 'skinLaunch' instead (one per projectile).
       if ((e.spell === 'bolt' || e.spell === 'blast') && (e.wizard.skins?.[e.spell] ?? 'orb') !== 'orb') return;
+      if (e.spell === 'bolt' && e.wizard.staff?.boltSkin) return; // staff look (Fighter's Might fist)
       const key: Record<string, SoundKey> = { bolt: 'boltCast', blast: 'blastCast', shield: 'shieldUp', stun: 'stunBeam', ultimate: 'ultWave' };
       this.play(key[e.spell], { pos: e.spell === 'ultimate' ? undefined : e.pos, volume: isPlayer(e.wizard) ? 1 : 0.85 });
     });

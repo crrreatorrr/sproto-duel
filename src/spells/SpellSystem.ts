@@ -18,6 +18,7 @@ import { BossPowers } from './BossPowers';
 import { RewardSpells } from './RewardSpells';
 import type { ChanneledSpell } from './types';
 import { BlinkTrails } from '../staff/BlinkTrail';
+import { staffBoltDamage, staffBoltInterval } from '../staff/catalog';
 
 const S = CONFIG.spells;
 const PROJECTILE_MASK = GROUP.WORLD | GROUP.WIZARD | GROUP.GROUND;
@@ -286,15 +287,16 @@ export class SpellSystem {
   private castBolt(w: Wizard): boolean {
     const B = S.bolt;
     if (w.cd.bolt > 0) return false;
+    const interval = staffBoltInterval(w.staff);
     if (!w.spendMana(B.manaCost)) {
       if (w.intent.wants('bolt')) this.noMana(w);
-      w.cd.bolt = B.fireInterval * 2;
+      w.cd.bolt = interval * 2;
       return true;
     }
-    w.cd.bolt = B.fireInterval;
+    w.cd.bolt = interval;
     const muzzle = w.muzzleIndex('bolt');
     this.muzzleOrigin(w, 'bolt', muzzle, B.radius, tmpFrom);
-    const damage = B.damage * (w.staff?.boltDamageMult ?? 1);
+    const damage = staffBoltDamage(w.staff);
     if (this.launchBolt(w, tmpFrom, this.aimDirection(w, tmpFrom, tmpDir), damage, 'bolt', muzzle)) w.castPulse = 1;
     return true;
   }
@@ -317,6 +319,7 @@ export class SpellSystem {
     p.knockback = w.staff?.boltKnockback ?? B.knockback;
     p.boltColor = w.staff?.boltColor ?? 0;
     p.trailColor = w.staff?.trailColor ?? 0;
+    p.boltSkin = w.staff?.boltSkin ?? null;
     p.power = p.basePower = B.power * w.clashPowerMultiplier;
     p.life = B.lifetime;
     // Lock-On: the bolt curves toward the nearest enemy in front of the caster.

@@ -4,7 +4,7 @@ import type { ProjectileSkin } from '../campaign/levels';
 import { events } from '../core/events';
 import type { Effects } from '../fx/Effects';
 import type { Wizard } from '../wizard/Wizard';
-import { SKIN_LOOKS as DEFS, type ObjectSkin } from './skinLooks';
+import { FIST_COLORS, SKIN_LOOKS as DEFS, type ObjectSkin } from './skinLooks';
 
 export { OBJECT_SKINS } from './skinLooks';
 
@@ -37,6 +37,8 @@ export interface SkinTarget {
   readonly caster: Wizard;
   /** The current owner's spell colour: trails and glow switch to whoever reflected it. */
   readonly color: number;
+  /** Staff trail colour (0: none). The fist's streak motes alternate it with the bolt colour. */
+  readonly trailColor?: number;
   /** Seconds of tumble and flicker to pose at, instead of render time since launch (cinematic props, which spin through the freeze). */
   readonly age?: number;
 }
@@ -454,6 +456,14 @@ export class ProjectileSkins {
     for (const skin of skins) if (skin !== 'orb') this.batch(skin, team);
   }
 
+  /**
+   * Build one look for `team` now without freeing any other (a staff look such as the Fighter's
+   * Might fist, prepared on equip so its shader compiles before the first shot).
+   */
+  warm(team: number, skin: ObjectSkin): void {
+    this.batch(skin, team);
+  }
+
   /** Repaint a team's objects in a new palette (campaign bosses). */
   setTeam(team: number, palette: TeamPalette): void {
     this.palettes[team] = palette;
@@ -529,6 +539,10 @@ export class ProjectileSkins {
         }
         return;
       }
+      case 'fist':
+        // Short blue and yellow motes behind the cuff (the streak is the aura).
+        fx.trail(p, Math.random() < 0.5 ? FIST_COLORS.yellow : t.trailColor || FIST_COLORS.blue, size * 0.8, 1);
+        return;
       case 'grenade':
         fx.smoke.emit(p.x, p.y + 0.2, p.z, (Math.random() - 0.5) * 0.3, 0.6, (Math.random() - 0.5) * 0.3,
           FUSE_SMOKE, 0.5, 0.12, 0.4, { drag: 2, gravity: -0.5, sizeEnd: 0.45 });

@@ -5,6 +5,7 @@ import type { Effects } from '../fx/Effects';
 import { glowTexture } from '../fx/textures';
 import type { Wizard } from '../wizard/Wizard';
 import { ProjectileSkins, type SkinSlot, type SkinTarget } from './ProjectileSkins';
+import type { ObjectSkin } from './skinLooks';
 
 export type ProjectileKind = 'bolt' | 'blast';
 
@@ -127,6 +128,8 @@ export class Projectile implements SkinTarget {
   /** Staff bolt / trail colours. 0 keeps the team palette. */
   boltColor = 0;
   trailColor = 0;
+  /** Staff bolt look (Fighter's Might: 'fist'), set at launch like the colours. Null: the caster's skin or the orb. */
+  boltSkin: ObjectSkin | null = null;
   /** Wizard this projectile already passed through during a dodge (for the EVADE callout). */
   evaded: Wizard | null = null;
   /** Bit per wizard index: set once that wizard's AI has evaluated this projectile. Cleared on spawn. */
@@ -215,7 +218,7 @@ export class Projectile implements SkinTarget {
 
   private launch(): void {
     this.launched = true;
-    const skin = this.caster?.skins?.[this.kind] ?? 'orb';
+    const skin = this.caster?.skins?.[this.kind] ?? (this.kind === 'bolt' ? this.boltSkin : null) ?? 'orb';
     this.slot = skin === 'orb' ? null : this.skins.acquire(skin, this.caster.index, this);
     this.skin = this.slot ? skin : 'orb'; // a full batch falls back to the orb
     this.core.visible = !this.slot;
@@ -235,6 +238,7 @@ export class Projectile implements SkinTarget {
     this.knockback = 0;
     this.boltColor = 0;
     this.trailColor = 0;
+    this.boltSkin = null;
   }
 
   /** Per-tick trail: glowing motes for the orb, the object's own trail (smoke, crumbs...) otherwise. */

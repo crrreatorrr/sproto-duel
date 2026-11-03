@@ -3,6 +3,7 @@ import { CONFIG, type TeamPalette } from '../config';
 import type { ModelInstance, PropInstance } from '../assets/AssetLoader';
 import type { ModelAsset } from '../assets/manifest';
 import type { EquippedStaff } from '../staff/catalog';
+import { buildFightersMightStaff } from '../staff/FightersMightStaff';
 import { muzzleSetFor } from '../campaign/muzzleIndex';
 import { glowTexture } from '../fx/textures';
 import { clamp, damp, lerp, saturate, wrapAngle } from '../core/math';
@@ -329,6 +330,8 @@ export class WizardVisual {
   private staffDef: EquippedStaff | null = null;
   private staffProp: PropInstance | null = null;
   private staffObject: THREE.Object3D | null = null;
+  /** Staff parts that spin (`userData.spin`, rad/s) or bob (`userData.bob`, m): the Fighter's Might fallback head. */
+  private staffMovers: THREE.Object3D[] = [];
   private staffMixer: THREE.AnimationMixer | null = null;
   private staffGlow: THREE.MeshStandardMaterial | null = null;
   /** 0..1 blend toward the cast / blink emissive peak. */
@@ -504,6 +507,10 @@ export class WizardVisual {
     socket.add(root);
     this.staffObject = root;
     this.mountedStaffId = def.id;
+    this.staffMovers = [];
+    root.traverse((o) => {
+      if (o.userData.spin || o.userData.bob) this.staffMovers.push(o);
+    });
     this.showPlaceholderStaff(false);
     const clip = this.staffProp.animations.find((c) => c.name === def.clip);
     if (clip) {
@@ -534,6 +541,7 @@ export class WizardVisual {
     this.staffCast = 0;
     this.staffObject?.removeFromParent();
     this.staffObject = null;
+    this.staffMovers = [];
     this.mountedStaffId = null;
   }
 
@@ -559,8 +567,12 @@ export class WizardVisual {
     if (held) held.visible = show;
   }
 
-  /** Cylinder along +Y, grip at the origin, used when the staff GLB failed to load. */
+  /**
+   * Cylinder along +Y, grip at the origin, used when the staff GLB failed to load. Fighter's Might
+   * (no GLB yet) gets its concept built from primitives instead.
+   */
   private proceduralStaff(def: EquippedStaff): THREE.Group {
+    if (def.id === 'duel_staff_fighters_might') return buildFightersMightStaff();
     const g = new THREE.Group();
     g.name = 'staff_fallback';
     const shaftMat = new THREE.MeshStandardMaterial({ color: 0x6b4632, roughness: 0.7 });
@@ -584,6 +596,10 @@ export class WizardVisual {
 
   private tickStaff(w: Wizard, dt: number): void {
     this.staffMixer?.update(dt);
+    for (const o of this.staffMovers) {
+      if (o.userData.spin) o.rotation.y += o.userData.spin * dt;
+      if (o.userData.bob) o.position.y = o.userData.baseY + Math.sin(this.time * 2.2) * o.userData.bob;
+    }
     const glow = this.staffGlow;
     const pulse = this.staffDef?.pulse;
     if (!glow || !pulse) return;

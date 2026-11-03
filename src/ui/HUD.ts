@@ -10,6 +10,7 @@ import type { Game } from '../core/Game';
 import type { Match } from '../core/Match';
 import type { SpellId } from '../spells/types';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
+import { staffBoltInterval } from '../staff/catalog';
 import type { Wizard } from '../wizard/Wizard';
 import { rewardIcon, spellIcon } from './icons';
 
@@ -606,7 +607,7 @@ export class HUD {
         frac = 1 - p.ult / S.ultimate.chargeMax;
         ready = frac <= 0;
       } else {
-        const total = s.spell === 'bolt' ? S.bolt.fireInterval : S[s.spell].cooldown;
+        const total = s.spell === 'bolt' ? staffBoltInterval(p.staff) : S[s.spell].cooldown;
         seconds = p.cd[s.spell];
         frac = total > 0 ? seconds / total : 0;
         cost = S[s.spell].manaCost;

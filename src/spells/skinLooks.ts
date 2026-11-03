@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { TeamPalette } from '../config';
+import { CONFIG, type TeamPalette } from '../config';
 import type { ProjectileSkin } from '../campaign/levels';
 
 /**
@@ -799,6 +799,124 @@ const SKULL: SkinDef = {
   },
 };
 
+/** Fighter's Might colours (CONFIG.staffs.fighters_might): the fist ignores the caster's palette. */
+const MIGHT = CONFIG.staffs.fighters_might;
+const MIGHT_YELLOW = MIGHT.bolt;
+const MIGHT_RED = MIGHT.accent;
+const MIGHT_BLUE = MIGHT.trail;
+
+/** Fist atlas (64 px): knuckle faces, red cuff, yellow LED band, blue clamp. */
+const FIST_FACE: Rect = [0, 0, 32, 32];
+const FIST_CUFF: Rect = [32, 0, 32, 32];
+const FIST_BAND: Rect = [0, 32, 32, 32];
+const FIST_CLAMP: Rect = [32, 32, 32, 32];
+
+/** A box whose six faces all use one atlas rect (so every face gets the rect's painted red rim). */
+function fistBox(n: number, w: number, h: number, d: number, r: Rect = FIST_FACE): THREE.BoxGeometry {
+  return boxInRects(new THREE.BoxGeometry(w, h, d), n, [r, r, r, r, r, r]);
+}
+
+/**
+ * Fighter's Might bolt: a chunky low-poly hard-light fist punching forward (+z), knuckles first,
+ * yellow with glowing red edges, a red cuff with a yellow LED band and a blue clamp ring, and a
+ * short blue-to-yellow streak behind. About 250 triangles, one instanced draw plus the streak.
+ */
+const FIST: SkinDef = {
+  atlas: 64,
+  baseGlow: 0.55,
+  emissive: 1.3,
+  roughness: 0.35,
+  glowSize: 1.1,
+  solid(n) {
+    const parts: THREE.BufferGeometry[] = [
+      // Back of the hand and palm.
+      place(fistBox(n, 0.2, 0.16, 0.15), 0, 0, -0.005),
+      // Curled finger row under the knuckles.
+      place(fistBox(n, 0.19, 0.065, 0.06), 0, -0.045, 0.095),
+      // Thumb wrapped across the front of the curled fingers.
+      place(fistBox(n, 0.11, 0.045, 0.05), -0.035, -0.07, 0.115, 0, 0.25, 0.1),
+      // Wrist cuff (red), LED band (yellow) and clamp ring (blue) behind the hand.
+      place(inRect(new THREE.CylinderGeometry(0.075, 0.085, 0.1, 10), n, FIST_CUFF), 0, 0, -0.13, Math.PI / 2),
+      place(inRect(new THREE.CylinderGeometry(0.09, 0.09, 0.024, 10), n, FIST_BAND), 0, 0, -0.095, Math.PI / 2),
+      place(inRect(new THREE.CylinderGeometry(0.093, 0.093, 0.03, 10), n, FIST_CLAMP), 0, 0, -0.165, Math.PI / 2),
+    ];
+    // Four knuckles, the front of the punch.
+    for (let i = 0; i < 4; i++) parts.push(place(fistBox(n, 0.046, 0.07, 0.075), -0.072 + i * 0.048, 0.03, 0.1));
+    const g = merge(parts);
+    g.scale(1.2, 1.2, 1.2);
+    return g;
+  },
+  paint(g) {
+    // Knuckle faces: hard-light yellow, hotter at the centre, with a red rim on every face.
+    g.fillStyle = css(MIGHT_RED);
+    g.fillRect(0, 0, 32, 32);
+    const face = g.createRadialGradient(16, 16, 2, 16, 16, 16);
+    face.addColorStop(0, css(MIGHT_YELLOW, 1, 0xffffff, 0.25));
+    face.addColorStop(1, css(MIGHT_YELLOW, 0.9));
+    g.fillStyle = face;
+    g.fillRect(4, 4, 24, 24);
+    // Cuff: glossy red with a dark seam.
+    const cuff = g.createLinearGradient(32, 0, 64, 0);
+    cuff.addColorStop(0, css(MIGHT_RED, 0.7));
+    cuff.addColorStop(0.5, css(MIGHT_RED, 1.15, 0xffffff, 0.15));
+    cuff.addColorStop(1, css(MIGHT_RED, 0.7));
+    g.fillStyle = cuff;
+    g.fillRect(32, 0, 32, 32);
+    g.fillStyle = css(MIGHT_RED, 0.4);
+    g.fillRect(32, 14, 32, 3);
+    // LED band: bright yellow.
+    g.fillStyle = css(MIGHT_YELLOW, 1, 0xffffff, 0.3);
+    g.fillRect(0, 32, 32, 32);
+    // Clamp: royal blue with yellow ticks.
+    g.fillStyle = css(MIGHT_BLUE);
+    g.fillRect(32, 32, 32, 32);
+    g.fillStyle = css(MIGHT_YELLOW);
+    for (let x = 34; x < 64; x += 8) g.fillRect(x, 44, 3, 8);
+  },
+  glow(g) {
+    // The fist is hard light: its faces, red rims and LED band glow at full strength.
+    g.fillStyle = css(MIGHT_RED, 1.2);
+    g.fillRect(0, 0, 32, 32);
+    g.fillStyle = css(MIGHT_YELLOW);
+    g.fillRect(4, 4, 24, 24);
+    g.fillStyle = css(MIGHT_YELLOW, 1, 0xffffff, 0.3);
+    g.fillRect(0, 32, 32, 32);
+    g.fillStyle = css(MIGHT_YELLOW);
+    for (let x = 34; x < 64; x += 8) g.fillRect(x, 44, 3, 8);
+  },
+  aura: {
+    // A short streak behind the cuff (crossed planes, head at the cuff).
+    geometry: () => crossedStreak(0.2).scale(1, 1, 0.55).translate(0, 0, -0.2),
+    w: 32,
+    h: 128,
+    intensity: 1.6,
+    edge: 0.2,
+    paint(g) {
+      g.fillStyle = '#000';
+      g.fillRect(0, 0, 32, 128);
+      const along = g.createLinearGradient(0, 0, 0, 128);
+      along.addColorStop(0, css(MIGHT_YELLOW, 1, 0xffffff, 0.35));
+      along.addColorStop(0.35, css(MIGHT_YELLOW, 0.85));
+      along.addColorStop(0.6, css(MIGHT_BLUE, 0.9));
+      along.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = along;
+      g.fillRect(0, 0, 32, 128);
+      g.globalCompositeOperation = 'multiply';
+      const across = g.createLinearGradient(0, 0, 32, 0);
+      across.addColorStop(0, '#000');
+      across.addColorStop(0.5, '#fff');
+      across.addColorStop(1, '#000');
+      g.fillStyle = across;
+      g.fillRect(0, 0, 32, 128);
+      g.globalCompositeOperation = 'source-over';
+    },
+  },
+};
+
+/** The fist look, for the Fighter's Might staff fallback (its floating gauntlet). */
+export const FIST_LOOK: Readonly<SkinDef> = FIST;
+export const FIST_COLORS = { yellow: MIGHT_YELLOW, red: MIGHT_RED, blue: MIGHT_BLUE } as const;
+
 /** Every object look, by skin. */
 export const SKIN_LOOKS: Record<ObjectSkin, SkinDef> = {
   rugRoll: RUG_ROLL,
@@ -811,6 +929,7 @@ export const SKIN_LOOKS: Record<ObjectSkin, SkinDef> = {
   grenade: GRENADE,
   hellfire: HELLFIRE,
   skull: SKULL,
+  fist: FIST,
 };
 
 /** Every object skin (everything but 'orb'). */

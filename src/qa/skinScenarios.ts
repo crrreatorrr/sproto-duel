@@ -8,6 +8,7 @@ import { events, type GameEvents } from '../core/events';
 import type { Game } from '../core/Game';
 import type { Projectile } from '../spells/Projectile';
 import { OBJECT_SKINS } from '../spells/ProjectileSkins';
+import { equipStaff } from '../staff/catalog';
 import type { Wizard } from '../wizard/Wizard';
 import type { QAHarness } from './QAHarness';
 
@@ -151,6 +152,35 @@ export function registerSkinScenarios(qa: QAHarness, game: Game, app: App): void
       const kept = game.spells.pool.skins.stats().skins.filter((k) => k.endsWith(`:${game.enemy.index}`));
       c.expect(kept.length === 0, `rival skin batches kept in Quick Duel: ${kept}`);
     });
+  });
+
+  qa.add('skins.fighters_might_fist', (c) => {
+    // Fighter's Might: the player's bolts fly as the fist, hit for 2×, and fire 1.85× slower.
+    const prev = game.player.staff;
+    try {
+      game.player.staff = equipStaff('duel_staff_fighters_might', false);
+      game.spells.pool.skins.warm(game.player.index, 'fist');
+      c.setup();
+      const ev = launches(() => {
+        const shot = cast(c, game, game.player, 'bolt');
+        c.expect(!!shot && shot.skin === 'fist' && !!shot.skinSlot, `player bolt is ${shot?.skin}`);
+        c.expect(shot?.damage === S.bolt.damage * 2, `fist damage ${shot?.damage}`);
+      });
+      c.expect(ev.length === 1 && ev[0].skin === 'fist', `launch events ${ev.map((e) => e.skin)}`);
+      c.setup();
+      c.step(1, () => (c.player.intent.holdBolt = true));
+      const expected = Math.floor(1 / (S.bolt.fireInterval * 1.85)) + 1;
+      c.expect(Math.abs(c.player.stats.casts - expected) <= 1, `fist rate: ${c.player.stats.casts} casts in 1 s, expected ~${expected}`);
+      c.note(`fist casts/s=${c.player.stats.casts}`);
+      // Ranked keeps the fist but not the 2×.
+      game.player.staff = equipStaff('duel_staff_fighters_might', true);
+      c.setup();
+      const ranked = cast(c, game, game.player, 'bolt');
+      c.expect(ranked?.skin === 'fist' && ranked.damage === S.bolt.damage, `ranked fist ${ranked?.skin} ${ranked?.damage}`);
+    } finally {
+      game.player.staff = prev;
+      game.spells.pool.releaseAll();
+    }
   });
 
   qa.add('skins.by_caster_any_wizard', (c) => {
@@ -392,8 +422,10 @@ export function registerSkinScenarios(qa: QAHarness, game: Game, app: App): void
       }
       game.spells.sync(1, 2, DT);
       const st = pool.skins.stats();
-      c.expect(st.active === 24 && st.meshes === 2, `instances ${st.active} in ${st.meshes} meshes`);
-      const visible = skinMeshes(game).length;
+      // Only the boss's looks: the player's staff look (the Fighter's Might fist) may also be built.
+      const own = st.skins.filter((k) => k.endsWith(`:${e.index}`));
+      c.expect(st.active === 24 && own.length === 2, `instances ${st.active} in ${own.length} batches (${own})`);
+      const visible = skinMeshes(game).filter((n) => n.endsWith(`:${e.index}`)).length;
       c.expect(visible === 2, `${visible} skin meshes in the scene`);
       for (const p of list) pool.release(p);
       c.expect(pool.skins.stats().active === 0, 'instances not returned');
