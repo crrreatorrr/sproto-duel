@@ -1,11 +1,12 @@
 import { resolveHubEnv } from './env';
 import { HubSdkError } from './errors';
 import { relicForEvent } from './events';
+import { pbShopRow } from './pbShop';
 import { createLiveHubSdk } from './live';
-import { createNakamaClient } from './nakama';
+import { createNakamaClient, LOCAL_NAKAMA } from './nakama';
 import { getOrCreateDeviceId, readNumber, writeNumber } from './storage';
 import { readTicketParam, stripTicketParam, verifyMockTicket } from './ticket';
-import { GAME_IDS, MOCK_TICKET_EARN_CAP, TICKETS_PER_VERSE, VERSE_DAILY_CAP, isBoardId, isRelicId, } from './types';
+import { GAME_IDS, MOCK_TICKET_EARN_CAP, TICKETS_PER_VERSE, VERSE_DAILY_CAP, canonicalGameId, isBoardId, isRelicId, } from './types';
 const BOARD_MODE = {
     hpos10i_act_time: 'asc-best',
     nobu_trial_time: 'asc-best',
@@ -44,6 +45,7 @@ export function createHubSdk(env = {}) {
         const client = env.client ??
             createNakamaClient({
                 serverUrl: env.serverUrl ?? '',
+                serverKey: env.serverKey ?? LOCAL_NAKAMA.serverKey,
             });
         return createLiveHubSdk(env, client);
     }
@@ -108,6 +110,35 @@ function createMockHubSdk(env) {
     function capLeft(game) {
         return Math.max(0, MOCK_TICKET_EARN_CAP - readNumber(resolved.local, earnKey(game)));
     }
+    function sessionCreditKey(sid) {
+        return `hub:sessionCredit:${sid}`;
+    }
+    /** Same 200 session cap and 1000 daily earn window the server uses for every game. */
+    function creditRooms(session) {
+        const sessionEarned = readNumber(resolved.session, sessionCreditKey(session.sid));
+        return {
+            sessionRoom: Math.max(0, 200 - sessionEarned),
+            dailyRoom: capLeft(session.game),
+        };
+    }
+    function rejectCap(code, left) {
+        throw new HubSdkError(code, code, undefined, left);
+    }
+    function applyCredit(session, amount, whole) {
+        const rooms = creditRooms(session);
+        if (whole && amount > rooms.sessionRoom)
+            rejectCap('session_ticket_cap', rooms.sessionRoom);
+        if (whole && amount > rooms.dailyRoom)
+            rejectCap('daily_ticket_cap', rooms.dailyRoom);
+        const applied = whole ? amount : Math.min(amount, rooms.dailyRoom);
+        if (applied > 0) {
+            writeNumber(resolved.local, earnKey(session.game), readNumber(resolved.local, earnKey(session.game)) + applied);
+            writeNumber(resolved.session, sessionCreditKey(session.sid), readNumber(resolved.session, sessionCreditKey(session.sid)) + applied);
+        }
+        const balance = readNumber(resolved.local, ticketsKey(session.game)) + applied;
+        writeNumber(resolved.local, ticketsKey(session.game), balance);
+        return { applied, balance };
+    }
     function profile(session) {
         return {
             playerId: session.playerId,
@@ -115,6 +146,7 @@ function createMockHubSdk(env) {
             relics: readRelics(),
             effects: { ...session.effects },
             ticketsCapLeft: capLeft(session.game),
+            serverTime: bucketNow(),
         };
     }
     function standaloneProfile() {
@@ -124,6 +156,7 @@ function createMockHubSdk(env) {
             relics: [],
             effects: {},
             ticketsCapLeft: 0,
+            serverTime: bucketNow(),
         };
     }
     function openSession(claims) {
@@ -159,10 +192,31 @@ function createMockHubSdk(env) {
         return response;
     }
     return {
-        async init(gameId) {
-            if (!GAME_IDS.includes(gameId)) {
+        async redeemTicket({ game: gameId }) {
+            const game = canonicalGameId(gameId);
+            if (!game)
                 throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
-            }
+            const token = readTicketParam(resolved.readHash());
+            resolved.writeHash(stripTicketParam(resolved.readHash()));
+            if (!token)
+                throw new HubSdkError('ticket_invalid', 'Missing ticket');
+            const claims = await verifyMockTicket(token);
+            if (!claims)
+                throw new HubSdkError('ticket_invalid', 'Ticket signature or payload is not valid');
+            if (claims.exp * 1000 <= resolved.now())
+                throw new HubSdkError('ticket_expired', 'Ticket expired');
+            if (claims.game !== game)
+                throw new HubSdkError('ticket_game', 'Ticket is for a different game');
+            if (spentSet().has(claims.jti))
+                throw new HubSdkError('ticket_used', 'Ticket was already redeemed');
+            markSpent(claims.jti);
+            const session = openSession(claims);
+            return { token: `mock.${session.playerId}`, refreshToken: `mock-refresh.${session.playerId}` };
+        },
+        async init(gameId) {
+            const game = canonicalGameId(gameId);
+            if (!game)
+                throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
             const token = readTicketParam(resolved.readHash());
             if (token) {
                 const claims = await verifyMockTicket(token);
@@ -170,7 +224,7 @@ function createMockHubSdk(env) {
                     throw new HubSdkError('ticket_invalid', 'Ticket signature or payload is not valid');
                 if (claims.exp * 1000 <= resolved.now())
                     throw new HubSdkError('ticket_expired', 'Ticket expired');
-                if (claims.game !== gameId)
+                if (claims.game !== game)
                     throw new HubSdkError('ticket_game', 'Ticket is for a different game');
                 if (spentSet().has(claims.jti))
                     throw new HubSdkError('ticket_used', 'Ticket was already redeemed');
@@ -178,17 +232,17 @@ function createMockHubSdk(env) {
                 resolved.writeHash(stripTicketParam(resolved.readHash()));
                 return profile(openSession(claims));
             }
-            const saved = resolved.session.getItem(sessionKey(gameId));
+            const saved = resolved.session.getItem(sessionKey(game));
             if (saved) {
                 try {
                     const session = JSON.parse(saved);
-                    if (session.game === gameId && session.playerId) {
+                    if (session.game === game && session.playerId) {
                         active = session;
                         return profile(session);
                     }
                 }
                 catch {
-                    resolved.session.removeItem(sessionKey(gameId));
+                    resolved.session.removeItem(sessionKey(game));
                 }
             }
             active = null;
@@ -245,13 +299,8 @@ function createMockHubSdk(env) {
             const session = active;
             const whole = Math.floor(amount);
             return withIdem(session.playerId, key, 'tickets.earn', stable({ amount: whole, reason }), () => {
-                const room = capLeft(session.game);
-                const applied = Math.min(whole, room);
-                const earned = readNumber(resolved.local, earnKey(session.game)) + applied;
-                const balance = readNumber(resolved.local, ticketsKey(session.game)) + applied;
-                writeNumber(resolved.local, earnKey(session.game), earned);
-                writeNumber(resolved.local, ticketsKey(session.game), balance);
-                return { balance, capped: applied < whole };
+                const credited = applyCredit(session, whole, false);
+                return { balance: credited.balance, capped: credited.applied < whole };
             });
         },
         async exchange(tickets, key) {
@@ -261,7 +310,7 @@ function createMockHubSdk(env) {
                 throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
             }
             if (!active)
-                return { verse: 0, ticketsLeft: 0, receiptId: 'noop' };
+                return { verse: 0, ticketsLeft: 0, balance: 0, receiptId: 'noop', verseCapLeft: 0 };
             const session = active;
             const requested = Math.floor(tickets);
             return withIdem(session.playerId, key, 'tickets.exchange', stable({ tickets: requested }), () => {
@@ -283,8 +332,68 @@ function createMockHubSdk(env) {
                 writeNumber(resolved.local, ticketsKey(session.game), ticketsLeft);
                 writeNumber(resolved.local, 'hub:verse', verse);
                 writeNumber(resolved.local, verseDayKey(session.game), today + verseOut);
-                return { verse, ticketsLeft, receiptId: crypto.randomUUID() };
+                return { verse, ticketsLeft, balance: ticketsLeft, receiptId: crypto.randomUUID(), verseCapLeft: VERSE_DAILY_CAP - (today + verseOut) };
             });
+        },
+        async spendTickets(shopId, itemId, packs, key) {
+            if (!key)
+                throw new HubSdkError('bad_key', 'Idempotency key is required');
+            if (!shopId || !itemId)
+                throw new HubSdkError('unknown_item', 'Unknown item');
+            if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
+                throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+            }
+            const whole = Math.floor(packs);
+            if (!active)
+                return { shop_id: shopId, item_id: itemId, packs: whole, units: whole, spent: 0, balance: 0 };
+            const session = active;
+            return withIdem(session.playerId, key, 'tickets.spend', stable({ shopId, itemId, packs: whole }), () => {
+                const row = session.game === 'peoples-bitcoin' ? pbShopRow(shopId, itemId) : undefined;
+                if (!row)
+                    throw new HubSdkError('unknown_item', 'Unknown item');
+                const spent = row.price * whole;
+                const balance = readNumber(resolved.local, ticketsKey(session.game));
+                if (balance < spent)
+                    throw new HubSdkError('insufficient_tickets', 'Not enough Tickets');
+                const next = balance - spent;
+                writeNumber(resolved.local, ticketsKey(session.game), next);
+                return { shop_id: shopId, item_id: itemId, packs: whole, units: row.packSize * whole, spent, balance: next };
+            });
+        },
+        async sellItem(shopId, itemId, packs, key) {
+            if (!key)
+                throw new HubSdkError('bad_key', 'Idempotency key is required');
+            if (!shopId || !itemId)
+                throw new HubSdkError('unknown_item', 'Unknown item');
+            if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
+                throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+            }
+            const whole = Math.floor(packs);
+            if (!active)
+                return { shop_id: shopId, item_id: itemId, packs: whole, units: whole, credited: 0, balance: 0 };
+            const session = active;
+            return withIdem(session.playerId, key, 'tickets.sell', stable({ shopId, itemId, packs: whole }), () => {
+                const row = session.game === 'peoples-bitcoin' ? pbShopRow(shopId, itemId) : undefined;
+                if (!row)
+                    throw new HubSdkError('unknown_item', 'Unknown item');
+                const credited = row.sellPrice * whole;
+                if (credited <= 0)
+                    throw new HubSdkError('zero_value', 'This item cannot be sold');
+                const next = applyCredit(session, credited, true);
+                return { shop_id: shopId, item_id: itemId, packs: whole, units: row.packSize * whole, credited, balance: next.balance };
+            });
+        },
+        async getTicketBalance() {
+            const serverTime = bucketNow();
+            if (!active)
+                return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0, serverTime };
+            const rooms = creditRooms(active);
+            return {
+                balance: readNumber(resolved.local, ticketsKey(active.game)),
+                sessionCapLeft: rooms.sessionRoom,
+                dailyCapLeft: rooms.dailyRoom,
+                serverTime,
+            };
         },
         exit(_reason) {
             if (!active)
