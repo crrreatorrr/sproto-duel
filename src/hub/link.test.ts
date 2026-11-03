@@ -8,6 +8,7 @@ const profile = (): InitResult => ({
   relics: [],
   effects: {},
   ticketsCapLeft: 0,
+  serverTime: 0,
 });
 
 function fakeApi(): HubSdk & { calls: unknown[][] } {
@@ -22,10 +23,14 @@ function fakeApi(): HubSdk & { calls: unknown[][] } {
       calls.push(['earn', ...args]);
       return { balance: 20, capped: false };
     }),
-    exchange: vi.fn(async () => ({ verse: 1, ticketsLeft: 10, receiptId: 'rcpt' })),
+    exchange: vi.fn(async () => ({ verse: 1, ticketsLeft: 10, balance: 10, receiptId: 'rcpt' })),
     submitScore: vi.fn(async (...args) => {
       calls.push(['score', ...args]);
     }),
+    redeemTicket: vi.fn(),
+    spendTickets: vi.fn(),
+    sellItem: vi.fn(),
+    getTicketBalance: vi.fn(),
     exit: vi.fn(),
   };
   return Object.assign(api, { calls });
@@ -53,7 +58,7 @@ describe('HubLink', () => {
   it('earns 20 Tickets and reports Tinubu once connected', async () => {
     const api = fakeApi();
     const link = new HubLink(api);
-    link.attach({ playerId: 'p', ranked: false, relics: [], effects: {}, ticketsCapLeft: 100 });
+    link.attach({ playerId: 'p', ranked: false, relics: [], effects: {}, ticketsCapLeft: 100, serverTime: 0 });
     const notes: string[] = [];
     await link.onDuelWin({ playerWon: true, bossId: 'tinubu', godMode: true, elapsed: 40 }, (title, sub) => notes.push(`${title}|${sub}`));
     expect(api.earnTickets).toHaveBeenCalledWith(20, 'duel_win', expect.stringMatching(/^sproto:win:/));
@@ -80,7 +85,7 @@ describe('HubLink', () => {
   it('rejects a Ticket amount that is not a Verse step', async () => {
     const api = fakeApi();
     const link = new HubLink(api);
-    link.attach({ playerId: 'p', ranked: true, relics: [], effects: {}, ticketsCapLeft: 0 });
+    link.attach({ playerId: 'p', ranked: true, relics: [], effects: {}, ticketsCapLeft: 0, serverTime: 0 });
     const result = await link.exchangeTickets(15);
     expect(result.ok).toBe(false);
     expect(api.exchange).not.toHaveBeenCalled();
@@ -89,7 +94,7 @@ describe('HubLink', () => {
   it('records the receipt and the Tickets left after an exchange', async () => {
     const api = fakeApi();
     const link = new HubLink(api);
-    link.attach({ playerId: 'p', ranked: true, relics: [], effects: {}, ticketsCapLeft: 80 });
+    link.attach({ playerId: 'p', ranked: true, relics: [], effects: {}, ticketsCapLeft: 80, serverTime: 0 });
     const result = await link.exchangeTickets(10);
     expect(result).toEqual({ ok: true, verse: 1, ticketsLeft: 10, receiptId: 'rcpt' });
     expect(link.balance).toBe(10);

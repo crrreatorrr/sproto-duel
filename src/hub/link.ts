@@ -19,6 +19,12 @@ type Notify = (title: string, sub: string) => void;
 /** Written by the SDK when a portal ticket or a cached visit is live. */
 const HUB_SESSION_KEY = `hub:${HUB_GAME_ID}:session`;
 
+// Nakama's client server key. Custom-auth ticket redeem sends it as Basic auth; it is
+// not the runtime HTTP key. Like the hub, only `vite dev` falls back to the compose
+// default. A production build takes VITE_NAKAMA_SERVER_KEY, or every redeem is refused
+// and the game runs without a hub session (no Tickets banked, no Relic sent).
+const NAKAMA_SERVER_KEY = import.meta.env.VITE_NAKAMA_SERVER_KEY || (import.meta.env.DEV ? 'defaultkey' : '');
+
 /**
  * The game's view of one hub visit.
  * `init` returns a profile even for standalone play. This visit is hub-connected only when
@@ -157,6 +163,7 @@ function createBrowserSdk(): HubSdk {
   const serverUrl = (import.meta.env.VITE_NAKAMA_URL || 'http://127.0.0.1:7350').replace(/\/$/, '');
   return createHubSdk({
     serverUrl,
+    serverKey: NAKAMA_SERVER_KEY,
     hubUrl: hubPageUrl(),
     // The SDK appends `#from=<game id>`. Replace that with the portal slug.
     assign: () => redirectToHub(),

@@ -10,6 +10,7 @@ import { connectHub } from './link';
 const harness = vi.hoisted(() => ({
   hash: '',
   hubUrl: undefined as string | undefined,
+  serverKey: undefined as string | undefined,
   assigned: [] as string[],
   games: [] as string[],
   events: [] as { eventId: string; data: object; key: string }[],
@@ -21,6 +22,7 @@ vi.mock('@metaverse/hub-sdk', async (importOriginal) => {
     ...actual,
     createHubSdk(env: HubSdkEnv = {}) {
       harness.hubUrl = env.hubUrl;
+      harness.serverKey = env.serverKey;
       const sdk = actual.createHubSdk({
         ...env,
         useMock: true,
@@ -67,6 +69,7 @@ describe('Sproto Duel hub integration', () => {
   beforeEach(() => {
     harness.hash = '';
     harness.hubUrl = undefined;
+    harness.serverKey = undefined;
     harness.assigned.length = 0;
     harness.games.length = 0;
     harness.events.length = 0;
@@ -75,6 +78,12 @@ describe('Sproto Duel hub integration', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  // The server refuses a ticket redeem without this key, and the game then reports nothing.
+  it('passes the Nakama server key to the SDK', async () => {
+    await connectHub();
+    expect(harness.serverKey).toBe('defaultkey');
   });
 
   it('calls init with sproto and exits to /hub/#from=sproto', async () => {

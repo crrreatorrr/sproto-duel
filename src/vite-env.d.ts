@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_NAKAMA_URL?: string;
+  readonly VITE_NAKAMA_SERVER_KEY?: string;
   /** Absolute hub page in production (`https://<domain>/hub`). Dev default is `/hub/`. */
   readonly VITE_HUB_URL?: string;
   /**

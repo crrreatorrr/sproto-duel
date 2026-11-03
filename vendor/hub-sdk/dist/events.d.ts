@@ -1,8 +1,9 @@
 import { type GameId, type RelicId } from './types';
 /**
  * Event ids games report through `reportEvent`.
- * `ready` is the boot handshake. `game_beaten` grants that game's relic.
- * The four `*.` ids are the production triggers from the architecture doc.
+ * `ready` is the boot handshake. `game_beaten` is accepted but grants nothing: the
+ * server has no open rule for it (migration 0008), so a client cannot claim a relic
+ * by saying it won. The four `*.` ids are the relic triggers from the architecture doc.
  */
 export declare const HubEvent: {
     readonly Ready: "ready";

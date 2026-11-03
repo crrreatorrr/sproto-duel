@@ -1,8 +1,9 @@
 import { resolveHubEnv } from './env';
 import { HubSdkError } from './errors';
+import { sessionVarsFromToken, userIdFromToken } from './nakama';
 import { getOrCreateDeviceId } from './storage';
 import { readTicketParam, stripTicketParam } from './ticket';
-import { GAME_IDS, isBoardId, isGameId, isRelicId, } from './types';
+import { GAME_IDS, canonicalGameId, isBoardId, isRelicId, } from './types';
 /** IndexedDB database for earn, event, and exchange writes that have not been acked. */
 export const HUB_OUTBOX_DB = 'hub-outbox';
 const OUTBOX_STORE = 'writes';
@@ -21,6 +22,9 @@ function asRelics(value) {
     if (!Array.isArray(value))
         return [];
     return value.filter((item) => typeof item === 'string' && isRelicId(item));
+}
+function clockMs(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 function cloneBody(body) {
     return JSON.parse(JSON.stringify(body));
@@ -76,20 +80,42 @@ async function listWrites() {
         return [...memoryWrites.values()];
     return withStore('readonly', (store) => requestDone(store.getAll()));
 }
+async function putWrite(record) {
+    if (!useIndexedDb()) {
+        memoryWrites.set(record.key, record);
+        return;
+    }
+    await withStore('readwrite', (store) => {
+        store.put(record);
+    });
+}
 /** Commit the record before any RPC. An existing key is left untouched. */
 async function remember(record) {
     const existing = await readWrite(record.key);
     if (existing)
         return existing;
     const stored = { ...record, body: cloneBody(record.body) };
-    if (!useIndexedDb()) {
-        memoryWrites.set(stored.key, stored);
-        return stored;
-    }
-    await withStore('readwrite', (store) => {
-        store.put(stored);
-    });
+    await putWrite(stored);
     return stored;
+}
+function tokenUser(token) {
+    try {
+        return userIdFromToken(token);
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * The token's game session is gone: closed by a newer portal, by exit, or past its
+ * lease. Nakama answers an expired JWT with HTTP 401.
+ */
+function deadSession(error) {
+    if (!(error instanceof HubSdkError))
+        return false;
+    if (error.code === 'session_closed' || error.code === 'unauthorized' || error.code === 'not_game_session')
+        return true;
+    return error.code === 'rpc_failed' && error.status === 401;
 }
 async function forget(key) {
     if (!useIndexedDb()) {
@@ -101,8 +127,8 @@ async function forget(key) {
     });
 }
 /**
- * Hub SDK backed by Nakama. `init` reads `#t=<ticket>`, strips it, and redeems it
- * with custom auth. Later calls send only that session token. Without a ticket or a
+ * Hub SDK backed by Nakama. A `#t=` ticket is exchanged with `authenticateCustom`
+ * (`t:` + ticket, create=false) and the server key only. Without a ticket or a
  * cached session every call no-ops so the game still runs standalone.
  */
 export function createLiveHubSdk(env, client) {
@@ -143,16 +169,17 @@ export function createLiveHubSdk(env, client) {
         resolved.session.setItem(sessionKey(session.game), JSON.stringify(session));
         active = session;
     }
-    function profileOf(session) {
+    function profileOf(session, serverTime) {
         return {
             playerId: session.playerId,
             ranked: session.ranked,
             relics: [...session.relics],
             effects: { ...session.effects },
             ticketsCapLeft: session.ticketsCapLeft,
+            serverTime,
         };
     }
-    function standalone() {
+    function standalone(serverTime) {
         active = null;
         return {
             playerId: getOrCreateDeviceId(resolved.local),
@@ -160,6 +187,7 @@ export function createLiveHubSdk(env, client) {
             relics: [],
             effects: {},
             ticketsCapLeft: 0,
+            serverTime,
         };
     }
     function noteGrant(session, response) {
@@ -179,41 +207,115 @@ export function createLiveHubSdk(env, client) {
             noteGrant(active, response);
         return response;
     }
+    /**
+     * A queued row keeps the token it was first sent with. When that session has since
+     * closed, the same player's live session for the same game carries it instead.
+     * The server keys idempotency by (user, key) and checks it before the session, so
+     * a row the old session already applied returns its saved response, not a second
+     * credit. Another player's or another game's row is never re-pointed.
+     */
+    async function rebind(row) {
+        if (!active || row.gameId !== active.game || row.token === active.token)
+            return row;
+        const owner = tokenUser(row.token);
+        if (!owner || owner !== tokenUser(active.token))
+            return row;
+        const next = { ...row, token: active.token };
+        await putWrite(next);
+        return next;
+    }
     async function sendOnce(session, rpc, key, body) {
-        const row = await remember({ rpc, body, key, token: session.token, gameId: session.game });
+        const row = await rebind(await remember({ rpc, body, key, token: session.token, gameId: session.game }));
         return transmit(row);
     }
     async function drain() {
         const rows = await listWrites();
-        for (const row of rows)
-            await transmit(row);
+        for (const queued of rows) {
+            const row = await rebind(queued);
+            try {
+                await transmit(row);
+            }
+            catch (error) {
+                // A row on a dead session that this session cannot carry stays queued for a
+                // later session of its own player and game. It must not fail this init, or
+                // one stale row keeps every later launch from reaching the hub.
+                if (row.token !== active?.token && deadSession(error))
+                    continue;
+                throw error;
+            }
+        }
+    }
+    async function rememberAuth(game, auth) {
+        const vars = sessionVarsFromToken(auth.token);
+        let relics = [];
+        let effects = {};
+        let ticketsCapLeft = 0;
+        let playerId = auth.userId;
+        let ranked = vars.ranked === '1';
+        let serverTime = 0;
+        try {
+            const profile = await client.rpc('profile.get', {}, { token: auth.token });
+            relics = asRelics(profile.relics);
+            effects = flatEffects(profile.effects);
+            if (typeof profile.ticketsCapLeft === 'number')
+                ticketsCapLeft = profile.ticketsCapLeft;
+            if (profile.playerId)
+                playerId = profile.playerId;
+            if (profile.ranked === true)
+                ranked = true;
+            serverTime = clockMs(profile.serverTime);
+        }
+        catch {
+            // The session token is still valid. The next init can load the profile.
+        }
+        if (!vars.sid)
+            return serverTime;
+        writeCached({
+            game,
+            playerId,
+            ranked,
+            sid: vars.sid,
+            token: auth.token,
+            effects,
+            relics,
+            ticketsCapLeft,
+        });
+        return serverTime;
+    }
+    async function redeemCustom(game, ticket) {
+        const authenticateCustom = client.authenticateCustom;
+        if (!authenticateCustom)
+            throw new HubSdkError('auth_failed', 'Custom authentication is unavailable');
+        const auth = await authenticateCustom(`t:${ticket}`, false, { game });
+        const serverTime = await rememberAuth(game, auth);
+        return { token: auth.token, refreshToken: auth.refreshToken, serverTime };
     }
     return {
-        async init(gameId) {
-            if (!isGameId(gameId))
+        async redeemTicket({ game: gameId }) {
+            const game = canonicalGameId(gameId);
+            if (!game)
                 throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
             const ticket = readTicketParam(resolved.readHash());
-            if (ticket) {
-                const auth = await client.authenticateCustom(`t:${ticket}`, false, { game: gameId });
-                const body = await client.rpc('session.redeem', { gameId }, { token: auth.token });
-                const playerId = typeof body.playerId === 'string' && body.playerId ? body.playerId : auth.userId;
-                if (!auth.token || !playerId || !body.sid) {
-                    throw new HubSdkError('ticket_invalid', 'Redeem did not return a session');
-                }
+            resolved.writeHash(stripTicketParam(resolved.readHash()));
+            if (!ticket)
+                throw new HubSdkError('ticket_invalid', 'Missing ticket');
+            return redeemCustom(game, ticket);
+        },
+        async init(gameId) {
+            const game = canonicalGameId(gameId);
+            if (!game)
+                throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
+            const token = readTicketParam(resolved.readHash());
+            let serverTime = 0;
+            if (token) {
                 resolved.writeHash(stripTicketParam(resolved.readHash()));
-                writeCached({
-                    game: gameId,
-                    playerId,
-                    ranked: body.ranked === true,
-                    sid: body.sid,
-                    token: auth.token,
-                    effects: flatEffects(body.effects),
-                    relics: asRelics(body.relics),
-                    ticketsCapLeft: typeof body.ticketsCapLeft === 'number' ? body.ticketsCapLeft : 0,
-                });
+                const redeemed = await redeemCustom(game, token);
+                serverTime = redeemed.serverTime;
+                if (!active)
+                    throw new HubSdkError('ticket_invalid', 'Redeem did not return a session');
             }
             else {
-                const cached = readCached(gameId);
+                const cached = readCached(game);
                 if (!cached) {
                     active = null;
                 }
@@ -225,6 +327,7 @@ export function createLiveHubSdk(env, client) {
                             cached.playerId = profile.playerId;
                         if (typeof profile.ticketsCapLeft === 'number')
                             cached.ticketsCapLeft = profile.ticketsCapLeft;
+                        serverTime = clockMs(profile.serverTime);
                         writeCached(cached);
                     }
                     catch {
@@ -233,7 +336,7 @@ export function createLiveHubSdk(env, client) {
                 }
             }
             await drain();
-            return active ? profileOf(active) : standalone();
+            return active ? profileOf(active, serverTime) : standalone(serverTime);
         },
         async reportEvent(eventId, data, key) {
             if (!key)
@@ -274,8 +377,55 @@ export function createLiveHubSdk(env, client) {
                 throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
             }
             if (!active)
-                return { verse: 0, ticketsLeft: 0, receiptId: 'noop' };
+                return { verse: 0, ticketsLeft: 0, balance: 0, receiptId: 'noop', verseCapLeft: 0 };
             return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) });
+        },
+        async spendTickets(shopId, itemId, packs, key) {
+            if (!key)
+                throw new HubSdkError('bad_key', 'Idempotency key is required');
+            if (!shopId || !itemId)
+                throw new HubSdkError('unknown_item', 'Unknown item');
+            if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
+                throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+            }
+            const packsOut = Math.floor(packs);
+            if (!active)
+                return { shop_id: shopId, item_id: itemId, packs: packsOut, units: packsOut, spent: 0, balance: 0 };
+            return sendOnce(active, 'tickets.spend', key, {
+                game: active.game,
+                shop_id: shopId,
+                item_id: itemId,
+                packs: packsOut,
+            });
+        },
+        async sellItem(shopId, itemId, packs, key) {
+            if (!key)
+                throw new HubSdkError('bad_key', 'Idempotency key is required');
+            if (!shopId || !itemId)
+                throw new HubSdkError('unknown_item', 'Unknown item');
+            if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
+                throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+            }
+            const packsOut = Math.floor(packs);
+            if (!active)
+                return { shop_id: shopId, item_id: itemId, packs: packsOut, units: packsOut, credited: 0, balance: 0 };
+            return sendOnce(active, 'tickets.sell', key, {
+                game: active.game,
+                shop_id: shopId,
+                item_id: itemId,
+                packs: packsOut,
+            });
+        },
+        async getTicketBalance() {
+            if (!active)
+                return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0, serverTime: 0 };
+            const body = await client.rpc('tickets.balance', { game: active.game }, { token: active.token });
+            return {
+                balance: typeof body.balance === 'number' ? body.balance : 0,
+                sessionCapLeft: typeof body.sessionCapLeft === 'number' ? body.sessionCapLeft : 0,
+                dailyCapLeft: typeof body.dailyCapLeft === 'number' ? body.dailyCapLeft : 0,
+                serverTime: clockMs(body.serverTime),
+            };
         },
         exit(reason) {
             if (!active)

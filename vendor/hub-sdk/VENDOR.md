@@ -1,12 +1,15 @@
-# Vendor
-
-Source this directory is meant to track:
+# Vendored @metaverse/hub-sdk
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
-- directory: `packages/hub-sdk`
-- branch: `cursor/ticket-redeem-custom-auth-c054`
-- sha: `947ed4c` (hub pull request #25)
+- branch: main
+- sha: 9c06593
+- package: packages/hub-sdk @ 0.4.0-redeem.1
+- built with: `npm ci && npm run build -w @metaverse/hub-sdk`
 
-This environment's GitHub App can only read `crrreatorrr/sproto-duel`, so a pack of `947ed4c` could not be fetched. The tree started from `@metaverse/hub-sdk` 0.1.0 packed from metaverse-hub `26903a4`, then the portal redeem was switched to Nakama custom authentication and every later call was limited to the session token from that redeem. Dev credential fallbacks were removed. Source maps were deleted so they cannot keep the old strings.
+Layout: `package.json`, `README.md`, `dist/*.js`, `dist/*.d.ts`. No source maps are included, and `sourceMappingURL` lines are stripped.
 
-Do not merge until hub #25 has merged. If that merge commit is not `947ed4c`, replace this directory with a fresh pack of hub main and update the sha above.
+Ticket redeem is `authenticateCustom` (`t:` + ticket, create=false) with the Nakama server key as Basic auth, then `profile.get`. Later calls send only the session token.
+
+The previous vendor tracked hub #25 at 947ed4c, which redeemed without the server key. The merged hub server requires it, so every redeem failed and the game ran with no hub session.
+
+Re-sync this tree to hub main whenever packages/hub-sdk changes.
