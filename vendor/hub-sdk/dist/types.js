@@ -1,7 +1,7 @@
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
 export const GAME_IDS = ['hpos10i', 'nobu', 'pb', 'sproto'];
 /** Earn-once relics. The primary key on the server is (user, relic). */
-export const RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'];
+export const RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt'];
 export const RELIC_BY_GAME = {
     hpos10i: 'hpos10i_core',
     pb: 'genesis_shard',

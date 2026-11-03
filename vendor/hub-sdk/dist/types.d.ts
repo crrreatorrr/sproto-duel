@@ -2,7 +2,7 @@
 export declare const GAME_IDS: readonly ["hpos10i", "nobu", "pb", "sproto"];
 export type GameId = (typeof GAME_IDS)[number];
 /** Earn-once relics. The primary key on the server is (user, relic). */
-export declare const RELIC_IDS: readonly ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown"];
+export declare const RELIC_IDS: readonly ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt"];
 export type RelicId = (typeof RELIC_IDS)[number];
 export declare const RELIC_BY_GAME: Record<GameId, RelicId>;
 /**
