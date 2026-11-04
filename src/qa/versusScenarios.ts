@@ -143,6 +143,47 @@ export function registerVersusScenarios(qa: QAHarness, game: Game, app: App): vo
     }
   });
 
+  qa.add('versus.one-pad-handover-no-pause', (c) => {
+    // One pad: it was the active device in the menus (P2 pressed A with it), then P1 gives it up.
+    // That must not read as "the pad in use was unplugged" (which pauses).
+    const pad = padAt(0);
+    const own = Object.getOwnPropertyDescriptor(navigator, 'getGamepads');
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, writable: true, value: () => [pad, null, null, null] });
+    const gp = game.input.pad;
+    const wasLock = app.requireLock;
+    try {
+      app.requireLock = false;
+      gp.reset();
+      pad.set('a', 1);
+      gp.endFrame();
+      gp.update(1000);
+      c.expect(gp.device === 'gamepad', `the pad did not become active (${gp.device})`);
+      pad.set('a', 0);
+      app.startVersus([{ keyboardMouse: true, pad: null }, { keyboardMouse: false, pad: 0 }]);
+      game.qaMode = false; // the unplugged-pad pause only acts outside QA mode
+      try {
+        for (let i = 0; i < 5; i++) {
+          game.input.endFrame();
+          for (const p of game.extraPads) p.endFrame();
+          gp.update(2000 + i * 16);
+          app.padFrame(DT);
+        }
+      } finally {
+        game.qaMode = true;
+      }
+      c.expect(app.state === 'playing', `state ${app.state} after the handover`);
+      c.expect(!gp.connected && app.p2Pad.connected && app.p2Pad.device === 'gamepad', `P1 pad ${gp.connected}, P2 pad ${app.p2Pad.connected}/${app.p2Pad.device}`);
+    } finally {
+      if (own) Object.defineProperty(navigator, 'getGamepads', own);
+      else delete (navigator as unknown as Record<string, unknown>).getGamepads;
+      app.toMenu();
+      gp.reset();
+      app.requireLock = wasLock;
+      game.simulating = false;
+      game.playerControl = false;
+    }
+  });
+
   qa.add('net.snapshot-apply', (c) => {
     c.setup({ player: [-2, -7], enemy: [3, 6] });
     const m = app.match;

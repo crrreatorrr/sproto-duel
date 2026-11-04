@@ -404,10 +404,16 @@ export class App {
     this.versusDevices = devices;
     this.mode = 'versus';
     this.dressEnemy(null);
+    // P1's pad changes hands (to P2, or to a fixed slot): forget its state without the "pad
+    // unplugged" notice, which would pause the match, and play P1 on keyboard + mouse until used.
+    g.input.pad.reset();
     g.input.pad.slot = devices[0].pad;
     g.input.pad.excluded.clear();
+    if (devices[0].keyboardMouse) g.input.pad.setDevice('kbm');
     g.playerController.kbm = devices[0].keyboardMouse;
+    this.p2Pad.reset();
     this.p2Pad.slot = devices[1].pad;
+    this.p2Pad.setDevice('gamepad');
     g.setSplit(true);
     this.versusOn = true;
     if (!this.p2Source) {
@@ -599,9 +605,11 @@ export class App {
     if (g.controllers[1] === this.p2Source) g.controllers[1] = null;
     g.extraPads.length = 0;
     g.enemyController = this.aiDriver;
+    g.input.pad.reset();
     g.input.pad.slot = 'any';
     g.input.pad.excluded.clear();
     g.playerController.kbm = true;
+    this.p2Pad.reset();
     this.p2Pad.slot = null;
     this.hud.setViews(1);
   }
