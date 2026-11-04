@@ -132,6 +132,15 @@ export class HUD {
   private readonly dodgeLabel: HTMLElement;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
+  /** Online: the round-trip time chip (null hides it). */
+  private pingChip: HTMLElement | null = null;
+  setPing(ms: number | null): void {
+    const chip = (this.pingChip ??= this.root.querySelector<HTMLElement>('.ping-chip')!);
+    const text = ms === null ? '' : ms < 0 ? '… ms' : `${Math.round(ms)} ms`;
+    this.set('ping', chip, 'text', text);
+    this.set('pingc', chip, 'class', `ping-chip${ms === null ? '' : ' on'}${ms !== null && ms > 150 ? ' bad' : ''}`);
+  }
+
   /** Local Versus: P2's crosshair, hit marker and spell row (built by setViews). */
   private p2: { crosshair: HTMLElement; slots: Slot[]; hitMarker: number } | null = null;
   private views = 1;
@@ -161,6 +170,7 @@ export class HUD {
       <div class="enemy-tag partner" data-i="1"><div class="enemy-tag-fill"></div></div>
       <div class="offscreen-arrow" data-i="0"></div>
       <div class="offscreen-arrow partner" data-i="1"></div>
+      <div class="ping-chip"></div>
       <div class="god-badge" title="God mode: no damage, unlimited mana, no cooldowns, ${CONFIG.debug.godPowerMultiplier}× damage (99 or ${CONFIG.debug.godHotkey} toggles)">God Mode</div>
       <div class="banner"><img class="banner-art" alt="" draggable="false"><div class="banner-main"></div><div class="banner-sub"></div></div>
       <div class="lock-reticle"><i></i><i></i><i></i><i></i><b>LOCK</b></div>

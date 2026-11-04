@@ -130,24 +130,46 @@ if (perfSeconds > 0) {
   console.log('[perf]', JSON.stringify(perf));
 }
 
-const t0 = Date.now();
-const runAll = () => evaluate(`(async () => {
-  const r = await __duel.qa.runAll(${JSON.stringify(filter)} || undefined);
-  return { passed: r.passed, failed: r.failed, failures: r.results.filter((x) => !x.pass).map((x) => ({ name: x.name, detail: String(x.detail).slice(0, 600) })) };
-})()`, timeoutMs);
-let summary;
-try {
-  summary = await runAll();
-} catch (err) {
-  if (!/navigated|closed/i.test(String(err))) throw err;
-  console.warn('[qa] page reloaded during the run; running again');
-  await ready();
-  summary = await runAll();
+if (process.env.QA_EVAL) {
+  // Debugging: evaluate an expression in the page (after the harness is up) and print the result.
+  console.log(JSON.stringify(await evaluate(process.env.QA_EVAL, timeoutMs), null, 2));
+  cleanup();
+  process.exit(0);
 }
+
+const t0 = Date.now();
+// One scenario per evaluate: progress shows as it goes, and QA_SHARD=i/n splits the list.
+const names = (await evaluate('__duel.qa.list()')).filter((n) => !filter || n.includes(filter));
+const shard = /^(\d+)\/(\d+)$/.exec(process.env.QA_SHARD || '');
+const mine = shard ? names.filter((_, i) => i % Number(shard[2]) === Number(shard[1])) : names;
+const summary = { passed: 0, failed: 0, failures: [] };
+for (const [i, name] of mine.entries()) {
+  let r;
+  try {
+    r = await evaluate(`__duel.qa.run(${JSON.stringify(name)}).then((x) => ({ pass: x.pass, detail: String(x.detail).slice(0, 600), ms: x.ms }))`, 10 * 60 * 1000);
+  } catch (err) {
+    if (!/navigated|closed/i.test(String(err))) throw err;
+    console.warn('[qa] page reloaded; waiting for the harness again');
+    await ready();
+    r = { pass: false, detail: `page reloaded during ${name}`, ms: 0 };
+  }
+  if (r.pass) summary.passed++;
+  else {
+    summary.failed++;
+    summary.failures.push({ name, detail: r.detail });
+  }
+  if (process.env.QA_VERBOSE || !r.pass) console.log(`[${i + 1}/${mine.length}] ${r.pass ? 'PASS' : 'FAIL'} ${name} (${r.ms} ms)${r.pass ? '' : `: ${r.detail}`}`);
+  else if ((i + 1) % 20 === 0) console.log(`[${i + 1}/${mine.length}] ...`);
+}
+if (Date.now() - t0 > timeoutMs) console.warn('[qa] slower than QA_TIMEOUT_MS');
 const secs = ((Date.now() - t0) / 1000).toFixed(0);
 console.log(`QA: ${summary.passed} passed, ${summary.failed} failed (${secs}s)${filter ? ` [filter "${filter}"]` : ''}`);
 for (const f of summary.failures) console.log(`FAIL ${f.name}: ${f.detail}`);
 ws.close();
 cleanup();
-fs.rmSync(profile, { recursive: true, force: true });
+try {
+  fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+} catch {
+  /* Chrome may still be writing its profile; the temp dir is left behind. */
+}
 process.exit(summary.failed > 0 || summary.passed === 0 ? 1 : 0);

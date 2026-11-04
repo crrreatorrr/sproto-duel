@@ -908,3 +908,10 @@ html, body {
 .versus-join .join-seat.ready { border-color: #7fe0a0; box-shadow: 0 0 12px rgba(127, 224, 160, 0.35); }
 .versus-join .join-seat b { display: block; font-size: 1.1em; margin-bottom: 4px; }
 .versus-join .join-hint { opacity: 0.8; font-size: 0.92em; }
+/* Online Duel menus and HUD. */
+.online .join-row { display: flex; gap: 8px; align-items: stretch; }
+.online .room-code { flex: 1; min-width: 0; font: inherit; font-size: 1.15em; letter-spacing: 0.25em; text-transform: uppercase; text-align: center; padding: 8px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(0, 0, 0, 0.35); color: inherit; }
+.online-status .room-code-big { font-size: 2.4em; letter-spacing: 0.3em; font-weight: 700; margin: 12px 0; }
+.ping-chip { position: absolute; top: 8px; right: 10px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.45); color: #cfe; display: none; }
+.ping-chip.on { display: block; }
+.ping-chip.bad { color: #ffb38a; }

@@ -9,7 +9,12 @@ import { events } from './core/events';
 import { bindRumble, connectedPadIndices, GamepadInput, padHolding, rewardLabels, spellLabels } from './core/Gamepad';
 import { bossModelKeys, nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
-import { QUICK, VERSUS, type MatchRules } from './core/rules';
+import { ONLINE, QUICK, VERSUS, type MatchRules } from './core/rules';
+import { HubLobby } from './net/HubLobby';
+import { OnlineController } from './net/OnlineController';
+import { OnlineSession, type OnlineLobby, type SessionState } from './net/OnlineSession';
+import type { OutcomeMsg, StartMsg } from './net/protocol';
+import { realScheduler } from './net/transport';
 import type { TickController } from './core/Game';
 import { assignDevices } from './input/assignDevices';
 import type { DeviceBinding } from './input/IntentSource';
@@ -32,6 +37,21 @@ export type GameMode = 'quick' | 'gauntlet' | 'versus' | 'online';
 
 const tmpRight = new THREE.Vector3();
 const WHITE = new THREE.Color(1, 1, 1);
+/** What an online match that ended without a result says on the online menu. */
+const ONLINE_REASONS: Record<string, string> = {
+  version_mismatch: 'Your opponent is on another version of Sproto Duel. Reload to update.',
+  join_timeout: 'Your opponent did not connect in time.',
+  start_timeout: 'The match did not start in time.',
+  opponent_left: 'Your opponent left before the start.',
+  room_expired: 'Nobody joined the room in time.',
+  room_not_found: 'No open room with that code.',
+  bad_code: 'Room codes are 6 letters and digits.',
+  disconnected: 'Lost the connection to the server.',
+  match_ended: 'The match ended.',
+  wrong_scope: 'Enter Sproto Duel from the hub portal to play online.',
+  cancelled: 'Search cancelled.',
+};
+
 /** Quick Duel has one opponent; the Boss Gauntlet is the difficulty ladder. */
 const QUICK_DUEL_AI = CONFIG.ai.difficulty.normal;
 
@@ -76,10 +96,24 @@ export class App {
   /** Local Versus: P2's own pad, and P2's seat (built on first use). */
   readonly p2Pad = new GamepadInput();
   private p2Source: LocalHumanSource | null = null;
+  /** Local Versus is set up (split-screen, P2's seat, no AI): leaveVersus undoes it. */
+  private versusOn = false;
   /** The device split of the current (or last) Local Versus, for Rematch. */
   private versusDevices: [DeviceBinding, DeviceBinding] | null = null;
   /** Local Versus join screen: the pad that joined as P2, and whether A was let go since. */
   private join: { p2: number | null; released: boolean } | null = null;
+  /**
+   * Online Duel is in this build: VITE_ONLINE=1 (off by default until the two-machine playtest),
+   * or `?online` / `?netsim=<ms>` in `npm run dev`.
+   */
+  readonly onlineBuilt: boolean;
+  /** The current online match (or search), its game wiring, and the server's verdict. */
+  onlineSession: OnlineSession | null = null;
+  onlineCtl: OnlineController | null = null;
+  private onlineOutcome: OutcomeMsg | null = null;
+  private onlineLobbyCache: OnlineLobby | null = null;
+  /** Dev only: a lobby on an in-page fake server with a scripted opponent (`?netsim=<latency ms>`). */
+  devLobby: (() => OnlineLobby) | null = null;
   private settings: Settings;
   /** Drives the player's wizard in the menu background (attract mode). */
   private readonly attract: AIController;
@@ -98,6 +132,8 @@ export class App {
   private pausedAt = 0;
 
   constructor(readonly game: Game, campaign = new Campaign(), private readonly hub = HubLink.standalone()) {
+    const q = new URLSearchParams(location.search);
+    this.onlineBuilt = import.meta.env.VITE_ONLINE === '1' || (import.meta.env.DEV && (q.has('online') || q.has('netsim')));
     // Relics the existing init already returned. No session: the staff cache stays the fallback.
     setSessionRelics(hub.connected ? hub.relics : null);
     this.campaign = campaign;
@@ -136,6 +172,10 @@ export class App {
     this.menus = new Menus(game.ui, this.settings, {
       start: () => this.startMatch(),
       versus: () => this.showVersusJoin(),
+      online: () => (!this.onlineBuilt ? null : this.onlineLobby()
+        ? { enabled: true, why: 'Quick match or a private room' }
+        : { enabled: false, why: 'Enter from the hub portal to play online' }),
+      openOnline: () => this.openOnline(),
       gauntlet: () => this.newGauntlet(),
       continueGauntlet: () => this.continueGauntlet(),
       gauntletStatus: () => {
@@ -161,6 +201,7 @@ export class App {
     this.applySettings(this.settings);
 
     game.onFrame((dt) => this.frame(dt));
+    game.beforeRender.push(() => this.onlineCtl?.frame());
     events.on('matchEnd', (e) => this.onMatchEnd(e.winner));
     this.bindInput();
     this.applyStaff();
@@ -358,6 +399,7 @@ export class App {
    */
   startVersus(devices: [DeviceBinding, DeviceBinding]): void {
     const g = this.game;
+    this.endOnline();
     this.versusDevices = devices;
     this.mode = 'versus';
     this.dressEnemy(null);
@@ -366,6 +408,7 @@ export class App {
     g.playerController.kbm = devices[0].keyboardMouse;
     this.p2Pad.slot = devices[1].pad;
     g.setSplit(true);
+    this.versusOn = true;
     if (!this.p2Source) {
       this.p2Source = new LocalHumanSource(g.input, g.rigs[1], g.enemy, g.physics, () => [g.player], { keyboardMouse: false, pad: this.p2Pad });
     }
@@ -379,11 +422,160 @@ export class App {
     this.beginMatch(null, VERSUS);
   }
 
+  // ------------------------------------------------------------------ Online Duel
+
+  /** Matchmaking for this visit: the hub realtime client, the dev fake (`?netsim`), or null standalone. */
+  private onlineLobby(): OnlineLobby | null {
+    if (this.devLobby) return (this.onlineLobbyCache ??= this.devLobby());
+    const rt = this.hub.realtime();
+    if (!rt) return null;
+    return (this.onlineLobbyCache ??= new HubLobby(rt));
+  }
+
+  /** The Online Duel menu over the attract duel. `note`: why the last attempt ended. */
+  openOnline(note = ''): void {
+    this.enterMenuState('quick');
+    this.menus.showOnline({
+      quick: () => this.startOnline('quick'),
+      create: () => this.startOnline('create'),
+      join: (code) => this.startOnline('join', code),
+      back: () => this.toMenu(),
+    }, note);
+  }
+
+  /** Search, open a room, or join one; START then begins the match (beginOnline). */
+  startOnline(kind: 'quick' | 'create' | 'join', code = ''): void {
+    const lobby = this.onlineLobby();
+    if (!lobby) {
+      this.menus.toast('Online Duel', 'Enter from the hub portal to play online');
+      return;
+    }
+    this.endOnline();
+    const N = CONFIG.net;
+    const s = new OnlineSession(lobby, {
+      scheduler: realScheduler,
+      staff: getLoadout().staff,
+      inputDelayTicks: N.inputDelayTicks,
+      maxInputLagTicks: N.maxInputLagTicks,
+      interpDelayMs: N.interpDelayMs,
+      extrapolateMaxMs: N.extrapolateMaxMs,
+      tickMs: CONFIG.sim.fixedDt * 1000,
+      pingEveryMs: N.pingEveryS * 1000,
+      inputEveryTicks: N.snapEveryTicks,
+    });
+    this.onlineSession = s;
+    this.onlineOutcome = null;
+    const cancel = () => this.openOnline();
+    s.on('state', (st) => this.onlineState(s, st, cancel));
+    s.on('start', (m) => this.beginOnline(s, m));
+    s.on('peer', (p) => this.menus.toast(p.present ? 'Opponent is back' : 'Opponent disconnected', p.present ? '' : `Waiting up to ${p.graceS} s`));
+    s.on('outcome', (o) => this.onOutcome(s, o));
+    s.on('cancel', (reason) => this.onOnlineEnded(s, reason));
+    if (kind === 'quick') void s.quickMatch();
+    else if (kind === 'create') {
+      void s.createRoom().then((c) => {
+        if (c && s.state === 'hosting-room') this.menus.showOnlineStatus('Room Created', 'Share the code. Waiting for your opponent…', { cancel }, c);
+      });
+    } else void s.joinRoom(code);
+  }
+
+  private onlineState(s: OnlineSession, st: SessionState, cancel: () => void): void {
+    if (s !== this.onlineSession || this.state === 'playing' || this.state === 'paused') return;
+    const screens: Partial<Record<SessionState, [string, string]>> = {
+      connecting: ['Connecting…', 'Opening the hub connection'],
+      searching: ['Searching…', 'Looking for an opponent'],
+      'hosting-room': ['Creating Room…', ''],
+      'joining-room': ['Joining Room…', s.roomCode ?? ''],
+      starting: ['Opponent Found', 'Starting…'],
+    };
+    const screen = screens[st];
+    if (screen) this.menus.showOnlineStatus(screen[0], screen[1], { cancel: () => (s.leave(), cancel()) });
+  }
+
+  /** START: both sides set up their game (the host runs the sim, the guest a replica). */
+  private beginOnline(s: OnlineSession, start: StartMsg): void {
+    if (s !== this.onlineSession) return;
+    this.leaveVersus();
+    this.mode = 'online';
+    this.dressEnemy(null);
+    this.onlineOutcome = null;
+    const ctl = (this.onlineCtl = new OnlineController(this.game, this.match, s, realScheduler));
+    ctl.begin(start);
+    this.hud.setNames(['You', start.names[1 - start.seat] || 'Opponent']);
+    this.beginMatch(null, ONLINE, !s.isHost);
+  }
+
+  /** The server's verdict: shown on the results (now, if the match ended early), Tickets refreshed. */
+  private onOutcome(s: OnlineSession, o: OutcomeMsg): void {
+    if (s !== this.onlineSession) return;
+    this.onlineOutcome = o;
+    void this.hub.onOnlineOutcome(o, this.onlineLobby()?.selfId ?? null, (title, sub) => this.menus.toast(title, sub, 'tickets'));
+    this.onlineCtl?.stop();
+    if (this.state === 'results') this.menus.setResultNote(this.outcomeText());
+    else if (this.state === 'playing' || this.state === 'paused') this.showResults();
+  }
+
+  /** Ended without an outcome: back to the online menu with the reason. */
+  private onOnlineEnded(s: OnlineSession, reason: string): void {
+    if (s !== this.onlineSession) return;
+    const inMatch = this.state === 'playing' || this.state === 'paused';
+    this.onlineCtl?.stop();
+    if (reason === 'left' && !inMatch) return;
+    if (this.state === 'results' && this.mode === 'online') {
+      this.menus.setResultNote(this.outcomeText());
+      return;
+    }
+    this.openOnline(ONLINE_REASONS[reason] ?? `Connection ended (${reason})`);
+  }
+
+  private outcomeText(): string {
+    const o = this.onlineOutcome;
+    const s = this.onlineSession;
+    if (!o) return s && s.state === 'ended' ? 'The server sent no result: no Tickets' : 'Confirming with the server…';
+    const me = s?.seat ?? 0;
+    const won = o.winnerSeat === me;
+    const paid = Object.values(o.paid).reduce((a, b) => a + b, 0);
+    const myPay = (this.onlineLobby()?.selfId && o.paid[this.onlineLobby()!.selfId!]) || 0;
+    switch (o.status) {
+      case 'verified':
+        return won ? (myPay ? `Confirmed · +${myPay} Tickets` : 'Confirmed · no Tickets (daily limit reached)') : 'Confirmed';
+      case 'forfeit':
+        if (!won) return 'Forfeited';
+        return paid ? `Opponent left, you win · +${myPay || paid} Tickets` : 'Opponent left, you win (too early for Tickets)';
+      case 'disputed':
+        return 'Disputed: the two results did not match · no Tickets';
+      case 'draw':
+        return 'Draw · no Tickets';
+      case 'timeout':
+        return 'Ran out of time · no Tickets';
+      case 'both_left':
+        return 'Both players left';
+      default:
+        return 'The server ended the match · no Tickets';
+    }
+  }
+
+  /** Leave any online search or match (the server treats it as leaving) and undo its wiring. */
+  private endOnline(): void {
+    const s = this.onlineSession;
+    const ctl = this.onlineCtl;
+    this.onlineCtl = null;
+    this.onlineSession = null;
+    if (s?.active) s.leave();
+    if (!ctl) return;
+    // Only what an online match changed is put back (the AI rival, the local role).
+    ctl.stop();
+    if (this.game.enemyController === null) this.game.enemyController = this.aiDriver;
+    this.game.role = 'local';
+    this.game.fixedTimeScale = false;
+  }
+
   /** Back to one player on one screen (every non-Versus mode starts with this). */
   private leaveVersus(): void {
     const g = this.game;
     this.join = null;
-    if (!g.split && g.controllers[1] !== this.p2Source) return;
+    if (!this.versusOn) return;
+    this.versusOn = false;
     g.setSplit(false);
     if (g.controllers[1] === this.p2Source) g.controllers[1] = null;
     g.extraPads.length = 0;
@@ -436,6 +628,7 @@ export class App {
 
   /** Quick Duel: the one Rival (fixed AI profile) in the moonlit arena. */
   startMatch(): void {
+    this.endOnline();
     this.leaveVersus();
     this.mode = 'quick';
     this.dressEnemy(null);
@@ -505,6 +698,7 @@ export class App {
       this.campaign.startNew();
     }
     const boss = this.campaign.boss;
+    this.endOnline();
     this.leaveVersus();
     this.mode = 'gauntlet';
     this.dressEnemy(boss);
@@ -584,7 +778,7 @@ export class App {
     style.setProperty('--rival-lo', `#${c.clone().multiplyScalar(0.75).getHexString()}`);
   }
 
-  private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>): void {
+  private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>, replica = false): void {
     const g = this.game;
     const r = rules ?? (boss ? undefined : QUICK);
     const even = r !== undefined && !r.godModeAllowed;
@@ -608,18 +802,28 @@ export class App {
     g.playerControl = true;
     this.state = 'playing';
     this.resultsTimer = 0;
-    this.match.startMatch(boss, r);
+    if (replica) this.match.prepareReplica(r ?? ONLINE);
+    else this.match.startMatch(boss, r);
     this.audio.setPaused(false);
     this.audio.playMusic('musicBattle');
     this.audio.setAmbient(true);
     if (this.requireLock) {
-      g.simulating = g.input.locked;
+      // An online match never waits for the mouse: the other player's game keeps going.
+      if (r?.pause !== false) g.simulating = g.input.locked;
       g.input.requestLock();
     }
   }
 
   pause(): void {
     if (this.state !== 'playing') return;
+    if (this.mode === 'online') {
+      // Online never pauses: an overlay over the running fight (Resume / Forfeit).
+      this.state = 'paused';
+      this.pausedAt = performance.now();
+      this.game.input.releaseLock();
+      this.menus.showOnlinePause({ resume: () => this.resume(), forfeit: () => this.onlineSession?.forfeit() });
+      return;
+    }
     this.state = 'paused';
     this.pausedAt = performance.now();
     this.game.simulating = false;
@@ -642,6 +846,10 @@ export class App {
     if (this.state !== 'paused') return;
     this.state = 'playing';
     this.menus.hide();
+    if (this.mode === 'online') {
+      if (this.requireLock) this.game.input.requestLock();
+      return;
+    }
     this.audio.setPaused(false);
     if (this.requireLock && !this.game.input.locked) {
       // Stay frozen until the mouse is captured again.
@@ -664,6 +872,7 @@ export class App {
   /** Shared by the main menu, boss cards and the gauntlet-complete screen: attract duel behind a menu. */
   private enterMenuState(mode: GameMode): void {
     const g = this.game;
+    this.endOnline();
     this.leaveVersus();
     this.match.rules = QUICK;
     g.spells.rewardSpellsEnabled = true;
@@ -788,6 +997,21 @@ export class App {
         learned: learned ? REWARD_SPELL_INFO[learned].name : undefined,
         ...stats,
       };
+    } else if (this.mode === 'online') {
+      const o = this.onlineOutcome;
+      const me = this.onlineSession?.seat ?? 0;
+      const won = o && o.winnerSeat !== null ? o.winnerSeat === me : p1Won;
+      const opp = this.onlineSession?.start?.names[1 - me] || 'Opponent';
+      data = {
+        title: o && o.winnerSeat === null && o.status !== 'disputed' ? 'No Contest' : won ? 'Victory' : 'Defeat',
+        subtitle: this.outcomeText(),
+        eyebrow: 'Online Duel',
+        victory: won,
+        names: ['You', opp],
+        rounds,
+        primary: { label: 'Online Menu', action: () => this.openOnline() },
+        ...stats,
+      };
     } else if (this.mode === 'versus') {
       const draw = this.match.wins[0] === this.match.wins[1];
       data = {
@@ -841,6 +1065,7 @@ export class App {
   private frame(dt: number): void {
     const g = this.game;
     if (this.state === 'playing' || this.state === 'paused') this.hud.update(dt);
+    this.hud.setPing(this.onlineCtl?.active ? this.onlineSession?.rttMs ?? -1 : null);
     if (this.resultsTimer > 0) {
       this.resultsTimer -= dt;
       if (this.resultsTimer <= 0 && this.state === 'playing') this.showResults();

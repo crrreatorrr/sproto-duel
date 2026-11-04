@@ -841,6 +841,65 @@ export class Menus {
     this.bindStaff(s);
   }
 
+  /** Online Duel: quick match, private room (create or join by code), back. */
+  showOnline(h: { quick(): void; create(): void; join(code: string): void; back(): void }, note = ''): void {
+    const s = this.mount(`
+      <div class="menu-panel online">
+        <h2>Online Duel</h2>
+        <p class="note">One best-of-three against another player. Even fight: starter staff stats, no reward spells or god mode. A win pays 20 Tickets once the server confirms it.</p>
+        ${note ? `<p class="note online-note" role="status">${escapeHtml(note)}</p>` : ''}
+        <button class="primary" data-act="quick" data-autofocus>Quick Match<small>Play whoever is searching</small></button>
+        <button data-act="create">Create Room<small>Get a code to share</small></button>
+        <div class="row join-row">
+          <input class="room-code" maxlength="7" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code">
+          <button data-act="join">Join Room</button>
+        </div>
+        <button class="ghost" data-act="back" data-back>Back</button>
+      </div>`, 'online');
+    const input = s.querySelector<HTMLInputElement>('.room-code')!;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') h.join(input.value);
+    });
+    this.on(s, '[data-act="quick"]', () => h.quick());
+    this.on(s, '[data-act="create"]', () => h.create());
+    this.on(s, '[data-act="join"]', () => h.join(input.value));
+    this.on(s, '[data-act="back"]', () => h.back());
+  }
+
+  /** Waiting for an opponent (searching, a room code to share, joining). Cancel backs out. */
+  showOnlineStatus(title: string, sub: string, h: { cancel(): void }, code: string | null = null): void {
+    const s = this.mount(`
+      <div class="menu-panel online-status">
+        <h2>${escapeHtml(title)}</h2>
+        ${code ? `<p class="room-code-big" aria-label="Room code">${escapeHtml(code)}</p><button data-act="copy">Copy Code</button>` : ''}
+        <p class="note online-sub" role="status">${escapeHtml(sub)}</p>
+        <button class="ghost" data-act="cancel" data-back data-autofocus>Cancel</button>
+      </div>`, 'online-status');
+    this.on(s, '[data-act="cancel"]', () => h.cancel());
+    this.on(s, '[data-act="copy"]', () => {
+      void navigator.clipboard?.writeText(code ?? '').then(() => this.toast('Copied', code ?? ''), () => {});
+    });
+  }
+
+  /** In an online match, Esc / Start: the fight never pauses; you can only resume or forfeit. */
+  showOnlinePause(h: { resume(): void; forfeit(): void }): void {
+    const s = this.mount(`
+      <div class="menu-panel pause online-pause">
+        <h2>Online Duel</h2>
+        <p class="note">The fight keeps going while this is open.</p>
+        <button class="primary" data-act="resume" data-autofocus>Resume</button>
+        <button class="ghost" data-act="forfeit">Forfeit</button>
+      </div>`, 'online-pause');
+    this.on(s, '[data-act="resume"]', () => h.resume());
+    this.on(s, '[data-act="forfeit"]', () => h.forfeit());
+  }
+
+  /** The results screen's line under the title (online: the server's verdict once it arrives). */
+  setResultNote(text: string): void {
+    const el = this.screen?.classList.contains('results') ? this.screen.querySelector('.tagline') : null;
+    if (el) el.textContent = text;
+  }
+
   /** Overlay shown when the game needs a click to (re)capture the mouse. */
   showClickToResume(): void {
     this.mount(`<div class="click-resume">Click to resume</div>`, 'click');

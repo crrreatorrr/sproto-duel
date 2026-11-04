@@ -1,4 +1,4 @@
-import { createHubSdk, HubSdkError, type HubSdk, type InitResult, type RelicId } from '@metaverse/hub-sdk';
+import { createHubSdk, HubSdkError, realtimeFromSdk, type HubRealtime, type HubSdk, type InitResult, type RelicId } from '@metaverse/hub-sdk';
 import { HUB_EXIT_SLUG, HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
 import { planDuelWin, type DuelWin } from './report';
 
@@ -44,6 +44,37 @@ export class HubLink {
   error: string | null = null;
 
   constructor(private readonly api: HubSdk = createBrowserSdk()) {}
+
+  private rt: HubRealtime | null = null;
+
+  /**
+   * The realtime client for online duels (the game-scope session from init), or null when this
+   * visit isn't hub-connected (then Online Duel stays disabled). Created once.
+   */
+  realtime(): HubRealtime | null {
+    if (!this.connected) return null;
+    this.rt ??= realtimeFromSdk(this.api, { serverUrl: nakamaUrl() });
+    return this.rt;
+  }
+
+  /**
+   * An online match's result, from the server referee (sproto_arena). The client never earns for
+   * it: the server paid `paid[selfId]` (or nothing). Shows it and refreshes the balance.
+   */
+  async onOnlineOutcome(outcome: { status: string; paid: Record<string, number>; balances?: Record<string, number> }, selfId: string | null, notify: Notify = () => {}): Promise<void> {
+    if (!this.connected || !selfId) return;
+    const paid = outcome.paid[selfId] ?? 0;
+    const known = outcome.balances?.[selfId];
+    if (typeof known === 'number') this.balance = known;
+    else if (paid > 0) {
+      try {
+        this.balance = (await this.api.getTicketBalance()).balance;
+      } catch {
+        /* the balance shows after the next exchange or win */
+      }
+    }
+    if (paid > 0) notify(`+${paid} Tickets`, this.balance === null ? 'Online win' : `Balance ${this.balance}`);
+  }
 
   static standalone(): HubLink {
     return new HubLink();
@@ -159,8 +190,13 @@ export async function connectHub(api?: HubSdk): Promise<HubLink> {
   return link;
 }
 
+/** Nakama's HTTP origin (VITE_NAKAMA_URL; the compose default in dev). */
+function nakamaUrl(): string {
+  return (import.meta.env.VITE_NAKAMA_URL || 'http://127.0.0.1:7350').replace(/\/$/, '');
+}
+
 function createBrowserSdk(): HubSdk {
-  const serverUrl = (import.meta.env.VITE_NAKAMA_URL || 'http://127.0.0.1:7350').replace(/\/$/, '');
+  const serverUrl = nakamaUrl();
   return createHubSdk({
     serverUrl,
     serverKey: NAKAMA_SERVER_KEY,

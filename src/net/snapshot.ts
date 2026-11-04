@@ -41,11 +41,12 @@ export function captureWizard(w: Wizard): WizardState {
   };
 }
 
-export function captureProjectile(p: Projectile): ProjectileState {
+export function captureProjectile(p: Projectile, seats?: readonly Wizard[]): ProjectileState {
+  const seat = seats ? seats.indexOf(p.owner) : p.owner.index;
   return {
     id: p.netId,
     kind: p.kind,
-    owner: p.owner.index,
+    owner: seat < 0 ? 0 : seat,
     pos: [p.pos.x, p.pos.y, p.pos.z],
     vel: [p.vel.x, p.vel.y, p.vel.z],
     radius: p.radius,
@@ -54,34 +55,39 @@ export function captureProjectile(p: Projectile): ProjectileState {
   };
 }
 
-/** The host's state at `tick`. `ack`: the last guest input tick it applied. Projectiles sorted by id. */
-export function captureSnapshot(game: Game, match: Match, tick: number, ack = -1): Snapshot {
+/**
+ * The host's state at `tick`. `ack`: the last guest input tick it applied. `seats`: the wizards by
+ * network seat (default [player, enemy]); wins and owners are by seat too. Projectiles sorted by id.
+ */
+export function captureSnapshot(game: Game, match: Match, tick: number, ack = -1, seats: readonly Wizard[] = [game.player, game.enemy]): Snapshot {
   const arena: ArenaState = {
     fireRadius: game.arena.fireRadius,
     pillars: game.arena.pillars.map((p) => (p.alive ? p.hp : -1)),
     tickets: game.tickets.pool.filter((t) => t.active).map((t) => ({ id: t.id, x: t.pos.x, z: t.pos.z, age: t.age })),
   };
-  const projectiles = game.spells.pool.active.map(captureProjectile).sort((a, b) => a.id - b.id);
+  const projectiles = game.spells.pool.active.map((p) => captureProjectile(p, seats)).sort((a, b) => a.id - b.id);
   const phase = match.phase;
   return {
     v: SNAPSHOT_VERSION,
     tick,
     ack,
-    wizards: [game.player, game.enemy].map(captureWizard),
+    wizards: seats.map(captureWizard),
     projectiles,
     arena,
     match: {
       phase,
       round: match.round,
-      wins: [match.wins[0], match.wins[1]],
+      wins: [match.wins[seats[0].side], match.wins[seats[1].side]],
       timer: match.timer,
       phaseTime: match.phaseTime,
-      lastWinnerSeat: match.lastWinner ? match.lastWinner.index : -1,
+      lastWinnerSeat: match.lastWinner ? seats.indexOf(match.lastWinner) : -1,
     },
   };
 }
 
 export interface ApplyOptions {
+  /** The wizards by network seat (default [player, enemy]). */
+  seats?: readonly Wizard[];
   /** Seats whose movement fields the caller sets itself (guest prediction, interpolation). */
   skipMovement?: readonly number[];
   /** Apply projectiles (default true). */
@@ -129,7 +135,7 @@ export function applyWizard(w: Wizard, s: WizardState, movement = true): void {
  * position), known ones moved, and ones the host no longer has released. No events are emitted:
  * the host's own cast / impact events are re-emitted separately (src/net/events.ts).
  */
-export function applyProjectiles(game: Game, list: readonly ProjectileState[]): void {
+export function applyProjectiles(game: Game, list: readonly ProjectileState[], seats: readonly Wizard[] = [game.player, game.enemy]): void {
   const pool = game.spells.pool;
   const want = new Map<number, ProjectileState>();
   for (const s of list) want.set(s.id, s);
@@ -140,7 +146,7 @@ export function applyProjectiles(game: Game, list: readonly ProjectileState[]): 
   const have = new Map<number, Projectile>();
   for (const p of pool.active) have.set(p.netId, p);
   for (const s of list) {
-    const owner = game.wizards[s.owner] ?? game.enemy;
+    const owner = seats[s.owner] ?? game.enemy;
     let p = have.get(s.id);
     if (!p) {
       const fresh = pool.spawn(s.kind);
@@ -177,18 +183,17 @@ export function applyArena(game: Game, a: ArenaState): void {
 
 /** Apply a whole snapshot onto the replica `game` / `match`. */
 export function applySnapshot(game: Game, match: Match, snap: Snapshot, opts: ApplyOptions = {}): void {
-  const seats = [game.player, game.enemy];
+  const seats = opts.seats ?? [game.player, game.enemy];
   snap.wizards.forEach((s, i) => {
     const w = seats[i];
     if (w) applyWizard(w, s, !opts.skipMovement?.includes(i));
   });
-  if (opts.projectiles !== false) applyProjectiles(game, snap.projectiles);
+  if (opts.projectiles !== false) applyProjectiles(game, snap.projectiles, seats);
   applyArena(game, snap.arena);
   const m = snap.match;
   match.phase = m.phase as Phase;
   match.round = m.round;
-  match.wins[0] = m.wins[0];
-  match.wins[1] = m.wins[1];
+  seats.forEach((w, i) => (match.wins[w.side] = m.wins[i] ?? 0));
   match.timer = m.timer;
   match.phaseTime = m.phaseTime;
   match.lastWinner = m.lastWinnerSeat >= 0 ? seats[m.lastWinnerSeat] ?? null : null;

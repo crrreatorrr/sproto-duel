@@ -98,7 +98,8 @@ export class Match {
 
   constructor(private readonly game: Game) {
     events.on('ko', (e) => {
-      if (this.phase === 'fight' && !game.qaMode) this.onKO(e.loser);
+      // An online replica's rounds are the host's (applied from snapshots), never decided here.
+      if (this.phase === 'fight' && !game.qaMode && game.role !== 'replica') this.onKO(e.loser);
     });
     game.onTick((dt) => this.update(dt));
   }
@@ -200,6 +201,35 @@ export class Match {
       w.resetStats();
     }
     this.startRound();
+  }
+
+  /**
+   * An online guest's match: the host runs the rounds and snapshots set phase, clock and wins, so
+   * this only dresses the replica (rules, a clean arena, wizards on their marks) without starting
+   * any round flow or emitting events.
+   */
+  prepareReplica(rules: Readonly<MatchRules>): void {
+    const g = this.game;
+    this.boss = null;
+    this.rules = rules;
+    g.spells.rewardSpellsEnabled = rules.rewardSpells;
+    this.round = 1;
+    this.wins[0] = this.wins[1] = 0;
+    this.roundWinners = [];
+    this.lastWinner = null;
+    this.timer = rules.roundTime;
+    this.phase = 'intro';
+    this.phaseTime = M.introTime;
+    g.resetArena();
+    for (const w of g.wizards) {
+      w.ult = 0;
+      w.resetStats();
+      w.resetForRound(false);
+      w.visual.celebrate = false;
+    }
+    g.spawnWizards();
+    g.simulating = true;
+    g.actionsLocked = true;
   }
 
   startRound(): void {

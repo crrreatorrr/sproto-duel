@@ -165,6 +165,14 @@ export class Game {
    * accumulator, so sim time tracks wall-clock time (and the peer's input ticks).
    */
   fixedTimeScale = false;
+  /**
+   * 'local': the whole sim runs here (single player, Local Versus). 'host': the same, for an online
+   * match (it also streams snapshots). 'replica': an online guest: no gameplay runs, the state comes
+   * from the host's snapshots, and `replicaHooks` run per tick instead (sampling local input).
+   */
+  role: 'local' | 'host' | 'replica' = 'local';
+  /** Per fixed tick on a replica, in place of the simulation. */
+  readonly replicaHooks: ((dt: number, simTick: number) => void)[] = [];
   /** Smoothed frame stats for the QA harness / perf overlay. */
   readonly perf = { fps: 0, frameMs: 0, worstMs: 0, frames: 0 };
 
@@ -545,6 +553,11 @@ export class Game {
     this.tickHooks.push(fn);
   }
 
+  offTick(fn: (dt: number) => void): void {
+    const i = this.tickHooks.indexOf(fn);
+    if (i >= 0) this.tickHooks.splice(i, 1);
+  }
+
   onFrame(fn: (realDt: number, alpha: number) => void): void {
     this.frameHooks.push(fn);
   }
@@ -604,7 +617,14 @@ export class Game {
   tick(dt: number): void {
     this.simTime += dt;
     this.simTick++;
+    if (this.role === 'replica') {
+      for (const w of this.wizards) w.intent.tick(dt);
+      for (const fn of this.replicaHooks) fn(dt, this.simTick);
+      return;
+    }
     if (this.actionsLocked) {
+      // A remote player's buffer keeps playing out (its frames are dropped below), so it never backs up.
+      for (const c of this.controllers) if (c?.kind === 'remote') c.tick?.(dt, this.simTick);
       for (const w of this.wizards) {
         const facing = w.intent.facing;
         w.intent.clear();
@@ -629,7 +649,11 @@ export class Game {
     if (!this.qaMode) for (const fn of this.tickHooks) fn(dt);
   }
 
+  /** Runs first in every rendered frame, before any visual reads the state (an online replica's interpolation). */
+  readonly beforeRender: ((realDt: number) => void)[] = [];
+
   private renderFrame(realDt: number, simDt: number, alpha: number, fxDt = simDt): void {
+    for (const fn of this.beforeRender) fn(realDt);
     this.renderTime += simDt;
     // Muzzle glows sit on the camera's side of their props (last frame's camera is close enough).
     WizardVisual.viewer.copy(this.renderer.camera.position);
