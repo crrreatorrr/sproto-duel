@@ -9,6 +9,9 @@ class Emitter {
             this.list.delete(cb);
         };
     }
+    get size() {
+        return this.list.size;
+    }
     emit(...args) {
         for (const cb of [...this.list]) {
             try {
@@ -91,6 +94,25 @@ export function createRealtime(options) {
     let connecting = null;
     let lastToken = '';
     const pending = new Map();
+    /** Match messages that arrived before their join reply, by match id. */
+    const orphans = new Map();
+    let joinsInFlight = 0;
+    async function joinRequest(body) {
+        joinsInFlight += 1;
+        try {
+            return await request({ match_join: body }, 'match_join');
+        }
+        finally {
+            joinsInFlight -= 1;
+        }
+    }
+    function takeOrphans(matchId) {
+        const held = orphans.get(matchId) ?? [];
+        orphans.delete(matchId);
+        if (joinsInFlight === 0)
+            orphans.clear();
+        return held;
+    }
     const matches = new Map();
     const channels = new Map();
     const matchmaker = new Map();
@@ -180,11 +202,27 @@ export function createRealtime(options) {
         if (env.match_data) {
             const d = env.match_data;
             const entry = matches.get(d.match_id ?? '');
-            if (!entry)
-                return;
             const sender = d.presence && d.presence.user_id ? presenceFromWire(d.presence) : null;
             const bytes = d.data ? base64ToBytes(d.data) : new Uint8Array(0);
-            entry.message.emit(matchData(entry.matchId, opCodeFromWire(d.op_code), bytes, sender, d.reliable !== false));
+            if (!entry) {
+                // Nakama can deliver a match's first messages (sent from matchJoin) before the
+                // join reply. Hold them briefly; joinMatch hands them to the new handle.
+                if (joinsInFlight > 0 && d.match_id) {
+                    const held = orphans.get(d.match_id) ?? [];
+                    if (held.length < 64)
+                        held.push(matchData(d.match_id, opCodeFromWire(d.op_code), bytes, sender, d.reliable !== false));
+                    orphans.set(d.match_id, held);
+                }
+                return;
+            }
+            const msg = matchData(entry.matchId, opCodeFromWire(d.op_code), bytes, sender, d.reliable !== false);
+            if (entry.message.size === 0) {
+                if (entry.early.length < 256)
+                    entry.early.push(msg);
+            }
+            else {
+                entry.message.emit(msg);
+            }
             return;
         }
         if (env.match_presence_event) {
@@ -315,8 +353,14 @@ export function createRealtime(options) {
     async function restore() {
         for (const entry of [...matches.values()]) {
             try {
-                const env = await request({ match_join: { match_id: entry.matchId, metadata: entry.metadata ?? {} } }, 'match_join');
+                const env = await joinRequest({ match_id: entry.matchId, metadata: entry.metadata ?? {} });
                 const m = env.match ?? {};
+                const held = takeOrphans(entry.matchId);
+                if (entry.message.size === 0)
+                    entry.early.push(...held);
+                else
+                    for (const msg of held)
+                        entry.message.emit(msg);
                 entry.self = presenceFromWire(m.self);
                 if (entry.self.sessionId)
                     self = entry.self;
@@ -422,7 +466,15 @@ export function createRealtime(options) {
                     body.reliable = true;
                 socket.send(JSON.stringify({ match_data_send: body }));
             },
-            onMessage: (cb) => entry.message.on(cb),
+            onMessage(cb) {
+                const off = entry.message.on(cb);
+                if (entry.early.length) {
+                    const early = entry.early.splice(0);
+                    for (const msg of early)
+                        entry.message.emit(msg);
+                }
+                return off;
+            },
             onPresence: (cb) => entry.presence.on(cb),
             onRejoin: (cb) => entry.rejoin.on(cb),
             onClose: (cb) => entry.close.on(cb),
@@ -571,7 +623,7 @@ export function createRealtime(options) {
             const body = 'matchId' in target ? { match_id: target.matchId } : { token: target.token };
             if (metadata)
                 body.metadata = metadata;
-            const env = await request({ match_join: body }, 'match_join');
+            const env = await joinRequest(body);
             const m = env.match ?? {};
             const matchId = m.match_id ?? ('matchId' in target ? target.matchId : '');
             const existing = matches.get(matchId);
@@ -587,6 +639,7 @@ export function createRealtime(options) {
                 presences: (m.presences ?? []).map(presenceFromWire).filter((p) => !samePresence(p, me)),
                 metadata,
                 message: new Emitter(),
+                early: takeOrphans(matchId),
                 presence: new Emitter(),
                 rejoin: new Emitter(),
                 close: new Emitter(),

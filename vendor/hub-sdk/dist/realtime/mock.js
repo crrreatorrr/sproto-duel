@@ -81,12 +81,19 @@ export function createMockRealtimeServer(options) {
             }
         });
     }
+    /** Server → client frames arrive as separate macrotasks, like WebSocket message events. */
     function push(conn, env) {
         const text = JSON.stringify(env);
-        schedule(() => {
-            if (conn.open && conn.ws.readyState === 1)
-                conn.ws.onmessage?.({ data: text });
-        });
+        pending += 1;
+        setTimeout(() => {
+            try {
+                if (conn.open && conn.ws.readyState === 1)
+                    conn.ws.onmessage?.({ data: text });
+            }
+            finally {
+                pending -= 1;
+            }
+        }, 0);
     }
     function errorReply(conn, cid, code, message) {
         push(conn, { cid, error: { code, message } });
