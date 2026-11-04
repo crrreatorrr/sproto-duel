@@ -589,8 +589,10 @@ QA_SHARD=0/2 npm run qa:headless # half of the list
 QA_PERF=10 npm run qa:headless   # also print __duel.qa.perf(10) and draw calls first
 ```
 
-`duo.hud_cards_and_banners_name_both` fails in the headless window (its partner plate check needs a
-taller viewport), with or without changes.
+Five scenarios fail headless on `main` as well (checked against 818f14d in the same shard order):
+`duo.hud_cards_and_banners_name_both`, `ui.menus_fit_900x560` and `ui.boss_cards_fit_1280x800_and_1366x768`
+(the headless viewport), and `muzzles.fx_pooled` / `anim.root_motion_pinned` (order-dependent under
+`QA_SHARD=1/2`; both pass alone). Everything else passes.
 
 Unit tests (`npm test`, vitest) cover the pure parts: intent frames, snapshot codec, net events,
 protocol, the jitter and snapshot buffers, the online session against `FakeArenaServer` (the

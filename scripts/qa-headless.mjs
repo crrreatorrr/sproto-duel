@@ -62,7 +62,7 @@ await vite.listen();
 process.on('exit', () => { void vite.close(); });
 
 const base = `http://127.0.0.1:${PORT}/`;
-await waitFor(async () => (await fetch(base)).ok, 60_000, 'vite dev server');
+await waitFor(async () => (await fetch(base)).ok, 180_000, 'vite dev server');
 
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-chrome-'));
 const chrome = spawn(chromeBin, [
