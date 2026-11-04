@@ -2,6 +2,7 @@ import { resolveHubEnv } from './env';
 import { HubSdkError } from './errors';
 import { relicForEvent } from './events';
 import { pbShopRow } from './pbShop';
+import { EMPTY_SAVE, encodeSave } from './save';
 import { createLiveHubSdk } from './live';
 import { createNakamaClient, LOCAL_NAKAMA } from './nakama';
 import { getOrCreateDeviceId, readNumber, writeNumber } from './storage';
@@ -338,6 +339,28 @@ function createMockHubSdk(env) {
                 return { boardId, variant, order, rows: [], me: null };
             const row = { userId: active.playerId, name: active.playerId, value: Number(raw), rank: 1 };
             return { boardId, variant, order, rows: [row], me: row };
+        },
+        async loadSave() {
+            if (!active)
+                return { ...EMPTY_SAVE };
+            const raw = resolved.local.getItem(`hub:save:${active.playerId}:${active.game}`);
+            if (raw === null)
+                return { ...EMPTY_SAVE };
+            try {
+                const stored = JSON.parse(raw);
+                return { data: stored.data, updatedAt: stored.updatedAt };
+            }
+            catch {
+                return { ...EMPTY_SAVE };
+            }
+        },
+        async writeSave(data) {
+            const text = encodeSave(data);
+            if (!active)
+                return { ...EMPTY_SAVE };
+            const stored = { data: JSON.parse(text), updatedAt: bucketNow() };
+            resolved.local.setItem(`hub:save:${active.playerId}:${active.game}`, JSON.stringify(stored));
+            return stored;
         },
         async earnTickets(amount, reason, key) {
             if (!key)

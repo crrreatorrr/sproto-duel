@@ -16,12 +16,15 @@ export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
 
 /**
  * Relic → staff in this game. One staff slot, so these never stack.
+ * `breakwater_coin` (Sproto Arcade) gives the same award as NOBU's `cones_tip`: owning either,
+ * or both, owns the Nobu Staff once.
  * Absent on purpose: `tinubu_crown` (earned in Duel).
  */
 const STAFF_BY_RELIC: Readonly<Record<string, StaffId>> = {
   hpos10i_core: 'duel_staff_momentum',
   genesis_shard: 'duel_staff_moonward',
   cones_tip: 'duel_staff_nobu',
+  breakwater_coin: 'duel_staff_nobu',
 };
 
 /** Relics from the current hub init, or null when this visit has no session. */

@@ -1,9 +1,9 @@
 # Vendored @metaverse/hub-sdk
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
-- branch: claude/loving-galileo-ndy2tu
-- sha: 36e4eb2
-- package: packages/hub-sdk @ 0.5.0
+- branch: claude/kind-bardeen-h2fhj8
+- sha: ee187cf
+- package: packages/hub-sdk @ 0.6.0
 - built with: `node scripts/vendor-sdk.mjs`
 
 Layout: `package.json`, `README.md`, `dist/*.js`, `dist/*.d.ts`. No source maps are included, and `sourceMappingURL` lines are stripped.
@@ -20,6 +20,8 @@ Duel only, through `HubLobby` (`src/net/HubLobby.ts`): matchmaker quick match wi
 `sproto_arena` match. `submitScore` no longer skips unranked sessions (the server decides), and the
 server refuses `sproto_wins` from clients (`server_board`); the game still sends it for Quick Duel
 and gauntlet wins, which is harmless.
+
+0.6.0 adds the `sproto-arcade` game, its Relic `breakwater_coin` and the optional `loadSave` / `writeSave`.
 
 This vendor is from the hub's realtime branch before it merged to main (the online code needs
 it). After the hub PR merges, re-vendor from main with

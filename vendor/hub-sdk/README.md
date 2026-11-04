@@ -2,7 +2,9 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
-Version 0.5.0. It adds the realtime client (`createRealtime`, `realtimeFromSdk`), an in-memory realtime mock for game tests, `getSession` / `refreshSession` / `getLeaderboard`, and a `ScoreResult` answer from `submitScore`. Everything is additive: 0.4 callers and test doubles still typecheck. `redeemTicket` is the handoff. Shop calls (`spendTickets`, `sellItem`, and `getTicketBalance`) sit on the same surface. Method names, argument order, game ids, relic ids, and event ids stay stable.
+Version 0.6.0 adds the `sproto-arcade` game id, the `breakwater_coin` Relic and its `arcade.boss_defeated` event, and optional cloud saves: `loadSave()` / `writeSave(data)` (RPCs `save.get` / `save.put`, one JSON object of at most 4096 bytes per player per game, no-op standalone). Games must re-vendor to see the new Relic, because the SDK drops relic ids it does not know.
+
+Version 0.5.0 added the realtime client (`createRealtime`, `realtimeFromSdk`), an in-memory realtime mock for game tests, `getSession` / `refreshSession` / `getLeaderboard`, and a `ScoreResult` answer from `submitScore`. Everything is additive: 0.4 callers and test doubles still typecheck. `redeemTicket` is the handoff. Shop calls (`spendTickets`, `sellItem`, and `getTicketBalance`) sit on the same surface. Method names, argument order, game ids, relic ids, and event ids stay stable.
 
 ## Install
 
@@ -122,6 +124,8 @@ submitScore(boardId: string, value: number, meta?: object): Promise<ScoreResult 
 getSession?(): { token; playerId; game; ranked; expiresAt } | null
 refreshSession?(): Promise<HubSessionInfo | null>
 getLeaderboard?(boardId, { variant?, limit? }): Promise<{ boardId; variant; order; rows: { userId; name; value; rank }[]; me }>
+loadSave?(): Promise<{ data: object | null; updatedAt: number }>
+writeSave?(data: object): Promise<{ data: object | null; updatedAt: number }>
 earnTickets(amount: number, reason: string, key: string): Promise<{ balance: number; capped: boolean }>
 exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; balance: number; receiptId: string; verseCapLeft?: number }>
 spendTickets(shopId: string, itemId: string, packs: number, key: string): Promise<{ shop_id: string; item_id: string; packs: number; units: number; spent: number; balance: number }>
@@ -141,6 +145,7 @@ Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`.
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
 | `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
+| `arcade.boss_defeated` with boss `bront` | `breakwater_coin` |
 
 God-mode flags inside `data` do not block a grant. The hub lights Tinubu's Crown from the server profile when the player returns.
 
