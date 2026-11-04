@@ -15,6 +15,10 @@ npm run build
 npm run check:assets
 ```
 
+## Art generation
+
+Follow `docs/higgsfield-workflow-guide.md`. This repo uses the **rigged 3D character** workflow. If the owner says to skip approvals, follow that section of the guide.
+
 ## Working with other agents
 
 Claude Code, Codex, Cursor and Grok Bot all work on this repo.
