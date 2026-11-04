@@ -528,7 +528,9 @@ export class App {
     void this.hub.onOnlineOutcome(o, this.onlineLobby()?.selfId ?? null, (title, sub) => this.menus.toast(title, sub, 'tickets'));
     this.onlineCtl?.stop();
     if (this.state === 'results') this.menus.setResultNote(this.outcomeText());
-    else if (this.state === 'playing' || this.state === 'paused') this.showResults();
+    // A match that ended early (forfeit, opponent gone, stall): results now. A finished one keeps
+    // its KO beat (onMatchEnd's results timer) and shows the verdict when the screen comes up.
+    else if ((this.state === 'playing' || this.state === 'paused') && this.match.phase !== 'matchEnd') this.showResults();
   }
 
   /** Ended without an outcome: back to the online menu with the reason. */

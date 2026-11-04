@@ -19,8 +19,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const PORT = Number(process.env.QA_PORT || 4174);
-const CDP_PORT = Number(process.env.QA_CDP_PORT || 9333);
+const PORT = Number(process.env.QA_PORT || 4187);
+// 0: Chrome picks a free DevTools port and prints it (never another agent's browser on a fixed port).
+const CDP_PORT_WANTED = Number(process.env.QA_CDP_PORT || 0);
 const filter = process.argv[2] || '';
 const perfSeconds = Number(process.env.QA_PERF || 0);
 const timeoutMs = Number(process.env.QA_TIMEOUT_MS || 30 * 60 * 1000);
@@ -68,10 +69,17 @@ const chrome = spawn(chromeBin, [
   '--headless=new', '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
   '--autoplay-policy=no-user-gesture-required', '--mute-audio', '--disable-background-timer-throttling',
   '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
-  `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${profile}`, '--window-size=' + (process.env.QA_WINDOW || '800,450'), '--force-device-scale-factor=1', 'about:blank',
+  `--remote-debugging-port=${CDP_PORT_WANTED}`, `--user-data-dir=${profile}`, '--window-size=' + (process.env.QA_WINDOW || '800,450'), '--force-device-scale-factor=1', 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 children.push(chrome);
 
+// "DevTools listening on ws://127.0.0.1:<port>/devtools/browser/<id>" on Chrome's stderr.
+let chromeErr = '';
+chrome.stderr.on('data', (d) => (chromeErr += d));
+const CDP_PORT = await waitFor(() => {
+  const m = /DevTools listening on ws:\/\/[^:]+:(\d+)\//.exec(chromeErr);
+  return m ? Number(m[1]) : null;
+}, 30_000, 'chrome devtools port');
 const targets = await waitFor(async () => {
   const r = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
   const list = await r.json();
