@@ -36,6 +36,29 @@ function fakeApi(): HubSdk & { calls: unknown[][] } {
   return Object.assign(api, { calls });
 }
 
+describe('HubLink online', () => {
+  it('shows the server-paid amount and never earns from the client', async () => {
+    const api = fakeApi();
+    (api.getTicketBalance as ReturnType<typeof vi.fn>).mockResolvedValue({ balance: 140, sessionCapLeft: 0, dailyCapLeft: 0, serverTime: 0 });
+    const link = new HubLink(api);
+    link.attach(profile());
+    const notes: string[] = [];
+    await link.onOnlineOutcome({ status: 'verified', paid: { me: 20 } }, 'me', (t, sub) => notes.push(`${t}|${sub}`));
+    expect(notes).toEqual(['+20 Tickets|Balance 140']);
+    await link.onOnlineOutcome({ status: 'verified', paid: { other: 20 } }, 'me', (t) => notes.push(t));
+    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 20 }, balances: { me: 160 } }, 'me', (t, sub) => notes.push(`${t}|${sub}`));
+    expect(notes).toEqual(['+20 Tickets|Balance 140', '+20 Tickets|Balance 160']);
+    expect(api.earnTickets).not.toHaveBeenCalled();
+    expect(api.calls).toEqual([]);
+  });
+
+  it('a standalone visit has no realtime client', () => {
+    expect(new HubLink(fakeApi()).realtime(() => {
+      throw new Error('not called standalone');
+    })).toBeNull();
+  });
+});
+
 describe('HubLink', () => {
   it('calls init with the sproto game id and stays standalone without a hub session', async () => {
     const api = fakeApi();

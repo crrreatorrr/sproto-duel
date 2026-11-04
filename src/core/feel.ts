@@ -14,8 +14,21 @@ class Feel {
   readonly flashColor = new Color(1, 1, 1);
   /** Position the camera cares about (the local player). Set by the game each frame. */
   readonly listener = new Vector3();
-  /** The locally controlled wizard: hits it deals or takes shake at full strength. */
-  local: object | null = null;
+  /**
+   * The locally controlled wizards (one, or both in Local Versus): hits they deal or take shake at
+   * full strength. `local` sets it to just one.
+   */
+  readonly locals = new Set<object>();
+  get local(): object | null {
+    return this.locals.values().next().value ?? null;
+  }
+  set local(w: object | null) {
+    this.locals.clear();
+    if (w) this.locals.add(w);
+  }
+  isLocal(w: object | null): boolean {
+    return w !== null && this.locals.has(w);
+  }
   private minorCooldown = 0;
 
   /** Hit-stop. Minor freezes (bolts) are rate-limited so sustained fire doesn't stutter. */

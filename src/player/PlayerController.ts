@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { Input } from '../core/Input';
+import type { GamepadInput } from '../core/Gamepad';
+import type { IntentSource } from '../input/IntentSource';
 import { clamp, wrapAngle } from '../core/math';
 import { GROUP, type Physics } from '../physics/Physics';
 import type { CameraRig } from '../camera/CameraRig';
@@ -25,12 +27,21 @@ export interface PadSettings {
   rumble: boolean;
 }
 
+/** The devices one local human plays with (see DeviceBinding; Local Versus gives P2 its own pad). */
+export interface LocalDevices {
+  /** Reads keyboard + mouse (false: P2 in Local Versus, who has only a pad). */
+  keyboardMouse: boolean;
+  /** The pad to read; defaults to the shared Input's pad. */
+  pad?: GamepadInput;
+}
+
 /**
- * Turns keyboard + mouse and gamepad into a WizardIntent. Both devices work at the same time.
- * Runs once per rendered frame (not per physics tick) so presses are never missed during
- * hit-stop; actions are buffered on the intent.
+ * A local human seat: turns keyboard + mouse and/or a gamepad into a WizardIntent. Both devices
+ * work at the same time. Runs once per rendered frame (not per physics tick) so presses are never
+ * missed during hit-stop; actions are buffered on the intent.
  */
-export class PlayerController {
+export class LocalHumanSource implements IntentSource {
+  readonly kind = 'local' as const;
   private readonly fwd = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
   private readonly camFwd = new THREE.Vector3();
@@ -58,7 +69,32 @@ export class PlayerController {
     private readonly physics: Physics,
     /** The player's opponents (Game.enemies: one, or two in a double fight). */
     private readonly getOpponents: () => readonly Wizard[],
-  ) {}
+    devices: LocalDevices = { keyboardMouse: true },
+  ) {
+    this.kbm = devices.keyboardMouse;
+    this.pad = devices.pad ?? input.pad;
+  }
+
+  /** Reads keyboard + mouse. */
+  kbm: boolean;
+  /** The pad this seat reads. */
+  pad: GamepadInput;
+
+  /** The wizard this seat drives. */
+  get driven(): Wizard {
+    return this.wizard;
+  }
+
+  /** The camera rig this seat aims with. */
+  get camera(): CameraRig {
+    return this.rig;
+  }
+
+  /** IntentSource: one rendered frame of look + intents. */
+  frame(): void {
+    this.look();
+    this.update();
+  }
 
   /** Angle (radians) between the crosshair ray and the direction from the camera to `w`'s chest. */
   private angleTo(w: Wizard, dir: THREE.Vector3): number {
@@ -87,21 +123,23 @@ export class PlayerController {
   }
 
   get padSettings(): PadSettings {
-    return { padSensitivity: this.padSensitivity, padInvertY: this.padInvertY, aimAssist: this.aimAssist, rumble: this.input.pad.rumbleEnabled };
+    return { padSensitivity: this.padSensitivity, padInvertY: this.padInvertY, aimAssist: this.aimAssist, rumble: this.pad.rumbleEnabled };
   }
 
   applyPadSettings(s: PadSettings): void {
     this.padSensitivity = s.padSensitivity;
     this.padInvertY = s.padInvertY;
     this.aimAssist = s.aimAssist;
-    this.input.pad.rumbleEnabled = s.rumble;
+    this.pad.rumbleEnabled = s.rumble;
   }
 
   /** Mouse + right-stick look. Runs even while the wizard is stunned/dead so the camera stays responsive. */
   look(): void {
-    const d = this.input.consumeMouseDelta();
-    this.rig.rotate(d.x, d.y);
-    const pad = this.input.pad;
+    if (this.kbm) {
+      const d = this.input.consumeMouseDelta();
+      this.rig.rotate(d.x, d.y);
+    }
+    const pad = this.pad;
     pad.update();
     if (!this.input.enabled || !pad.connected) {
       this.edgeTime = 0;
@@ -127,13 +165,13 @@ export class PlayerController {
     const w = this.wizard;
     const intent = w.intent;
     const input = this.input;
-    const pad = input.pad;
+    const pad = this.pad;
     pad.update();
     const usePad = input.enabled && pad.connected;
 
     this.rig.basis(this.fwd, this.right);
-    let f = (input.isDown(K.forward) ? 1 : 0) - (input.isDown(K.back) ? 1 : 0);
-    let r = (input.isDown(K.right) ? 1 : 0) - (input.isDown(K.left) ? 1 : 0);
+    let f = (this.kDown(K.forward) ? 1 : 0) - (this.kDown(K.back) ? 1 : 0);
+    let r = (this.kDown(K.right) ? 1 : 0) - (this.kDown(K.left) ? 1 : 0);
     if (usePad) {
       // Analog: half a stick is half speed. Stick y is +down.
       f -= pad.move.y;
@@ -141,27 +179,41 @@ export class PlayerController {
     }
     intent.move.set(0, 0, 0).addScaledVector(this.fwd, f).addScaledVector(this.right, r);
     if (intent.move.lengthSq() > 1) intent.move.normalize();
-    intent.sprint = input.isDown(K.sprint) || (usePad && this.padSprint());
+    intent.sprint = this.kDown(K.sprint) || (usePad && this.padSprint());
     intent.facing = this.rig.yaw;
 
     const held = (b: readonly string[]) => usePad && pad.isDown(b);
     const tap = (b: readonly string[]) => usePad && pad.wasPressed(b);
-    intent.holdBolt = input.isMouseDown(K.mouseBolt) || input.isDown(K.bolt) || held(PB.bolt);
-    if (input.wasMousePressed(K.mouseBolt) || input.wasPressed(K.bolt) || tap(PB.bolt)) intent.press('bolt');
-    if (input.wasMousePressed(K.mouseBlast) || input.wasPressed(K.blast) || tap(PB.blast)) intent.press('blast');
-    if (input.wasPressed(K.shield) || tap(PB.shield)) intent.press('shield');
-    if (input.wasPressed(K.stun) || tap(PB.stun)) intent.press('stun');
-    if (input.wasPressed(K.ultimate) || tap(PB.ultimate)) intent.press('ultimate');
-    if (input.wasPressed(K.dodge) || tap(PB.dodge)) intent.press('dodge');
-    if (input.wasPressed(K.jump) || tap(PB.jump)) intent.press('jump');
+    intent.holdBolt = this.mDown(K.mouseBolt) || this.kDown(K.bolt) || held(PB.bolt);
+    if (this.mPressed(K.mouseBolt) || this.kPressed(K.bolt) || tap(PB.bolt)) intent.press('bolt');
+    if (this.mPressed(K.mouseBlast) || this.kPressed(K.blast) || tap(PB.blast)) intent.press('blast');
+    if (this.kPressed(K.shield) || tap(PB.shield)) intent.press('shield');
+    if (this.kPressed(K.stun) || tap(PB.stun)) intent.press('stun');
+    if (this.kPressed(K.ultimate) || tap(PB.ultimate)) intent.press('ultimate');
+    if (this.kPressed(K.dodge) || tap(PB.dodge)) intent.press('dodge');
+    if (this.kPressed(K.jump) || tap(PB.jump)) intent.press('jump');
     // Boss reward spells (SpellSystem ignores the ones not learned yet, with a "NOT LEARNED" callout).
-    for (const id of REWARD_SPELLS) if (input.wasPressed(K[id]) || tap(PB[id])) intent.press(id);
+    for (const id of REWARD_SPELLS) if (this.kPressed(K[id]) || tap(PB[id])) intent.press(id);
 
     this.updateAim(usePad && pad.device === 'gamepad');
   }
 
+  // Keyboard + mouse reads: always false for a pad-only seat.
+  private kDown(c: readonly string[]): boolean {
+    return this.kbm && this.input.isDown(c);
+  }
+  private kPressed(c: readonly string[]): boolean {
+    return this.kbm && this.input.wasPressed(c);
+  }
+  private mDown(b: number): boolean {
+    return this.kbm && this.input.isMouseDown(b);
+  }
+  private mPressed(b: number): boolean {
+    return this.kbm && this.input.wasMousePressed(b);
+  }
+
   private padSprint(): boolean {
-    const pad = this.input.pad;
+    const pad = this.pad;
     if (!G.sprintToggle) return pad.isDown(PB.sprint);
     if (pad.wasPressed(PB.sprint)) this.sprintLatched = !this.sprintLatched;
     if (Math.hypot(pad.move.x, pad.move.y) < 0.2) this.sprintLatched = false;
@@ -229,3 +281,7 @@ export class PlayerController {
     }
   }
 }
+
+/** The single-player name for the local human seat (QA and App still use it). */
+export const PlayerController = LocalHumanSource;
+export type PlayerController = LocalHumanSource;

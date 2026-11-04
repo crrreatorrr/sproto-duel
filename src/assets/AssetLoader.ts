@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import assetIndex from 'virtual:asset-index';
-import { MODELS, TEXTURES, WIZARD_CLIPS, type ModelAsset, type ModelKey, type RiggedModel, type TextureAsset, type TextureKey } from './manifest';
+import { isBossModelKey, MODELS, TEXTURES, WIZARD_CLIPS, type ModelAsset, type ModelKey, type RiggedModel, type TextureAsset, type TextureKey } from './manifest';
 import { STAFF_IDS, staffModelPath } from '../staff/catalog';
 import { prepareRig } from './rig';
 
@@ -114,18 +114,52 @@ export class AssetLoader {
   private props = new Map<string, Promise<PropTemplate | null>>();
   private readyProps = new Map<string, PropTemplate | null>();
 
+  /**
+   * Everything the first menu, Quick Duel, Local Versus and online need: every manifest model but
+   * the campaign bosses' stage models (about 5 MB; `ensureModels` loads them before a gauntlet
+   * fight, and `prefetchBosses` in the background), every texture and every staff.
+   */
   async loadAll(onProgress?: (done: number, total: number) => void): Promise<void> {
     const jobs: Promise<void>[] = [];
     let done = 0;
     const tick = () => onProgress?.(++done, jobs.length);
     for (const key of Object.keys(MODELS) as ModelKey[]) {
-      jobs.push(this.loadModelVariant(MODELS[key] as ModelAsset, key).then((t) => void this.models.set(key, t)).then(tick));
+      if (isBossModelKey(key)) continue;
+      jobs.push(this.ensureModel(key).then(tick));
     }
     for (const key of Object.keys(TEXTURES) as TextureKey[]) {
       jobs.push(this.loadTextureAsset(TEXTURES[key] as TextureAsset).then((t) => void this.textures.set(key, t)).then(tick));
     }
     for (const id of STAFF_IDS) jobs.push(this.loadProp(staffModelPath(id)).then(tick));
     await Promise.all(jobs);
+  }
+
+  /** Manifest models loading or loaded, by key. */
+  private modelJobs = new Map<ModelKey, Promise<void>>();
+
+  private ensureModel(key: ModelKey): Promise<void> {
+    let job = this.modelJobs.get(key);
+    if (!job) {
+      job = this.loadModelVariant(MODELS[key] as ModelAsset, key).then((t) => void this.models.set(key, t));
+      this.modelJobs.set(key, job);
+    }
+    return job;
+  }
+
+  /** Load manifest models on demand (a gauntlet boss's stages). Cached; resolves once all settled. */
+  async ensureModels(keys: Iterable<ModelKey>): Promise<void> {
+    await Promise.all([...keys].map((k) => this.ensureModel(k)));
+  }
+
+  /** All of `keys` have settled (loaded, or known missing): `instantiate` answers for them now. */
+  modelsReady(keys: Iterable<ModelKey>): boolean {
+    for (const k of keys) if (!this.models.has(k)) return false;
+    return true;
+  }
+
+  /** Every boss stage model, in the background (after the first menu is up). */
+  prefetchBosses(): Promise<void> {
+    return this.ensureModels((Object.keys(MODELS) as ModelKey[]).filter(isBossModelKey));
   }
 
   /** A fresh copy of a loaded model, or null if the file isn't there (use a placeholder). */

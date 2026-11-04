@@ -1,6 +1,6 @@
 import { resolveHubEnv } from './env';
 import { HubSdkError } from './errors';
-import { sessionVarsFromToken, userIdFromToken } from './nakama';
+import { sessionVarsFromToken, tokenExpiryMs, userIdFromToken } from './nakama';
 import { getOrCreateDeviceId } from './storage';
 import { readTicketParam, stripTicketParam } from './ticket';
 import { GAME_IDS, canonicalGameId, isBoardId, isRelicId, } from './types';
@@ -153,6 +153,7 @@ export function createLiveHubSdk(env, client) {
                 ranked: parsed.ranked,
                 sid: parsed.sid,
                 token: parsed.token,
+                refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined,
                 effects: flatEffects(parsed.effects),
                 relics: asRelics(parsed.relics),
                 ticketsCapLeft: typeof parsed.ticketsCapLeft === 'number' ? parsed.ticketsCapLeft : 0,
@@ -168,6 +169,15 @@ export function createLiveHubSdk(env, client) {
             resolved.session.removeItem(sessionKey(game));
         resolved.session.setItem(sessionKey(session.game), JSON.stringify(session));
         active = session;
+    }
+    function sessionInfo(session) {
+        return {
+            token: session.token,
+            playerId: session.playerId,
+            game: session.game,
+            ranked: session.ranked,
+            expiresAt: tokenExpiryMs(session.token),
+        };
     }
     function profileOf(session, serverTime) {
         return {
@@ -276,6 +286,7 @@ export function createLiveHubSdk(env, client) {
             ranked,
             sid: vars.sid,
             token: auth.token,
+            refreshToken: auth.refreshToken || undefined,
             effects,
             relics,
             ticketsCapLeft,
@@ -355,9 +366,44 @@ export function createLiveHubSdk(env, client) {
                 throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
             if (!Number.isFinite(value) || value < 0)
                 throw new HubSdkError('bad_score', 'Score must be a non-negative number');
-            if (!active || !active.ranked)
+            // The server owns eligibility (ranked gate, god mode, bounds), so unranked sessions post too.
+            if (!active)
                 return;
-            await client.rpc('score.submit', { boardId, value, meta: meta ?? {} }, { token: active.token });
+            const godMode = meta?.godMode === true;
+            return client.rpc('score.submit', { boardId, value, meta: meta ?? {}, godMode }, { token: active.token });
+        },
+        getSession() {
+            return active ? sessionInfo(active) : null;
+        },
+        async refreshSession() {
+            if (!active)
+                return null;
+            const session = active;
+            const expiresAt = tokenExpiryMs(session.token);
+            if (!expiresAt || expiresAt - resolved.now() > 300_000)
+                return sessionInfo(session);
+            if (!client.sessionRefresh || !session.refreshToken)
+                return sessionInfo(session);
+            const fresh = await client.sessionRefresh(session.refreshToken);
+            if (active !== session)
+                return active ? sessionInfo(active) : null;
+            session.token = fresh.token;
+            session.refreshToken = fresh.refreshToken;
+            writeCached(session);
+            return sessionInfo(session);
+        },
+        async getLeaderboard(boardId, opts) {
+            if (!isBoardId(boardId))
+                throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
+            const variant = opts?.variant ?? '';
+            if (!active)
+                return { boardId, variant, order: boardId === 'hpos10i_act_time' || boardId === 'nobu_trial_time' ? 'asc' : 'desc', rows: [], me: null };
+            const body = { boardId };
+            if (opts?.variant !== undefined)
+                body.variant = opts.variant;
+            if (opts?.limit !== undefined)
+                body.limit = opts.limit;
+            return client.rpc('leaderboard.top', body, { token: active.token });
         },
         async earnTickets(amount, reason, key) {
             if (!key)

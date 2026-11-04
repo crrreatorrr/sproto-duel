@@ -143,6 +143,41 @@ export const CONFIG = {
     maxStepsPerFrame: 4,
   },
 
+  /** Local Versus: two players on one screen (split-screen, src/render/Renderer.ts views). */
+  versus: {
+    /** Side-by-side halves. */
+    split: 'vertical' as 'vertical',
+    /** Each half is narrow: a slightly wider vertical field of view keeps the opponent in frame. */
+    fov: 70,
+    /** Bloom per view: strength scale and resolution divisor (2 = half res of the view, 4 = quarter). */
+    bloomStrengthScale: 0.5,
+    bloomResDivisor: 4,
+    /** Shadow map size while split (the main pass is drawn twice). */
+    shadowMapSize: 1024,
+  },
+
+  /** Online 1v1 (src/net). Rates are per second unless noted. */
+  net: {
+    /** sproto_arena's server tick rate (Hz). */
+    tickRate: 30,
+    /** Host-side delay (ticks) on the guest's input frames, adapted by ±1 on under/overrun. */
+    inputDelayTicks: 2,
+    /** Guest-side interpolation delay for the opponent (ms). */
+    interpDelayMs: 100,
+    /** Projectiles are extrapolated from the newest snapshot at most this far (ms). */
+    extrapolateMaxMs: 150,
+    /** The server keeps a dropped player's seat this long (s). */
+    reconnectGraceS: 10,
+    /** The host sends a snapshot every this many sim ticks (2 = 30 Hz at 60 Hz). */
+    snapEveryTicks: 2,
+    /** Guest prediction replays at most this many unacked frames ([S]). */
+    maxPredictionReplay: 30,
+    /** Seconds between PINGs. */
+    pingEveryS: 1,
+    /** The host drops guest frames older than this many ticks behind its sim. */
+    maxInputLagTicks: 30,
+  },
+
   match: {
     roundsToWin: 2, // best of 3
     roundTime: 80,

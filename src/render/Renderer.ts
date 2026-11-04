@@ -5,12 +5,31 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { CONFIG } from '../config';
 
+/** One on-screen view: its camera and its share of the canvas (fractions, origin bottom-left). */
+export interface View {
+  camera: THREE.PerspectiveCamera;
+  rect: { x: number; y: number; w: number; h: number };
+}
+
+const FULL = { x: 0, y: 0, w: 1, h: 1 };
+
 export class Renderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
+  /**
+   * What is drawn: one full-screen view (`camera`), or two side-by-side halves in Local Versus
+   * (setViews). The second camera and its composer are built on first use.
+   */
+  readonly views: View[];
+  private camera2: THREE.PerspectiveCamera | null = null;
+  private composer2: EffectComposer | null = null;
+  private bloom2: UnrealBloomPass | null = null;
+  /** The settings' shadow choice, and the map size it uses outside split-screen. */
+  private shadowSize: number = CONFIG.render.shadowMapSize;
+  private bloomOn = true;
   /** Pixel height factor used by point-sprite shaders for size attenuation. */
   pointScale = 1;
   /** Extra bloom on top of CONFIG.render.bloomStrength (a boss transformation; negative turns it down). */
@@ -43,6 +62,7 @@ export class Renderer {
     );
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    this.views = [{ camera: this.camera, rect: { ...FULL } }];
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -56,8 +76,57 @@ export class Renderer {
     this.resizeListeners.push(fn);
   }
 
+  /** The second view's camera (built on first use). */
+  get secondCamera(): THREE.PerspectiveCamera {
+    return (this.camera2 ??= new THREE.PerspectiveCamera(CONFIG.versus.fov, 1, 0.06, 400));
+  }
+
+  /**
+   * One full-screen view, or two vertical halves (P1 left, P2 right) for Local Versus. Split mode
+   * builds a second composer (bloom at CONFIG.versus strength and resolution), widens both fields
+   * of view and drops the shadow map to CONFIG.versus.shadowMapSize; one view puts it all back.
+   */
+  setViews(count: 1 | 2): void {
+    if (count === this.views.length) return;
+    const V = CONFIG.versus;
+    if (count === 2) {
+      const cam2 = this.secondCamera;
+      if (!this.composer2) {
+        const c = new EffectComposer(this.renderer);
+        c.addPass(new RenderPass(this.scene, cam2));
+        this.bloom2 = new UnrealBloomPass(new THREE.Vector2(128, 128), CONFIG.render.bloomStrength, CONFIG.render.bloomRadius, CONFIG.render.bloomThreshold);
+        c.addPass(this.bloom2);
+        c.addPass(new OutputPass());
+        this.composer2 = c;
+      }
+      this.views.splice(0, this.views.length, { camera: this.camera, rect: { x: 0, y: 0, w: 0.5, h: 1 } }, { camera: cam2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } });
+      this.setShadowMapSize(V.shadowMapSize);
+    } else {
+      this.views.splice(0, this.views.length, { camera: this.camera, rect: { ...FULL } });
+      this.setShadowMapSize(this.shadowSize);
+    }
+    this.resize();
+  }
+
+  /** Shadow map resolution of every shadow-casting light (the map is rebuilt on the next frame). */
+  private setShadowMapSize(size: number): void {
+    this.scene.traverse((o) => {
+      const l = o as THREE.DirectionalLight;
+      if (!l.isLight || !l.shadow || l.shadow.mapSize.x === size) return;
+      l.shadow.mapSize.set(size, size);
+      l.shadow.map?.dispose();
+      l.shadow.map = null;
+    });
+  }
+
+  get split(): boolean {
+    return this.views.length > 1;
+  }
+
   setQuality(opts: { bloom: boolean; shadows: boolean }): void {
     this.bloom.enabled = opts.bloom;
+    this.bloomOn = opts.bloom;
+    if (this.bloom2) this.bloom2.enabled = opts.bloom;
     if (this.renderer.shadowMap.enabled !== opts.shadows) {
       this.renderer.shadowMap.enabled = opts.shadows;
       this.scene.traverse((o) => {
@@ -71,20 +140,65 @@ export class Renderer {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
-    // Bloom at half resolution: most of the glow, a fraction of the cost.
     const pr = this.renderer.getPixelRatio();
-    this.bloom.setSize(Math.round((w * pr) / 2), Math.round((h * pr) / 2));
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    if (this.split) {
+      const V = CONFIG.versus;
+      const vw = Math.round(w / 2);
+      for (const [c, b] of [[this.composer, this.bloom], [this.composer2!, this.bloom2!]] as const) {
+        c.setSize(vw, h);
+        b.setSize(Math.max(1, Math.round((vw * pr) / V.bloomResDivisor)), Math.max(1, Math.round((h * pr) / V.bloomResDivisor)));
+      }
+      for (const v of this.views) {
+        v.camera.aspect = vw / h;
+        v.camera.updateProjectionMatrix();
+      }
+    } else {
+      this.composer.setSize(w, h);
+      // Bloom at half resolution: most of the glow, a fraction of the cost.
+      this.bloom.setSize(Math.round((w * pr) / 2), Math.round((h * pr) / 2));
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+    }
     this.pointScale = (h * pr) / 2;
     for (const fn of this.resizeListeners) fn();
   }
 
+  /** The vertical field of view a camera rig should aim for: wider in split-screen. */
+  get baseFov(): number {
+    return this.split ? CONFIG.versus.fov : CONFIG.camera.fov;
+  }
+
   render(): void {
     this.renderer.info.reset();
-    this.bloom.strength = Math.max(0, CONFIG.render.bloomStrength + this.bloomBoost);
-    this.composer.render();
+    const strength = Math.max(0, CONFIG.render.bloomStrength + this.bloomBoost);
+    if (!this.split) {
+      this.bloom.strength = strength;
+      this.composer.render();
+      return;
+    }
+    // Split-screen: each half through its own composer into its own viewport. The sun's shadow
+    // camera is fixed over the arena, so its map is drawn once (first view) and reused.
+    const r = this.renderer;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const k = CONFIG.versus.bloomStrengthScale;
+    this.bloom.strength = this.bloom2!.strength = strength * k;
+    this.bloom2!.enabled = this.bloomOn;
+    const autoShadow = r.shadowMap.autoUpdate;
+    r.setScissorTest(true);
+    try {
+      this.views.forEach((v, i) => {
+        const x = Math.round(v.rect.x * w), vw = Math.round(v.rect.w * w);
+        r.setViewport(x, 0, vw, h);
+        r.setScissor(x, 0, vw, h);
+        if (i > 0) r.shadowMap.autoUpdate = false;
+        (i === 0 ? this.composer : this.composer2!).render();
+      });
+    } finally {
+      r.shadowMap.autoUpdate = autoShadow;
+      r.setScissorTest(false);
+      r.setViewport(0, 0, w, h);
+    }
   }
 
   /** Shader programs compiled so far (cached by three.js and shared by matching materials). */

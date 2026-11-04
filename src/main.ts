@@ -21,8 +21,18 @@ async function boot() {
   game.start();
 
   if (import.meta.env.DEV) {
+    const netsim = new URLSearchParams(location.search).get('netsim');
+    if (netsim !== null) {
+      const { netsimLobby } = await import('./net/devNetsim');
+      app.devLobby = () => netsimLobby(Math.max(0, Number(netsim) || 80));
+    }
+    // QA scenarios dress bosses synchronously: every model is in before the harness appears.
+    await game.assets.prefetchBosses();
     const { installDevTools } = await import('./qa/dev');
     installDevTools(game, app);
+  } else {
+    // The gauntlet's boss models arrive in the background once the menu is up.
+    setTimeout(() => void game.assets.prefetchBosses(), 1500);
   }
 }
 

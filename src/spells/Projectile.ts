@@ -101,6 +101,8 @@ class ProjectileMaterials {
 
 export class Projectile implements SkinTarget {
   active = false;
+  /** Stable id for the network (ProjectilePool.spawn: a counter that only goes up). */
+  netId = 0;
   owner!: Wizard;
   /** Who originally cast it (for perfect reflects homing back). */
   caster!: Wizard;
@@ -264,6 +266,8 @@ export class ProjectilePool {
   readonly active: Projectile[] = [];
   private readonly free: Record<ProjectileKind, Projectile[]> = { bolt: [], blast: [] };
   private readonly mats = new ProjectileMaterials();
+  /** The next Projectile.netId. */
+  private nextNetId = 1;
   /** Object looks for skinned projectiles (boss rugs, phones, bullets...). */
   readonly skins: ProjectileSkins;
 
@@ -284,6 +288,7 @@ export class ProjectilePool {
     const p = this.free[kind].pop();
     if (!p) return null;
     p.active = true;
+    p.netId = this.nextNetId++;
     p.reflected = false;
     p.homing = null;
     p.seek = null;

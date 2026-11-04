@@ -221,7 +221,7 @@ export class RewardSpells {
     }
     // Glass stops the flames (inCone) and they crack it: a pane takes as many licks as bolts to shatter.
     const hit = this.physics.raycast(origin, dir, B.range, GROUP.WORLD);
-    if (hit?.tag.kind === 'pillar' && hit.tag.pillar.shape.seeThrough) hit.tag.pillar.damage(B.dps * B.tick, hit.point);
+    if (hit?.tag.kind === 'pillar' && hit.tag.pillar.shape.seeThrough) hit.tag.pillar.damage(B.dps * B.tick, hit.point.clone());
   }
 
   /**

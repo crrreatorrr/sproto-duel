@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 and pick **Boss Gauntlet** or **Quick Duel** (the game captures the mouse).
+Open http://localhost:5173 and pick **Boss Gauntlet**, **Quick Duel** or **Local Versus** (the game captures the mouse).
 
 ```bash
 npm run build      # typecheck + production build into dist/
@@ -75,6 +75,60 @@ round timer and won rounds in the middle, and your spells with their cooldowns a
 second row above them holds the boss spells you have learned). A golden mana bar with a countdown
 chip means that wizard has a Golden Tickets boost. The plates, the clock and the spell rows sit on a
 translucent, blurred dark backing so they read over any sky; the HUD steps aside behind menus.
+
+## Local Versus
+
+Two players on one screen, split side by side (P1 left, P2 right), best of three in the moonlit
+arena. Main menu → **Local Versus** → Player 2 presses A on a controller → **Fight** (or A again).
+
+- Devices: with one controller, P1 plays keyboard + mouse and P2 the controller. With two or more,
+  P1 also gets the first controller and P2 takes the one that pressed A. A controller is required.
+- Even rules: both staffs are looks only (starter stats), no boss reward spells, no life packs, no
+  god mode (F9, "99" and `?god` are ignored mid-match). Golden tickets still spawn.
+- Nothing is reported to the hub (no Tickets, no board): one screen could farm it.
+- Pause works from either side (Esc, or Start on any controller in play).
+- Rendering: each half has its own camera and composer, a slightly wider field of view
+  (`CONFIG.versus.fov`), bloom at half strength and quarter resolution, and the shadow map drops to
+  1024 (`CONFIG.versus`); the sun's shadow map is drawn once for both halves. The see-through fade of
+  a wizard between the camera and you is off in split-screen, because material fade is shared by both
+  halves (both wizards are normal size, so nothing is hidden).
+- Seats: `Game.controllers[]` holds one `IntentSource` per wizard (`src/input/IntentSource.ts`):
+  local humans (`LocalHumanSource`, ex-PlayerController) with a device binding, the AI, a remote
+  player or a scripted replay. `MatchRules` (`src/core/rules.ts`) says what a mode allows.
+
+## Online Duel
+
+Behind `VITE_ONLINE=1` until the two-machine playtest passes (or `?online` in `npm run dev`).
+It needs a hub visit (enter Sproto Duel from its portal); standalone the button explains that.
+
+- **Quick Match** pairs you with whoever is searching (same protocol version); **Create Room** shows
+  a 6-character code to share; **Join Room** takes one. Esc opens Resume / Forfeit: the fight never
+  pauses. The HUD shows a ping chip.
+- Rules: the Versus rules above, never paused. A win pays **20 Tickets** only when the server
+  referee confirms it: both players' results agree and fit the rounds it recorded. At most 5 paid
+  wins per pair of players per UTC day and 10 per player. A forfeit pays the one who stayed only
+  after at least one finished round and 15 s. Disputed results, draws and timeouts pay nothing.
+  The client never earns Tickets for online play; online wins count on the `sproto_wins` board.
+- **Netcode.** The fight's simulation needs Rapier and three.js, which the hub's Nakama runtime can't
+  run, so one client, the **host** (random each match), runs it and the other is a **replica**.
+  The guest sends its intent frames (`src/net/intent.ts`, 30 messages/s, recent frames repeated);
+  the host plays them through a jitter buffer (`RemoteInputBuffer`, 2 ticks) and streams snapshots
+  at 30 Hz (`src/net/state.ts`, about 1 KB) with the fight's events. The guest interpolates both
+  wizards 100 ms back and extrapolates projectiles, and re-emits the events so HUD, audio and
+  effects behave as offline. The server match (`sproto_arena` in metaverse-hub) relays and referees.
+  v1 has no guest prediction: your own wizard on the guest also comes from the host (fine at up to
+  about 80 ms; spells have visible travel time).
+- **Honest limits.** "Both results agree" catches a modified guest and quick-quit farming, not a
+  modified host. That exposure is capped: the host is random (a cheater hosts about half the time),
+  5 paid wins per pair per day, 10 (200 Tickets) per player per day, and the hub's 1000/day cap.
+- Tuning: `CONFIG.net` (`inputDelayTicks`, `interpDelayMs`, `extrapolateMaxMs`, `snapEveryTicks`, ...).
+  Opcodes and `NET_VERSION` are in `src/net/protocol.ts` and must match the server's.
+- Dev without a server: `npm run dev` and open `/?netsim=80`. You host against a scripted guest over an
+  in-page fake referee with 80 ms one-way latency.
+- **Two-tab local test** (real server): run the hub's Nakama with the `sproto_arena` module (see
+  metaverse-hub `docs/games/sproto-arena.md`), build or run the game with
+  `VITE_ONLINE=1 VITE_NAKAMA_URL=http://127.0.0.1:7350`, and enter it from the hub portal in two
+  browser profiles (each needs its own portal ticket). Quick Match in both.
 
 ## Golden Tickets
 
@@ -483,7 +537,10 @@ src/
   physics/              Rapier wrapper: character controller, sphere casts, raycasts
   wizard/               shared Wizard entity + its visual (placeholder, static or rigged GLB), clip state machine
                         (Animator.ts), procedural motion, muzzles
-  player/               keyboard + mouse controller (input buffering, aim assist)
+  player/               local human seat: keyboard + mouse and/or a pad (input buffering, aim assist)
+  input/                IntentSource seats, device assignment for Local Versus, scripted replays
+  net/                  online 1v1: protocol, intent frames, snapshots + codec, events, transports,
+                        jitter/snapshot buffers, OnlineSession, OnlineController, hub lobby, fake referee
   enemy/                AI state machine (approach / attack / evade / retreat)
   spells/               casting rules, projectiles (pooled), shields, clashes, stun beam, ultimate,
                         boss projectile skins (instanced rugs, phones, pigs, bullets...: ProjectileSkins.ts),
@@ -523,6 +580,25 @@ await __duel.qa.perf(8)             // real frame-time stats while you play
 
 `?nolock` in the URL runs the game without pointer lock (for automation).
 
+Headless, with no extra dependencies (Chrome with SwiftShader, driven over CDP):
+
+```bash
+npm run qa:headless              # every scenario, one at a time, failures printed (slow: SwiftShader)
+npm run qa:headless -- versus.   # only names containing "versus."
+QA_SHARD=0/2 npm run qa:headless # half of the list
+QA_PERF=10 npm run qa:headless   # also print __duel.qa.perf(10) and draw calls first
+```
+
+Five scenarios fail headless on `main` as well (checked against 818f14d in the same shard order):
+`duo.hud_cards_and_banners_name_both`, `ui.menus_fit_900x560` and `ui.boss_cards_fit_1280x800_and_1366x768`
+(the headless viewport), and `muzzles.fx_pooled` / `anim.root_motion_pinned` (order-dependent under
+`QA_SHARD=1/2`; both pass alone). Everything else passes.
+
+Unit tests (`npm test`, vitest) cover the pure parts: intent frames, snapshot codec, net events,
+protocol, the jitter and snapshot buffers, the online session against `FakeArenaServer` (the
+referee's rules over loopback links), the hub lobby against the SDK's mock server, device
+assignment and hub reporting.
+
 There is also a QA subagent definition at `.claude/agents/qa-tester.md`. Ask Claude Code to "run the
 qa-tester agent" after a change: it builds an isolated snapshot, runs the harness, playtests with
 synthetic input, measures performance, and reports bugs and feel problems by severity.
@@ -544,3 +620,9 @@ synthetic input, measures performance, and reports bugs and feel problems by sev
 - The hit flash is a capped glow in the wizard's own colour that settles under rapid hits
   (`CONFIG.wizard.hitGlow`), so bloom never turns a model into a white blob.
 - Rapier ships its WebAssembly inlined (about 1.7 MB gzipped) in its own cached chunk.
+- The boss stage models (18 rigged GLBs, about 6 MB) are not fetched before the first menu: the
+  boss card waits for its boss's models, and the rest load in the background once the menu is up.
+- Physics queries allocate nothing: raycast and sphereCast each reuse one result object (valid
+  until that method's next call), and line-of-sight checks never touch it.
+- Online code (session, hub lobby, the SDK realtime client) is a separate chunk loaded when Online
+  Duel starts.

@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { BOSSES, type BossDef } from '../campaign/levels';
 import { events } from './events';
 import { feel } from './feel';
+import { GAUNTLET, QUICK, type MatchRules } from './rules';
 import type { Game } from './Game';
 import type { Wizard } from '../wizard/Wizard';
 
@@ -87,6 +88,8 @@ export class Match {
   phaseTime = 0;
   /** Campaign boss for this match (null in Quick Duel). */
   boss: BossDef | null = null;
+  /** What this match allows (rounds, clock, pickups, reward spells...). Set by startMatch. */
+  rules: Readonly<MatchRules> = QUICK;
   lastWinner: Wizard | null = null;
   roundWinners: (Wizard | null)[] = [];
   private lastCount = -1;
@@ -95,7 +98,8 @@ export class Match {
 
   constructor(private readonly game: Game) {
     events.on('ko', (e) => {
-      if (this.phase === 'fight' && !game.qaMode) this.onKO(e.loser);
+      // An online replica's rounds are the host's (applied from snapshots), never decided here.
+      if (this.phase === 'fight' && !game.qaMode && game.role !== 'replica') this.onKO(e.loser);
     });
     game.onTick((dt) => this.update(dt));
   }
@@ -156,7 +160,7 @@ export class Match {
 
   /** Rounds a side needs to take the match: 1 in the gauntlet, else CONFIG.match.roundsToWin. */
   get roundsToWin(): number {
-    return this.single ? 1 : M.roundsToWin;
+    return this.single ? 1 : this.rules.roundsToWin;
   }
 
   /** Seconds of fight phase this round (the gauntlet's clock counts up). */
@@ -179,9 +183,14 @@ export class Match {
     return this.phase === 'roundEnd' && (this.wins[0] >= this.roundsToWin || this.wins[1] >= this.roundsToWin);
   }
 
-  /** `boss`: the campaign fight being played (one round, one life), or null for a Quick Duel. */
-  startMatch(boss: BossDef | null = null): void {
+  /**
+   * `boss`: the campaign fight being played (one round, one life), or null for a Quick Duel, Local
+   * Versus or online match. `rules` defaults to the gauntlet's with a boss, else Quick Duel's.
+   */
+  startMatch(boss: BossDef | null = null, rules: Readonly<MatchRules> = boss ? GAUNTLET : QUICK): void {
     this.boss = boss;
+    this.rules = rules;
+    this.game.spells.rewardSpellsEnabled = rules.rewardSpells;
     // A fresh fight: its full budget of life packs (Retry too).
     this.game.lifePacks.reset();
     this.round = 1;
@@ -192,6 +201,35 @@ export class Match {
       w.resetStats();
     }
     this.startRound();
+  }
+
+  /**
+   * An online guest's match: the host runs the rounds and snapshots set phase, clock and wins, so
+   * this only dresses the replica (rules, a clean arena, wizards on their marks) without starting
+   * any round flow or emitting events.
+   */
+  prepareReplica(rules: Readonly<MatchRules>): void {
+    const g = this.game;
+    this.boss = null;
+    this.rules = rules;
+    g.spells.rewardSpellsEnabled = rules.rewardSpells;
+    this.round = 1;
+    this.wins[0] = this.wins[1] = 0;
+    this.roundWinners = [];
+    this.lastWinner = null;
+    this.timer = rules.roundTime;
+    this.phase = 'intro';
+    this.phaseTime = M.introTime;
+    g.resetArena();
+    for (const w of g.wizards) {
+      w.ult = 0;
+      w.resetStats();
+      w.resetForRound(false);
+      w.visual.celebrate = false;
+    }
+    g.spawnWizards();
+    g.simulating = true;
+    g.actionsLocked = true;
   }
 
   startRound(): void {
@@ -205,7 +243,7 @@ export class Match {
     g.enemyController?.reset?.();
     // Gauntlet fights last 15+ minutes: golden tickets come at their slower pace there.
     g.tickets.spawnInterval = this.single ? CONFIG.tickets.bossSpawnInterval : CONFIG.tickets.spawnInterval;
-    this.timer = M.roundTime;
+    this.timer = this.rules.roundTime;
     this.clock.reset();
     this.phase = 'intro';
     this.phaseTime = M.introTime;
@@ -220,8 +258,8 @@ export class Match {
   private update(dt: number): void {
     const g = this.game;
     g.actionsLocked = this.phase !== 'fight';
-    g.tickets.enabled = this.phase === 'fight';
-    g.lifePacks.enabled = this.phase === 'fight' && (this.single || CONFIG.lifePacks.quickDuel);
+    g.tickets.enabled = this.phase === 'fight' && this.rules.tickets;
+    g.lifePacks.enabled = this.phase === 'fight' && (this.single || this.rules.lifePacks);
     switch (this.phase) {
       case 'intro': {
         this.phaseTime -= dt;

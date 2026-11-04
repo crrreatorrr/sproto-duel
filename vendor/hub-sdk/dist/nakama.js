@@ -28,6 +28,19 @@ export function sessionVarsFromToken(token) {
         return {};
     }
 }
+/** JWT `exp` in epoch ms, or 0 when the token has none. */
+export function tokenExpiryMs(token) {
+    const part = token.split('.')[1];
+    if (!part)
+        return 0;
+    try {
+        const json = JSON.parse(new TextDecoder().decode(base64UrlToBytes(part)));
+        return typeof json.exp === 'number' && Number.isFinite(json.exp) ? json.exp * 1000 : 0;
+    }
+    catch {
+        return 0;
+    }
+}
 export function userIdFromToken(token) {
     const part = token.split('.')[1];
     if (!part)
@@ -82,6 +95,10 @@ export function createNakamaClient(options) {
             if (!auth.refreshToken)
                 throw new HubSdkError('auth_failed', 'Auth did not return a refresh token');
             return auth;
+        },
+        async sessionRefresh(refreshToken) {
+            const auth = await postAuth('/v2/account/session/refresh', { token: refreshToken });
+            return { token: auth.token, refreshToken: auth.refreshToken || refreshToken };
         },
         async rpc(id, body, opts) {
             const params = new URLSearchParams({ unwrap: 'true' });

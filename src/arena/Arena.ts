@@ -309,7 +309,8 @@ export class Arena {
   private readonly fog = new THREE.Fog(0x140c22, R.fogNear, R.fogFar);
   private readonly sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private readonly hemi = new THREE.HemisphereLight(0x6a78c8, 0x2a1a24, 1.1);
-  private readonly sun = new THREE.DirectionalLight(0xc4d2ff, 2.2);
+  /** The key light (shadow caster). */
+  readonly sun = new THREE.DirectionalLight(0xc4d2ff, 2.2);
   private readonly bounce = new THREE.DirectionalLight(0xff7a3a, 0.35);
   private readonly floorMat = new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0.02 });
   private readonly groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1420, roughness: 1 });

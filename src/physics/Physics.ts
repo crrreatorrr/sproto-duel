@@ -24,6 +24,11 @@ const capsuleHalfHeight = (radius: number, height: number) => Math.max(0.05, hei
 /** How far the wizards-only barrier reaches above the visible wall. */
 const BARRIER_HEIGHT = 6;
 
+/**
+ * A query result. `raycast` and `sphereCast` each reuse one result object: it is valid until the
+ * next call of the same method, so copy `point` / `normal` to keep them (lineOfSight and clearPath
+ * never touch it).
+ */
 export interface QueryHit {
   tag: ColliderTag;
   /** Distance along the query direction. */
@@ -49,6 +54,9 @@ export class Physics {
   private readonly identity = { x: 0, y: 0, z: 0, w: 1 };
   private readonly unitDir = { x: 0, y: 0, z: 0 };
   private readonly losDir = new Vector3();
+  /** The reused results of raycast and sphereCast (see QueryHit). */
+  private readonly rayHit: QueryHit = { tag: null as unknown as ColliderTag, distance: 0, point: new Vector3(), normal: new Vector3() };
+  private readonly sphereHit: QueryHit = { tag: null as unknown as ColliderTag, distance: 0, point: new Vector3(), normal: new Vector3() };
   private readonly collision = new RAPIER.CharacterCollision();
   private readonly down = { x: 0, y: -1, z: 0 };
   private readonly probePos = { x: 0, y: 0, z: 0 };
@@ -303,13 +311,12 @@ export class Physics {
     if (!hit) return null;
     const tag = this.tags.get(hit.collider.handle);
     if (!tag) return null;
-    const t = hit.time_of_impact;
-    return {
-      tag,
-      distance: t,
-      point: new Vector3(hit.witness1.x, hit.witness1.y, hit.witness1.z),
-      normal: new Vector3(hit.normal1.x, hit.normal1.y, hit.normal1.z),
-    };
+    const out = this.sphereHit;
+    out.tag = tag;
+    out.distance = hit.time_of_impact;
+    out.point.set(hit.witness1.x, hit.witness1.y, hit.witness1.z);
+    out.normal.set(hit.normal1.x, hit.normal1.y, hit.normal1.z);
+    return out;
   }
 
   raycast(
@@ -320,8 +327,7 @@ export class Physics {
     exclude?: RAPIER.Collider,
     skip?: (tag: ColliderTag) => boolean,
   ): QueryHit | null {
-    this.ray.origin = { x: origin.x, y: origin.y, z: origin.z };
-    this.ray.dir = { x: dir.x, y: dir.y, z: dir.z };
+    this.setRay(origin, dir);
     this.activeSkip = skip ?? null;
     const hit = this.world.castRayAndGetNormal(
       this.ray,
@@ -338,12 +344,28 @@ export class Physics {
     const tag = this.tags.get(hit.collider.handle);
     if (!tag) return null;
     const d = hit.timeOfImpact;
-    return {
-      tag,
-      distance: d,
-      point: new Vector3(origin.x + dir.x * d, origin.y + dir.y * d, origin.z + dir.z * d),
-      normal: new Vector3(hit.normal.x, hit.normal.y, hit.normal.z),
-    };
+    const out = this.rayHit;
+    out.tag = tag;
+    out.distance = d;
+    out.point.set(origin.x + dir.x * d, origin.y + dir.y * d, origin.z + dir.z * d);
+    out.normal.set(hit.normal.x, hit.normal.y, hit.normal.z);
+    return out;
+  }
+
+  /** Point the shared ray (no allocation: Rapier's ray keeps plain {x,y,z} objects). */
+  private setRay(origin: Vector3, dir: Vector3): void {
+    const o = this.ray.origin, d = this.ray.dir;
+    o.x = origin.x; o.y = origin.y; o.z = origin.z;
+    d.x = dir.x; d.y = dir.y; d.z = dir.z;
+  }
+
+  /** Does a ray hit anything tagged within `maxDistance`? Leaves raycast's result alone. */
+  private rayBlocked(origin: Vector3, dir: Vector3, maxDistance: number, mask: number, skip?: (tag: ColliderTag) => boolean): boolean {
+    this.setRay(origin, dir);
+    this.activeSkip = skip ?? null;
+    const hit = this.world.castRay(this.ray, maxDistance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, mask), undefined, undefined, skip ? this.predicate : undefined);
+    this.activeSkip = null;
+    return hit !== null && this.tags.has(hit.collider.handle);
   }
 
   /** True if nothing in the WORLD group (pillars/walls) blocks the line a -> b. Glass doesn't. */
@@ -352,7 +374,7 @@ export class Physics {
     const len = dir.length();
     if (len < 1e-4) return true;
     dir.divideScalar(len);
-    return this.raycast(a, dir, len, GROUP.WORLD, undefined, this.seeThrough) === null;
+    return !this.rayBlocked(a, dir, len, GROUP.WORLD, this.seeThrough);
   }
 
   /**
@@ -364,7 +386,7 @@ export class Physics {
     const len = dir.length();
     if (len < 1e-4) return true;
     dir.divideScalar(len);
-    return this.raycast(a, dir, len, GROUP.WORLD) === null;
+    return !this.rayBlocked(a, dir, len, GROUP.WORLD);
   }
 
   /** Skip transparent cover (glass partitions) in sight checks. */

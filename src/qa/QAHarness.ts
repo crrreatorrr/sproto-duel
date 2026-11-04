@@ -100,7 +100,14 @@ export class QAHarness {
    */
   async sandbox(fn: () => void | Promise<void>): Promise<void> {
     const g = this.game;
-    const saved = { simulating: g.simulating, playerControl: g.playerControl, controller: g.enemyController, locked: g.actionsLocked };
+    const saved = {
+      simulating: g.simulating, playerControl: g.playerControl, controller: g.enemyController, locked: g.actionsLocked,
+      seats: g.controllers.slice(1), rewards: g.spells.rewardSpellsEnabled, fixed: g.fixedTimeScale,
+    };
+    // Extra seats (Local Versus P2, an online peer) stay out of scenarios unless one sets them.
+    for (let i = 1; i < g.controllers.length; i++) g.controllers[i] = null;
+    g.spells.rewardSpellsEnabled = true;
+    g.fixedTimeScale = false;
     g.simulating = false;
     g.playerControl = false;
     g.actionsLocked = false;
@@ -124,6 +131,9 @@ export class QAHarness {
       g.inSandbox = false;
       g.enemyController = saved.controller;
       g.enemyController?.reset?.();
+      saved.seats.forEach((c, i) => (g.controllers[i + 1] = c));
+      g.spells.rewardSpellsEnabled = saved.rewards;
+      g.fixedTimeScale = saved.fixed;
       g.simulating = saved.simulating;
       g.playerControl = saved.playerControl;
       g.actionsLocked = saved.locked;

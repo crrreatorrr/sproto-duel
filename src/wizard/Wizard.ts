@@ -15,7 +15,17 @@ import type { EquippedStaff } from '../staff/catalog';
 export type ActionKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'ultimate' | 'dodge' | 'jump' | RewardSpellId;
 export type CooldownKey = 'bolt' | 'blast' | 'shield' | 'stun' | 'dodge' | 'blink';
 
-/** What a controller (keyboard, AI) wants the wizard to do this tick. */
+/**
+ * Every ActionKey in a fixed order: the bit order of network intent frames (src/net/intent.ts) and
+ * the order WizardIntent walks its buffers in. Append only; never reorder.
+ */
+export const ACTION_KEYS: readonly ActionKey[] = ['bolt', 'blast', 'shield', 'stun', 'ultimate', 'dodge', 'jump', ...REWARD_SPELLS];
+
+const zeroActions = (): Record<ActionKey, number> => ({
+  bolt: 0, blast: 0, shield: 0, stun: 0, ultimate: 0, dodge: 0, jump: 0, carpet: 0, pump: 0, vape: 0, lockon: 0, breath: 0,
+});
+
+/** What a controller (keyboard, AI, a remote player) wants the wizard to do this tick. */
 export class WizardIntent {
   /** World-space XZ direction, length 0..1. */
   readonly move = new Vector3();
@@ -25,12 +35,16 @@ export class WizardIntent {
   /** Desired facing yaw (radians). */
   facing = 0;
   /** Remaining buffer time per action; > 0 means "do this as soon as you can". */
-  readonly buffered: Record<ActionKey, number> = {
-    bolt: 0, blast: 0, shield: 0, stun: 0, ultimate: 0, dodge: 0, jump: 0, carpet: 0, pump: 0, vape: 0, lockon: 0, breath: 0,
-  };
+  readonly buffered: Record<ActionKey, number> = zeroActions();
+  /**
+   * Presses so far per action (only ever counts up, never cleared): a sampler (net intent frames)
+   * sees every press since its last sample, whatever the buffer timer did meanwhile.
+   */
+  readonly presses: Record<ActionKey, number> = zeroActions();
 
   press(action: ActionKey): void {
     this.buffered[action] = CONFIG.feel.inputBuffer;
+    this.presses[action]++;
   }
 
   wants(action: ActionKey): boolean {
@@ -42,9 +56,10 @@ export class WizardIntent {
   }
 
   tick(dt: number): void {
-    for (const k in this.buffered) {
-      const key = k as ActionKey;
-      if (this.buffered[key] > 0) this.buffered[key] = Math.max(0, this.buffered[key] - dt);
+    const b = this.buffered;
+    for (let i = 0; i < ACTION_KEYS.length; i++) {
+      const key = ACTION_KEYS[i];
+      if (b[key] > 0) b[key] = Math.max(0, b[key] - dt);
     }
   }
 
@@ -52,7 +67,7 @@ export class WizardIntent {
     this.move.set(0, 0, 0);
     this.sprint = false;
     this.holdBolt = false;
-    for (const k in this.buffered) this.buffered[k as ActionKey] = 0;
+    for (let i = 0; i < ACTION_KEYS.length; i++) this.buffered[ACTION_KEYS[i]] = 0;
   }
 }
 
@@ -343,6 +358,18 @@ export class Wizard {
       this.vel.set(0, 0, 0);
       this.knock.set(0, 0, 0);
       this.placeBody();
+    }
+    this.syncSolid();
+  }
+
+  /** Set alive / knocked out directly (an online replica applying the host's state), collider included. */
+  setAlive(on: boolean): void {
+    if (this.alive === on) return;
+    this.alive = on;
+    if (!on) {
+      this.cast = null;
+      this.shieldTime = 0;
+      this.endRewardEffects();
     }
     this.syncSolid();
   }

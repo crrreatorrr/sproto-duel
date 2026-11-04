@@ -388,7 +388,24 @@ export class Pillar {
     }
   }
 
-  private crumble(): void {
+  /**
+   * Take the host's state (an online replica): `hp` < 0 means broken. Breaking plays the crumble
+   * (debris) without its event (the host's own pillarBreak event is re-emitted separately).
+   */
+  setNetState(hp: number): void {
+    if (!this.active) return;
+    if (hp < 0) {
+      if (this.alive) this.crumble(false);
+      return;
+    }
+    if (!this.alive) this.reset();
+    if (this.hp !== hp && this.shape.destructible) {
+      this.hp = hp;
+      this.applyTint();
+    }
+  }
+
+  private crumble(emit = true): void {
     const s = this.shape;
     this.alive = false;
     this.hp = 0;
@@ -405,7 +422,7 @@ export class Pillar {
       const n = Math.round(8 + this.boundingRadius * 7);
       this.debris.spawnColumn(this.position, Math.max(0.4, s.height - s.stumpHeight), this.boundingRadius * 0.7, n, Math.max(0.3, s.stumpHeight));
     }
-    events.emit('pillarBreak', { pos: center, glass: s.seeThrough });
+    if (emit) events.emit('pillarBreak', { pos: center, glass: s.seeThrough });
   }
 
   reset(): void {

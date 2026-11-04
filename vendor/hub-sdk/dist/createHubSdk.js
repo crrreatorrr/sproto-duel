@@ -6,7 +6,7 @@ import { createLiveHubSdk } from './live';
 import { createNakamaClient, LOCAL_NAKAMA } from './nakama';
 import { getOrCreateDeviceId, readNumber, writeNumber } from './storage';
 import { readTicketParam, stripTicketParam, verifyMockTicket } from './ticket';
-import { GAME_IDS, MOCK_TICKET_EARN_CAP, TICKETS_PER_VERSE, VERSE_DAILY_CAP, canonicalGameId, isBoardId, isRelicId, } from './types';
+import { GAME_IDS, MOCK_TICKET_EARN_CAP, NOBU_TRIAL_CEIL_MS, NOBU_TRIAL_FLOOR_MS, TICKETS_PER_VERSE, VERSE_DAILY_CAP, canonicalGameId, isBoardId, isRelicId, } from './types';
 const BOARD_MODE = {
     hpos10i_act_time: 'asc-best',
     nobu_trial_time: 'asc-best',
@@ -174,6 +174,17 @@ function createMockHubSdk(env) {
         active = session;
         return session;
     }
+    function mockSessionInfo() {
+        if (!active)
+            return null;
+        return {
+            token: `mock.${active.playerId}`,
+            playerId: active.playerId,
+            game: active.game,
+            ranked: active.ranked,
+            expiresAt: resolved.now() + 7_200_000,
+        };
+    }
     async function withIdem(playerId, key, rpc, body, run) {
         if (!key)
             throw new HubSdkError('bad_key', 'Idempotency key is required');
@@ -272,20 +283,61 @@ function createMockHubSdk(env) {
                 throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
             if (!Number.isFinite(value) || value < 0)
                 throw new HubSdkError('bad_score', 'Score must be a non-negative number');
-            if (!active || !active.ranked)
+            if (!active)
                 return;
-            const storageKey = `hub:score:${active.playerId}:${boardId}`;
+            // Same rules as the server's HubBoards.submit (Contract C13).
+            const metaObj = (meta && typeof meta === 'object' ? meta : {});
+            if (boardId === 'meta' || boardId === 'sproto_wins')
+                return { accepted: false, reason: 'server_board' };
+            if (!active.ranked && (active.game === 'hpos10i' || active.game === 'sproto'))
+                return { accepted: false, reason: 'unranked' };
+            if (metaObj.godMode === true)
+                return { accepted: false, reason: 'god_mode' };
+            let variant = '';
+            if (boardId === 'nobu_trial_time') {
+                variant = String(metaObj.level ?? '');
+                const floor = NOBU_TRIAL_FLOOR_MS[variant];
+                if (floor === undefined)
+                    throw new HubSdkError('bad_variant', 'Unknown level');
+                if (!Number.isInteger(value))
+                    throw new HubSdkError('bad_score', 'Time must be integer milliseconds');
+                if (value < floor || value > NOBU_TRIAL_CEIL_MS)
+                    throw new HubSdkError('implausible_score', 'Time is out of bounds');
+            }
+            const storageKey = `hub:score:${active.playerId}:${boardId}${variant ? `:${variant}` : ''}`;
             const previous = readNumber(resolved.local, storageKey);
             const hasPrevious = resolved.local.getItem(storageKey) !== null;
             const mode = BOARD_MODE[boardId];
-            let next = value;
+            const whole = Math.round(value);
+            let next = whole;
             if (mode === 'asc-best')
-                next = hasPrevious ? Math.min(previous, value) : value;
+                next = hasPrevious ? Math.min(previous, whole) : whole;
             if (mode === 'desc-incr')
-                next = previous + value;
+                next = previous + whole;
+            const posted = !hasPrevious || next !== previous;
             writeNumber(resolved.local, storageKey, next);
-            if (meta && typeof meta === 'object')
-                resolved.local.setItem(`${storageKey}:meta`, stable(meta));
+            if (posted)
+                resolved.local.setItem(`${storageKey}:meta`, stable(metaObj));
+            return { accepted: true, posted, value: next, order: mode === 'asc-best' ? 'asc' : 'desc' };
+        },
+        getSession() {
+            return mockSessionInfo();
+        },
+        async refreshSession() {
+            return mockSessionInfo();
+        },
+        async getLeaderboard(boardId, opts) {
+            if (!isBoardId(boardId))
+                throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
+            const variant = opts?.variant ?? '';
+            const order = BOARD_MODE[boardId] === 'asc-best' ? 'asc' : 'desc';
+            if (!active)
+                return { boardId, variant, order, rows: [], me: null };
+            const raw = resolved.local.getItem(`hub:score:${active.playerId}:${boardId}${variant ? `:${variant}` : ''}`);
+            if (raw === null)
+                return { boardId, variant, order, rows: [], me: null };
+            const row = { userId: active.playerId, name: active.playerId, value: Number(raw), rank: 1 };
+            return { boardId, variant, order, rows: [row], me: row };
         },
         async earnTickets(amount, reason, key) {
             if (!key)

@@ -300,6 +300,34 @@ export class GoldenTickets {
     t.vanishTime = VANISH_TIME;
   }
 
+  /**
+   * Match the host's live tickets (an online replica): unknown ids appear (quietly: the host's
+   * ticketSpawn event is re-emitted separately), ones the host no longer has vanish.
+   */
+  applyNetState(list: readonly { id: number; x: number; z: number; age: number }[]): void {
+    for (const t of this.pool) {
+      if (t.active && !list.some((n) => n.id === t.id)) this.remove(t);
+    }
+    for (const n of list) {
+      let t = this.pool.find((p) => p.active && p.id === n.id);
+      if (!t) {
+        t = this.pool.find((p) => !p.active) ?? undefined;
+        if (!t) continue;
+        t.active = true;
+        t.id = n.id;
+        t.popTime = 0;
+        t.vanishTime = 0;
+        t.spin = Math.random() * Math.PI * 2;
+        t.phase = Math.random() * Math.PI * 2;
+        t.sparkAcc = 0;
+        t.root.visible = true;
+      }
+      t.age = n.age;
+      t.pos.set(n.x, T.hoverHeight, n.z);
+      t.root.position.set(n.x, 0, n.z);
+    }
+  }
+
   /** Try random spots until one is valid; false if none was found this time. */
   spawn(): boolean {
     const radius = this.arena.fireRadius - T.fireMargin;

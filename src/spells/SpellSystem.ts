@@ -44,6 +44,11 @@ interface UltWave {
   fx: WaveFx | null;
 }
 
+/** Copies of a query's normal, held while code that may run other queries goes on. */
+const tmpHitNormal = new THREE.Vector3();
+const tmpBeamNormal = new THREE.Vector3();
+/** The stun beam's span (read only inside fireBeam, before a reflected beam reuses it). */
+const tmpSpanBeam = new THREE.Vector3();
 const tmpDir = new THREE.Vector3();
 const tmpMotion = new THREE.Vector3();
 const tmpPoint = new THREE.Vector3();
@@ -76,6 +81,8 @@ export class SpellSystem {
   readonly muzzleFx: MuzzleFx;
   /** The boss reward spells (carpet, pump, vape, lock-on, breath): their rules and effects. */
   readonly rewards: RewardSpells;
+  /** Learned reward spells can be cast (MatchRules.rewardSpells; off in Local Versus and online). */
+  rewardSpellsEnabled = true;
   /** Boss special powers (telegraphed zones, rings, sweeps, cones, seekers...), and how they look. */
   readonly powers: BossPowers;
   readonly powerFx: PowerFx;
@@ -178,8 +185,8 @@ export class SpellSystem {
     if (intent.wants('shield') && !w.dodging && !w.shielded && !w.riding) {
       if (this.raiseShield(w)) intent.consume('shield');
     }
-    // Boss reward spells (only wizards that learned them: the player).
-    if (w.learned.size > 0 || w.side === 0) this.rewards.handleIntents(w);
+    // Boss reward spells (only wizards that learned them: the player), unless the match rules them out.
+    if (this.rewardSpellsEnabled && (w.learned.size > 0 || w.side === 0)) this.rewards.handleIntents(w);
     // On the Magic Carpet: bolts only (drive-by), nothing that needs both feet planted.
     if (w.riding) {
       if (!w.dodging && w.cast === null && (intent.holdBolt || intent.wants('bolt')) && this.castBolt(w)) intent.consume('bolt');
@@ -465,7 +472,7 @@ export class SpellSystem {
     const St = S.stun;
     const range = St.range;
     const color = caster.team.stun;
-    const span = new THREE.Vector3().copy(dir).multiplyScalar(range);
+    const span = tmpSpanBeam.copy(dir).multiplyScalar(range);
 
     let shieldDist = Infinity;
     let shieldOwner: Wizard | null = null;
@@ -479,7 +486,9 @@ export class SpellSystem {
       }
     }
     this.querySide = caster.side;
-    const hit = this.physics.raycast(origin, dir, range, PROJECTILE_MASK, caster.collider, this.skipQuery);
+    const rawHit = this.physics.raycast(origin, dir, range, PROJECTILE_MASK, caster.collider, this.skipQuery);
+    // Our own copy: the physics result is reused by the next raycast (a reflected beam's, below).
+    const hit = rawHit ? { tag: rawHit.tag, distance: rawHit.distance, normal: tmpBeamNormal.copy(rawHit.normal) } : null;
     const hitDist = hit ? hit.distance : range;
     const reach = Math.min(hitDist, shieldDist);
 
@@ -709,7 +718,9 @@ export class SpellSystem {
   }
 
   private impact(p: Projectile, hit: QueryHit): void {
+    // The hit is the physics query's reused result: keep what we need before anything else runs.
     const tag = hit.tag;
+    const normal = tmpHitNormal.copy(hit.normal);
     if (p.kind === 'blast') {
       this.explode(p.pos, p.owner, p.damage, null, tag.kind === 'wizard' ? tag.wizard : null);
       events.emit('impact', { pos: p.pos, spell: 'blast', surface: tag.kind === 'wizard' ? 'wizard' : tag.kind === 'pillar' ? 'pillar' : 'floor' });
@@ -721,18 +732,18 @@ export class SpellSystem {
       const target = tag.wizard;
       tmpDir.copy(p.vel).setY(0);
       this.dealDamage(target, p.owner, p.damage, p.pos, 'bolt', tmpDir, p.knockback);
-      this.fx.impact(p.pos, hit.normal, color, p.reflected ? 1.6 : 1);
+      this.fx.impact(p.pos, normal, color, p.reflected ? 1.6 : 1);
       feel.freeze(S.bolt.hitStopMs, !p.reflected);
-      if (target === feel.local || p.owner === feel.local) feel.shake(S.bolt.shake);
+      if (feel.isLocal(target) || feel.isLocal(p.owner)) feel.shake(S.bolt.shake);
       else feel.shakeAt(p.pos, S.bolt.shake);
       events.emit('impact', { pos: p.pos, spell: 'bolt', surface: 'wizard' });
     } else if (tag.kind === 'pillar') {
       tag.pillar.damage(p.damage, p.pos);
-      this.fx.impact(p.pos, hit.normal, color, 0.8);
+      this.fx.impact(p.pos, normal, color, 0.8);
       this.fx.dust(p.pos, 3, 0.4);
       events.emit('impact', { pos: p.pos, spell: 'bolt', surface: 'pillar' });
     } else {
-      this.fx.impact(p.pos, hit.normal, color, 0.6);
+      this.fx.impact(p.pos, normal, color, 0.6);
       events.emit('impact', { pos: p.pos, spell: 'bolt', surface: tag.kind === 'wall' ? 'wall' : 'floor' });
     }
     this.pool.release(p);

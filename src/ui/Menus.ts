@@ -136,9 +136,24 @@ export interface GauntletStatus {
   clears: number;
 }
 
+/** Local Versus join screen state (App polls the pads and repaints it). */
+export interface VersusJoinView {
+  /** What P1 plays with, e.g. "Keyboard + mouse" or "Keyboard + mouse + Controller 1". */
+  p1: string;
+  /** What P2 plays with once joined, or null while waiting for a pad. */
+  p2: string | null;
+  /** Connected controllers. */
+  pads: number;
+}
+
 export interface MenuHandlers {
   /** Quick Duel against the Rival (one fixed opponent). */
   start(): void;
+  /** Local Versus: open the join screen. */
+  versus?(): void;
+  /** Online Duel: shown only when built with it (VITE_ONLINE=1); `why` explains a disabled button. */
+  online?(): { enabled: boolean; why: string } | null;
+  openOnline?(): void;
   /** Boss Gauntlet from fight 1. */
   gauntlet(): void;
   /** Resume the saved gauntlet. */
@@ -384,6 +399,8 @@ export class Menus {
         </div>
         <div class="mode-block">
           <button class="primary quick-duel" data-act="start">Quick Duel<small>One best-of-three against the Rival</small></button>
+          ${this.h.versus ? '<button class="ghost versus-btn" data-act="versus">Local Versus<small>Two players, one screen</small></button>' : ''}
+          ${this.onlineButtonHtml()}
         </div>
         ${this.staffRackHtml(false)}
         <div class="row">
@@ -397,6 +414,8 @@ export class Menus {
         <p class="tip">Tip: raise your Shield just as a spell arrives to send it back.</p>
       </div>`, 'main');
     this.on(s, '[data-act="start"]', () => this.h.start());
+    this.on(s, '[data-act="versus"]', () => this.h.versus?.());
+    this.on(s, '[data-act="online"]', () => this.h.openOnline?.());
     this.on(s, '[data-act="gauntlet"]', () => this.h.gauntlet());
     this.on(s, '[data-act="continue"]', () => this.h.continueGauntlet());
     this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showMain()));
@@ -404,6 +423,50 @@ export class Menus {
     this.on(s, '[data-act="exchange"]', () => this.showExchange());
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
     this.bindStaff(s);
+  }
+
+  private onlineButtonHtml(): string {
+    const o = this.h.online?.();
+    if (!o) return '';
+    return `<button class="ghost online-btn" data-act="online"${o.enabled ? '' : ' disabled'}>Online Duel<small>${escapeHtml(o.why)}</small></button>`;
+  }
+
+  /**
+   * Local Versus join screen: P1 is already in (keyboard + mouse, plus a pad when there are two);
+   * P2 joins by pressing A on a controller (App polls the pads and calls updateVersusJoin). Then
+   * either player starts. Needs one controller at least.
+   */
+  showVersusJoin(view: VersusJoinView, h: { start(): void; back(): void }): void {
+    const s = this.mount(`
+      <div class="menu-panel versus-join">
+        <h2>Local Versus</h2>
+        <p class="note">Two players, one screen, best of three. No reward spells, life packs or god mode, and nothing is reported to the hub.</p>
+        <div class="join-seats">
+          <div class="join-seat ready" data-seat="1"><b>Player 1</b><span class="join-dev"></span></div>
+          <div class="join-seat" data-seat="2"><b>Player 2</b><span class="join-dev"></span></div>
+        </div>
+        <p class="join-hint"></p>
+        <div class="menu-actions">
+          <button class="primary" data-act="start" disabled>Fight</button>
+          <button data-act="back" data-back>Back</button>
+        </div>
+      </div>`, 'versus-join');
+    this.on(s, '[data-act="start"]', () => h.start());
+    this.on(s, '[data-act="back"]', () => h.back());
+    this.updateVersusJoin(view);
+  }
+
+  updateVersusJoin(view: VersusJoinView): void {
+    const s = this.screen;
+    if (!s?.classList.contains('versus-join')) return;
+    s.querySelector('[data-seat="1"] .join-dev')!.textContent = view.p1;
+    const p2 = s.querySelector('[data-seat="2"]')!;
+    p2.classList.toggle('ready', view.p2 !== null);
+    p2.querySelector('.join-dev')!.textContent = view.p2 ?? (view.pads ? 'Press A on a controller' : 'Connect a controller, then press A');
+    s.querySelector<HTMLButtonElement>('[data-act="start"]')!.disabled = view.p2 === null;
+    s.querySelector('.join-hint')!.textContent = view.p2 === null
+      ? 'Player 2 plays with a controller. Player 1 keeps keyboard + mouse (and the first controller, when there are two).'
+      : 'Press A again (or Fight) to start. Start pauses from either side.';
   }
 
   /** Tickets to Verse. The rate is fixed; the daily cap is enforced by the hub. */
@@ -778,8 +841,71 @@ export class Menus {
     this.bindStaff(s);
   }
 
+  /** Online Duel: quick match, private room (create or join by code), back. */
+  showOnline(h: { quick(): void; create(): void; join(code: string): void; back(): void }, note = ''): void {
+    const s = this.mount(`
+      <div class="menu-panel online">
+        <h2>Online Duel</h2>
+        <p class="note">One best-of-three against another player. Even fight: starter staff stats, no reward spells or god mode. A win pays 20 Tickets once the server confirms it.</p>
+        ${note ? `<p class="note online-note" role="status">${escapeHtml(note)}</p>` : ''}
+        <button class="primary" data-act="quick" data-autofocus>Quick Match<small>Play whoever is searching</small></button>
+        <button data-act="create">Create Room<small>Get a code to share</small></button>
+        <div class="row join-row">
+          <input class="room-code" maxlength="7" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code">
+          <button data-act="join">Join Room</button>
+        </div>
+        <button class="ghost" data-act="back" data-back>Back</button>
+      </div>`, 'online');
+    const input = s.querySelector<HTMLInputElement>('.room-code')!;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') h.join(input.value);
+    });
+    this.on(s, '[data-act="quick"]', () => h.quick());
+    this.on(s, '[data-act="create"]', () => h.create());
+    this.on(s, '[data-act="join"]', () => h.join(input.value));
+    this.on(s, '[data-act="back"]', () => h.back());
+  }
+
+  /** Waiting for an opponent (searching, a room code to share, joining). Cancel backs out. */
+  showOnlineStatus(title: string, sub: string, h: { cancel(): void }, code: string | null = null): void {
+    const s = this.mount(`
+      <div class="menu-panel online-status">
+        <h2>${escapeHtml(title)}</h2>
+        ${code ? `<p class="room-code-big" aria-label="Room code">${escapeHtml(code)}</p><button data-act="copy">Copy Code</button>` : ''}
+        <p class="note online-sub" role="status">${escapeHtml(sub)}</p>
+        <button class="ghost" data-act="cancel" data-back data-autofocus>Cancel</button>
+      </div>`, 'online-status');
+    this.on(s, '[data-act="cancel"]', () => h.cancel());
+    this.on(s, '[data-act="copy"]', () => {
+      void navigator.clipboard?.writeText(code ?? '').then(() => this.toast('Copied', code ?? ''), () => {});
+    });
+  }
+
+  /** In an online match, Esc / Start: the fight never pauses; you can only resume or forfeit. */
+  showOnlinePause(h: { resume(): void; forfeit(): void }): void {
+    const s = this.mount(`
+      <div class="menu-panel pause online-pause">
+        <h2>Online Duel</h2>
+        <p class="note">The fight keeps going while this is open.</p>
+        <button class="primary" data-act="resume" data-autofocus>Resume</button>
+        <button class="ghost" data-act="forfeit">Forfeit</button>
+      </div>`, 'online-pause');
+    this.on(s, '[data-act="resume"]', () => h.resume());
+    this.on(s, '[data-act="forfeit"]', () => h.forfeit());
+  }
+
+  /** The results screen's line under the title (online: the server's verdict once it arrives). */
+  setResultNote(text: string): void {
+    const el = this.screen?.classList.contains('results') ? this.screen.querySelector('.tagline') : null;
+    if (el) el.textContent = text;
+  }
+
   /** Overlay shown when the game needs a click to (re)capture the mouse. */
   showClickToResume(): void {
     this.mount(`<div class="click-resume">Click to resume</div>`, 'click');
   }
+}
+
+function escapeHtml(t: string): string {
+  return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
