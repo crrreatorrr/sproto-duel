@@ -1,12 +1,18 @@
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
-export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'];
+export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter'];
 /** Earn-once relics. The primary key on the server is (user, relic). */
-export const RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'];
+export const RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt'];
+/**
+ * The four Relics socketed on the Four Lights monument. The Tidebreaker Belt (Sproto Fighter)
+ * is a Relic too, but it sits on its own plinth in the Bar and does not count toward Four Lights.
+ */
+export const FOUR_LIGHTS_RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'];
 export const RELIC_BY_GAME = {
     hpos10i: 'hpos10i_core',
     'peoples-bitcoin': 'genesis_shard',
     nobu: 'cones_tip',
     sproto: 'tinubu_crown',
+    'sproto-fighter': 'tidebreaker_belt',
 };
 /**
  * Nakama leaderboard ids. Sort direction matches the architecture:
@@ -33,6 +39,10 @@ export const VERSE_DAILY_CAP = 50;
 export const MOCK_TICKET_EARN_CAP = 1000;
 /** Portal tickets are single-use and short-lived. */
 export const MOCK_TICKET_TTL_SECONDS = 60;
+/** NOBU time-trial floors per level, integer ms (Contract C13). The same numbers are in NOBU's src/config/trials.js. */
+export const NOBU_TRIAL_FLOOR_MS = { '1': 15000, '2': 15000, '3': 12000 };
+/** NOBU time-trial ceiling, integer ms. */
+export const NOBU_TRIAL_CEIL_MS = 1_800_000;
 export function isGameId(value) {
     return GAME_IDS.includes(value);
 }

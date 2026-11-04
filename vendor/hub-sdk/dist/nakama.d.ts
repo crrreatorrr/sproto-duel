@@ -27,6 +27,11 @@ export interface NakamaClient {
      */
     authenticateCustom?(id: string, create?: boolean, vars?: Record<string, string>): Promise<CustomAuthResult>;
     rpc<T>(id: string, body: object, opts?: NakamaRpcOptions): Promise<T>;
+    /** POST /v2/account/session/refresh with the server key. Optional so older doubles still typecheck. */
+    sessionRefresh?(refreshToken: string): Promise<{
+        token: string;
+        refreshToken: string;
+    }>;
 }
 export interface NakamaClientOptions {
     serverUrl: string;
@@ -87,5 +92,7 @@ export interface RecoveryRedeemResult {
 }
 /** Session vars Nakama stores under `vrs` (scope, game, sid, ranked). */
 export declare function sessionVarsFromToken(token: string): Record<string, string>;
+/** JWT `exp` in epoch ms, or 0 when the token has none. */
+export declare function tokenExpiryMs(token: string): number;
 export declare function userIdFromToken(token: string): string;
 export declare function createNakamaClient(options: NakamaClientOptions): NakamaClient;

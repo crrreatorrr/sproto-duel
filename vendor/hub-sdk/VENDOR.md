@@ -1,10 +1,10 @@
 # Vendored @metaverse/hub-sdk
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
-- branch: main
-- sha: 9c06593
-- package: packages/hub-sdk @ 0.4.0-redeem.1
-- built with: `npm ci && npm run build -w @metaverse/hub-sdk`
+- branch: claude/loving-galileo-ndy2tu
+- sha: 441b7c4
+- package: packages/hub-sdk @ 0.5.0
+- built with: `node scripts/vendor-sdk.mjs`
 
 Layout: `package.json`, `README.md`, `dist/*.js`, `dist/*.d.ts`. No source maps are included, and `sourceMappingURL` lines are stripped.
 

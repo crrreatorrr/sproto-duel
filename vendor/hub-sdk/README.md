@@ -2,7 +2,7 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
-Version 0.4.0-redeem.1 (a prerelease of 0.4.0). `redeemTicket` is the handoff. Shop calls (`spendTickets`, `sellItem`, and `getTicketBalance`) sit on the same surface. Method names, argument order, game ids, relic ids, and event ids stay stable.
+Version 0.5.0. It adds the realtime client (`createRealtime`, `realtimeFromSdk`), an in-memory realtime mock for game tests, `getSession` / `refreshSession` / `getLeaderboard`, and a `ScoreResult` answer from `submitScore`. Everything is additive: 0.4 callers and test doubles still typecheck. `redeemTicket` is the handoff. Shop calls (`spendTickets`, `sellItem`, and `getTicketBalance`) sit on the same surface. Method names, argument order, game ids, relic ids, and event ids stay stable.
 
 ## Install
 
@@ -15,10 +15,10 @@ npm ci
 npm pack -w @metaverse/hub-sdk
 ```
 
-That writes `metaverse-hub-sdk-0.4.0-redeem.1.tgz` in the repo root. In the game:
+That writes `metaverse-hub-sdk-0.5.0.tgz` in the repo root. In the game:
 
 ```bash
-npm install /absolute/path/to/metaverse-hub-sdk-0.4.0-redeem.1.tgz
+npm install /absolute/path/to/metaverse-hub-sdk-0.5.0.tgz
 ```
 
 A folder install also works after `npm ci` in the hub repo:
@@ -92,9 +92,7 @@ const outcome = await hub.reportEvent(
 );
 // outcome.granted === 'tinubu_crown' the first time only
 
-if (!godMode && profile.ranked) {
-  await hub.submitScore('sproto_wins', 1);
-}
+// sproto_wins is written by the server (the Sproto Duel match), never by the client.
 
 hub.exit('match_end'); // releases pointer lock and goes to /hub/#from=sproto
 ```
@@ -120,7 +118,10 @@ init(gameId): Promise<{
 }>
 
 reportEvent(eventId: string, data: object, key: string): Promise<{ granted?: RelicId }>
-submitScore(boardId: string, value: number, meta?: object): Promise<void>
+submitScore(boardId: string, value: number, meta?: object): Promise<ScoreResult | void>
+getSession?(): { token; playerId; game; ranked; expiresAt } | null
+refreshSession?(): Promise<HubSessionInfo | null>
+getLeaderboard?(boardId, { variant?, limit? }): Promise<{ boardId; variant; order; rows: { userId; name; value; rank }[]; me }>
 earnTickets(amount: number, reason: string, key: string): Promise<{ balance: number; capped: boolean }>
 exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; balance: number; receiptId: string; verseCapLeft?: number }>
 spendTickets(shopId: string, itemId: string, packs: number, key: string): Promise<{ shop_id: string; item_id: string; packs: number; units: number; spent: number; balance: number }>
@@ -129,7 +130,7 @@ getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapL
 exit(reason?: string): void
 ```
 
-Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`.
+Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`.
 
 | Event | Grants |
 | --- | --- |
@@ -139,7 +140,67 @@ Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`.
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
+| `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
 
 God-mode flags inside `data` do not block a grant. The hub lights Tinubu's Crown from the server profile when the player returns.
 
 Guest accounts and recovery codes live in the hub, not in the game. The device id is `localStorage['hub:deviceId']`.
+
+## Scores
+
+`submitScore(boardId, value, meta)` always reaches the server when there is a game session; the server decides. It answers `{ accepted, posted?, value?, order?, reason? }`, where `reason` is `god_mode`, `server_board` or `unranked`. Errors throw `HubSdkError` with `session_closed`, `not_game_session`, `bad_board`, `bad_score`, `bad_variant`, `implausible_score` or `rate_limited`.
+
+- `nobu_trial_time` is per level: pass `meta.level` (`1`, `2` or `3`) and an **integer number of milliseconds**. Floors are `NOBU_TRIAL_FLOOR_MS` (15000, 15000, 12000), the ceiling is `NOBU_TRIAL_CEIL_MS` (30 min). NOBU trials count from unranked sessions. One submit per level per 5 s.
+- `sproto_wins` and `meta` are server boards (`reason: 'server_board'`).
+- `meta.godMode === true` posts nothing (`reason: 'god_mode'`).
+
+`getLeaderboard(boardId, { variant, limit })` reads `leaderboard.top`: `{ boardId, variant, order, rows: [{ userId, name, value, rank }], me }`. Values come back in the unit they were posted (ms for NOBU).
+
+## Realtime
+
+Dependency-free WebSocket client for Nakama's realtime API (matches, matchmaker, chat channels, socket RPCs). It uses the global `WebSocket` and `fetch`, so it also runs in Node 22 bots.
+
+```ts
+import { realtimeFromSdk } from '@metaverse/hub-sdk';
+
+await hub.init('sproto');
+const rt = realtimeFromSdk(hub); // null standalone: keep the game offline
+if (rt) {
+  await rt.connect();
+  rt.onMatchmakerMatched(async (m) => {
+    const match = await rt.joinMatch(m.matchId ? { matchId: m.matchId } : { token: m.token! });
+    match.onMessage((msg) => handle(msg.opCode, msg.json()));
+    match.onRejoin(() => match.send(OP_RESYNC));       // after a reconnect
+    match.onClose((reason) => backToMenu(reason));      // 'left' | 'kicked' | 'ended' | 'rejoin_failed'
+    match.send(OP_HELLO, { v: NET_VERSION });           // synchronous; object → JSON, string → UTF-8, Uint8Array as is
+  });
+  await rt.addMatchmaker({ query: '+properties.game:sproto +properties.v:3', minCount: 2, maxCount: 2, stringProperties: { game: 'sproto', v: '3' } });
+}
+```
+
+- `createRealtime({ serverUrl, getToken })` is the low-level constructor; `realtimeFromSdk(sdk)` wires `getToken` to the SDK's game session and refreshes it within 5 minutes of expiry.
+- Sharded worlds place players on the server: `rt.joinViaRpc('hub.join', {})` calls the RPC, reads `{ matchId }` and joins it. `rt.listMatches({ query: '+label.kind:pb_world +label.open:T' })` and `joinMatchByQuery` are there for listings.
+- Chat: `const ch = await rt.joinChat({ room: 'hub.1' })`, `ch.send({ text, color, effect })`, `ch.history({ limit: 30 })` (newest first), `ch.onMessage`. Rooms a session may join are decided by the server.
+- Reconnect: an unexpected close goes `reconnecting` with jittered exponential backoff, calls `getToken()` again, re-joins every open match (success fires `onRejoin`, failure closes it with `rejoin_failed`), re-joins chat channels and re-adds matchmaker tickets (the original ticket string keeps working for `removeMatchmaker`). Pending requests reject with `rt_disconnected`.
+- Errors are `HubSdkError` with codes such as `rt_closed`, `rt_timeout`, `rt_disconnected`, `no_session`, `match_not_found`, `match_rejected:<reason>`, `room_not_allowed`, `wrong_scope`, `chat_rate_limited`, `chat_muted`, `chat_duplicate`, `chat_rejected`. A server hook's `Error: <code> at …` message becomes `<code>`.
+- `friends` methods reject with `not_implemented` for now.
+
+The Vite dev server must proxy `/ws` with `ws: true` (see the config above). Production Caddy already does.
+
+### Testing with the mock
+
+```ts
+import { createMockRealtimeServer } from '@metaverse/hub-sdk';
+
+const server = createMockRealtimeServer();
+server.registerMatch('arena', { init: () => ({ state: {} }), loop: (state, msgs, d) => { for (const m of msgs) d.broadcast(2, m.data); } });
+server.onMatchmakerMatched(() => server.createMatch('arena'));
+const a = server.connect({ userId: 'a' });
+await a.connect();
+// …drive the game's net layer with `a`, then:
+server.tick();          // run authoritative loops
+await server.flush();   // deliver queued messages
+server.drop('a');       // simulate a dropped socket; the client reconnects and re-joins
+```
+
+The mock speaks the same envelopes as Nakama through the real client, applies the server's chat rules (`validateChatContent`, burst 5, 1 per 1.5 s, 30 s duplicate window) and accepts every room unless `allowRooms(pattern)` is called.
