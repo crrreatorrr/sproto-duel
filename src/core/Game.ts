@@ -13,9 +13,11 @@ import { CameraRig } from '../camera/CameraRig';
 import { Effects } from '../fx/Effects';
 import { Physics } from '../physics/Physics';
 import { PlayerController } from '../player/PlayerController';
+import type { IntentSource } from '../input/IntentSource';
+import type { GamepadInput } from './Gamepad';
 import { Renderer } from '../render/Renderer';
 import { SpellSystem } from '../spells/SpellSystem';
-import { DamageNumbers } from '../ui/DamageNumbers';
+import { DamageNumbers, type PopupStyle } from '../ui/DamageNumbers';
 import { Wizard } from '../wizard/Wizard';
 import { WizardVisual } from '../wizard/WizardVisual';
 import { events } from './events';
@@ -71,8 +73,24 @@ export class Game {
   readonly partner: Wizard;
   /** The player's opponents in this fight, alive or not: [enemy], or [enemy, partner]. Mutated in place. */
   readonly enemies: Wizard[];
+  /** Seat 0's local human (keyboard + mouse and the active pad). Also `controllers[0]`. */
   readonly playerController: PlayerController;
+  /**
+   * What drives each seat, by wizard index: [player, rival, partner]. Seat 0 is `playerController`;
+   * seat 1 is null in single player (the AI runs through `enemyController`), a second local human
+   * in Local Versus, or a RemoteSource on an online host. Local sources get `frame()` per rendered
+   * frame, every source `tick()` per fixed tick.
+   */
+  readonly controllers: (IntentSource | null)[] = [];
+  /** Seats with a camera and a view on this screen: [0], or [0, 1] in Local Versus. */
+  readonly localSeats: number[] = [0];
+  /** One camera rig per local seat (rigs[i] follows wizards[localSeats[i]]). rigs[0] is `rig`. */
+  readonly rigs: CameraRig[] = [];
+  /** Pads owned by extra local seats: polled and ended every frame like Input's own pad. */
+  readonly extraPads: GamepadInput[] = [];
   readonly popups: DamageNumbers;
+  /** Split-screen popup layers (left, right), built on first use; `popups` is hidden meanwhile. */
+  private splitPopups: DamageNumbers[] = [];
   /** Golden-ticket pickups (mana boost). Match enables spawning during the fight phase. */
   readonly tickets: GoldenTickets;
   /** Life packs (health pickups, Boss Gauntlet only): Match enables them during a gauntlet fight. */
@@ -133,6 +151,13 @@ export class Game {
   readonly lastWarmUp = { programs: 0, ms: 0, key: '' };
   /** Total simulated time. */
   simTime = 0;
+  /** Fixed ticks run so far (net intent frames and snapshots are stamped with it). */
+  simTick = 0;
+  /**
+   * Online play: hit-stop, slow-mo and cinematics scale only rendering and effects, never the sim
+   * accumulator, so sim time tracks wall-clock time (and the peer's input ticks).
+   */
+  fixedTimeScale = false;
   /** Smoothed frame stats for the QA harness / perf overlay. */
   readonly perf = { fps: 0, frameMs: 0, worstMs: 0, frames: 0 };
 
@@ -185,6 +210,8 @@ export class Game {
     this.lifePacks = new LifePacks(scene, physics, this.fx, this.player, this.enemies, this.tickets, this.arena, () => this.furthestStage(), assets);
     this.shifts = new ArenaShifts(scene, this);
     this.playerController = new PlayerController(this.input, this.rig, this.player, physics, () => this.enemies);
+    this.controllers.push(this.playerController, null, null);
+    this.rigs.push(this.rig);
     this.popups = new DamageNumbers(ui, this.renderer.camera);
     this.stages = new BossStages(this, this.enemy, this.player);
     this.partnerStages = new BossStages(this, this.partner, this.player);
@@ -215,15 +242,70 @@ export class Game {
         const last = this.immunePopupAt.get(e.target) ?? -1e9;
         if (this.simTime - last >= CONFIG.ui.immunePopupInterval) {
           this.immunePopupAt.set(e.target, this.simTime);
-          this.popups.spawn(e.target.chest(tmp), 'IMMUNE', 'block');
+          this.spawnPopup(e.target.chest(tmp), 'IMMUNE', 'block');
         }
         return;
       }
-      const style = e.target === this.player ? 'dmgSelf' : e.amount >= 15 ? 'dmgBig' : e.kind === 'fire' || e.kind === 'scorch' || e.kind === 'toxic' || e.kind === 'pool' ? 'burn' : 'dmg';
-      this.popups.spawn(e.target.chest(tmp), String(Math.round(e.amount)), style);
+      const other = e.kind === 'fire' || e.kind === 'scorch' || e.kind === 'toxic' || e.kind === 'pool' ? 'burn' : 'dmg';
+      const big = e.amount >= 15 ? 'dmgBig' : other;
+      const text = String(Math.round(e.amount));
+      if (!this.split) {
+        this.popups.spawn(e.target.chest(tmp), text, e.target === this.player ? 'dmgSelf' : big);
+        return;
+      }
+      // Split-screen: each half styles the hit from its own seat's point of view.
+      this.splitPopups.forEach((layer, i) => layer.spawn(e.target.chest(tmp), text, e.target === this.wizards[this.localSeats[i]] ? 'dmgSelf' : big));
     });
-    events.on('callout', (e) => this.popups.spawn(e.pos, e.text, e.style));
-    events.on('ticketPickup', (e) => this.popups.spawn(e.wizard.chest(tmp), '+MANA', e.wizard === this.player ? 'mana' : 'manaFoe'));
+    events.on('callout', (e) => this.spawnPopup(e.pos, e.text, e.style));
+    events.on('ticketPickup', (e) => this.spawnPopup(e.wizard.chest(tmp), '+MANA', e.wizard === this.player ? 'mana' : 'manaFoe'));
+  }
+
+  /** A popup in every view on screen. */
+  spawnPopup(pos: THREE.Vector3, text: string, style: PopupStyle): void {
+    if (!this.split) this.popups.spawn(pos, text, style);
+    else for (const layer of this.splitPopups) layer.spawn(pos, text, style);
+  }
+
+  /** Two local players on split-screen (Local Versus). */
+  get split(): boolean {
+    return this.localSeats.length > 1;
+  }
+
+  /**
+   * Local Versus split-screen on (P1 left following seat 0, P2 right following seat 1) or off.
+   * The caller sets controllers[1]. Builds the second rig, camera, composer and popup layers on
+   * first use. See Renderer.setViews for what split-screen changes in rendering.
+   */
+  setSplit(on: boolean): void {
+    if (on === this.split) return;
+    const V = CONFIG.versus;
+    if (on) {
+      if (this.rigs.length < 2) this.rigs.push(new CameraRig(this.renderer.secondCamera));
+      this.rigs[1].sensitivity = this.rig.sensitivity;
+      this.rigs[1].invertY = false;
+      this.localSeats.splice(0, this.localSeats.length, 0, 1);
+      feel.locals.add(this.enemy);
+      this.renderer.setViews(2);
+      if (!this.splitPopups.length) {
+        this.splitPopups = [
+          new DamageNumbers(this.ui, this.renderer.camera, 24, { x: 0, w: 0.5 }),
+          new DamageNumbers(this.ui, this.renderer.secondCamera, 24, { x: 0.5, w: 0.5 }),
+        ];
+      }
+      for (const layer of this.splitPopups) layer.setVisible(true);
+      this.popups.setVisible(false);
+      for (const r of this.rigs) r.baseFov = V.fov;
+      this.rigs[1].snap(this.enemy.pos, Math.PI);
+    } else {
+      this.localSeats.splice(0, this.localSeats.length, 0);
+      feel.local = this.player;
+      this.renderer.setViews(1);
+      for (const layer of this.splitPopups) layer.setVisible(false);
+      this.popups.setVisible(true);
+      for (const r of this.rigs) r.baseFov = CONFIG.camera.fov;
+    }
+    // Both wizards are normal size: nobody fades in split-screen (see updateOcclusionFade).
+    for (const w of this.wizards) w.visual.setFade(1, 1);
   }
 
   private readonly fireDamage = (w: Wizard, amount: number, point: THREE.Vector3) => {
@@ -239,6 +321,7 @@ export class Game {
     this.shifts.clear();
     this.fx.clear();
     this.popups.clear();
+    for (const layer of this.splitPopups) layer.clear();
     feel.reset();
     this.accumulator = 0;
     this.stages.reset();
@@ -448,6 +531,7 @@ export class Game {
     }
     this.physics.step();
     this.rig.snap(this.player.pos, 0);
+    if (this.split) this.rigs[1].snap(this.wizards[this.localSeats[1]].pos, Math.PI);
   }
 
   onTick(fn: (dt: number) => void): void {
@@ -482,8 +566,7 @@ export class Game {
 
     // A cinematic freezes the fight: no aiming, moving or casting until it hands control back.
     if (this.playerControl && this.simulating && this.cinematicScale >= 1) {
-      this.playerController.look();
-      this.playerController.update();
+      for (const seat of this.localSeats) this.controllers[seat]?.frame?.(realDt);
     } else {
       this.input.consumeMouseDelta();
     }
@@ -491,13 +574,14 @@ export class Game {
     // Hit-stop, slow-mo and cinematics scale simulated time; camera and UI keep running on real time.
     const scale = this.simulating ? feel.update(realDt) * this.cinematicScale : 0;
     const fixed = CONFIG.sim.fixedDt;
-    this.accumulator += realDt * scale;
+    // Online: the sim runs on wall-clock time; hit-stop and slow-mo stay visual (`scale` below).
+    this.accumulator += this.fixedTimeScale ? (this.simulating ? realDt : 0) : realDt * scale;
     let steps = 0;
     while (this.accumulator >= fixed && steps < CONFIG.sim.maxStepsPerFrame) {
       this.tick(fixed);
       this.accumulator -= fixed;
       steps++;
-      if (feel.hitStop > 0) break; // freeze lands on the impact frame
+      if (feel.hitStop > 0 && !this.fixedTimeScale) break; // freeze lands on the impact frame
     }
     if (steps >= CONFIG.sim.maxStepsPerFrame) this.accumulator = 0;
     const alpha = Math.min(1, this.accumulator / fixed);
@@ -506,11 +590,13 @@ export class Game {
     const fxDt = this.simulating && this.cinematicScale < 1 ? realDt : realDt * scale;
     this.renderFrame(realDt, realDt * scale, alpha, fxDt);
     this.input.endFrame();
+    for (const p of this.extraPads) p.endFrame();
   }
 
   /** One fixed simulation step. Deterministic given the same intents. */
   tick(dt: number): void {
     this.simTime += dt;
+    this.simTick++;
     if (this.actionsLocked) {
       for (const w of this.wizards) {
         const facing = w.intent.facing;
@@ -519,6 +605,7 @@ export class Game {
       }
     } else {
       this.enemyController?.update(dt);
+      for (const c of this.controllers) c?.tick?.(dt, this.simTick);
     }
     for (const w of this.wizards) w.updateTimers(dt);
     this.stages.update(dt);
@@ -571,12 +658,20 @@ export class Game {
     feel.listener.copy(tmp);
     if (this.rig.orbit) this.rig.updateOrbit(realDt);
     else this.rig.update(realDt, tmp, this.physics, this.player.sprinting, this.player.dodging);
+    for (let i = 1; i < this.localSeats.length; i++) {
+      const w = this.wizards[this.localSeats[i]];
+      if (!w) continue;
+      // Shake and the audio listener sit between the local players.
+      feel.listener.lerp(w.visual.root.position, 1 / (i + 1));
+      this.rigs[i].update(realDt, tmpEye.copy(w.visual.root.position), this.physics, w.sprinting, w.dodging);
+    }
     if (this.director) {
       this.director(realDt);
       this.renderer.camera.updateMatrixWorld();
     }
     this.updateOcclusionFade(realDt);
     this.popups.update(realDt);
+    for (const layer of this.splitPopups) layer.update(realDt);
     for (const fn of this.frameHooks) fn(realDt, alpha);
     // A new fight was just dressed (App: setupEnemy, then the arena theme), behind its boss card.
     if (!this.inSandbox && this.warmKey !== this.fightKey()) this.warmUp();
@@ -640,6 +735,8 @@ export class Game {
    * drawn inside the near plane. Every render frame, after the camera moved; public for QA.
    */
   updateOcclusionFade(dt: number): void {
+    // Material fade is shared by both views of split-screen, so it can't be per view: nobody fades.
+    if (this.split) return;
     const cam = this.renderer.camera.position;
     for (const w of this.wizards) {
       w.visual.setFade(w === this.player ? this.closeTarget(w, cam) : this.occlusionTarget(w, cam), dt);

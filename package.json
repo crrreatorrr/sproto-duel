@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "gen:audio": "node scripts/gen-placeholder-audio.mjs",
-    "check:assets": "node scripts/check-assets.mjs"
+    "check:assets": "node scripts/check-assets.mjs",
+    "qa:headless": "node scripts/qa-headless.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

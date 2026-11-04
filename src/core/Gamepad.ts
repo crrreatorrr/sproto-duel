@@ -118,6 +118,13 @@ export class GamepadInput {
   justActivated = false;
   /** Set from Settings. */
   rumbleEnabled: boolean = G.rumble.enabled;
+  /**
+   * Which pad this instance reads: 'any' (the last one used, else the first standard pad: single
+   * player), a fixed `navigator.getGamepads()` index (Local Versus: each player owns one), or null
+   * (never a pad: a keyboard + mouse player). Pads in `excluded` are never picked by 'any'.
+   */
+  slot: number | 'any' | null = 'any';
+  readonly excluded = new Set<number>();
 
   private readonly down = new Uint8Array(PAD_BUTTONS.length);
   private readonly prev = new Uint8Array(PAD_BUTTONS.length);
@@ -264,18 +271,32 @@ export class GamepadInput {
     }
   }
 
-  /** The pad to read: the last one used, else the first standard-mapping pad. */
+  /** The pad to read: the last one used, else the first standard-mapping pad (or the fixed `slot`). */
   private pick(): Gamepad | null {
+    if (this.slot === null) {
+      this.index = -1;
+      return null;
+    }
     let pads: readonly (Gamepad | null)[];
     try {
       pads = navigator.getGamepads?.() ?? [];
     } catch {
       return null; // blocked by permissions policy
     }
+    if (this.slot !== 'any') {
+      const fixed = pads[this.slot] ?? [...pads].find((p) => p?.index === this.slot) ?? null;
+      const ok = fixed && fixed.connected && fixed.mapping === 'standard' ? fixed : null;
+      if (ok && ok.index !== this.index) {
+        this.index = ok.index;
+        this.prev.fill(0);
+      }
+      if (!ok) this.index = -1;
+      return ok;
+    }
     let current: Gamepad | null = null;
     let first: Gamepad | null = null;
     for (const p of pads) {
-      if (!p || !p.connected || p.mapping !== 'standard') continue;
+      if (!p || !p.connected || p.mapping !== 'standard' || this.excluded.has(p.index)) continue;
       first ??= p;
       if (p.index === this.index) current = p;
       else if (this.activity(p)) {
@@ -342,4 +363,27 @@ export function bindRumble(game: Game): void {
   events.on('ko', (e) => {
     if (live() && (e.loser === game.player || e.winner === game.player)) pad.rumble(R.ko);
   });
+}
+
+/** Indices of the connected standard-mapping pads (Local Versus join screen). */
+export function connectedPadIndices(): number[] {
+  try {
+    const pads = navigator.getGamepads?.() ?? [];
+    return [...pads].filter((p): p is Gamepad => !!p && p.connected && p.mapping === 'standard').map((p) => p.index);
+  } catch {
+    return [];
+  }
+}
+
+/** The index of a standard pad holding `button` down right now, or -1 (join screen: "press A"). */
+export function padHolding(button: PadButton): number {
+  const i = INDEX.get(button)!;
+  try {
+    for (const p of navigator.getGamepads?.() ?? []) {
+      if (p && p.connected && p.mapping === 'standard' && p.buttons[i]?.pressed) return p.index;
+    }
+  } catch {
+    /* blocked */
+  }
+  return -1;
 }

@@ -25,9 +25,16 @@ export class DamageNumbers {
   private readonly items: Popup[] = [];
   private readonly root: HTMLDivElement;
 
-  constructor(parent: HTMLElement, private readonly camera: THREE.Camera, size = 32) {
+  /**
+   * `rect`: the view this layer projects into, as fractions of the window (Local Versus has one
+   * layer per half, clipped to it). Full screen by default.
+   */
+  constructor(parent: HTMLElement, private readonly camera: THREE.Camera, size = 32, private readonly rect = { x: 0, w: 1 }) {
     this.root = document.createElement('div');
     this.root.className = 'popups';
+    if (rect.x !== 0 || rect.w !== 1) {
+      Object.assign(this.root.style, { left: `${rect.x * 100}%`, width: `${rect.w * 100}%`, right: 'auto', overflow: 'hidden' });
+    }
     parent.appendChild(this.root);
     for (let i = 0; i < size; i++) {
       const el = document.createElement('div');
@@ -53,8 +60,14 @@ export class DamageNumbers {
     p.el.className = `popup popup-${style}`;
   }
 
+  /** Show or hide the whole layer (a split view's layer is hidden outside Local Versus). */
+  setVisible(on: boolean): void {
+    this.root.style.display = on ? '' : 'none';
+    if (!on) this.clear();
+  }
+
   update(dt: number): void {
-    const w = window.innerWidth;
+    const w = window.innerWidth * this.rect.w;
     const h = window.innerHeight;
     for (const p of this.items) {
       if (!p.active) continue;

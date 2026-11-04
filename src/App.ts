@@ -6,9 +6,14 @@ import { Campaign } from './campaign/Campaign';
 import { BOSSES, bossDisplayName, type BossDef } from './campaign/levels';
 import { DoubleTap } from './core/DoubleTap';
 import { events } from './core/events';
-import { bindRumble, rewardLabels, spellLabels } from './core/Gamepad';
+import { bindRumble, connectedPadIndices, GamepadInput, padHolding, rewardLabels, spellLabels } from './core/Gamepad';
 import { nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
+import { QUICK, VERSUS, type MatchRules } from './core/rules';
+import type { TickController } from './core/Game';
+import { assignDevices } from './input/assignDevices';
+import type { DeviceBinding } from './input/IntentSource';
+import { LocalHumanSource } from './player/PlayerController';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
@@ -19,8 +24,11 @@ import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/r
 import type { Wizard } from './wizard/Wizard';
 
 type AppState = 'menu' | 'playing' | 'paused' | 'results';
-/** Quick Duel (one fixed rival) or the Boss Gauntlet campaign (the difficulty ladder). */
-export type GameMode = 'quick' | 'gauntlet';
+/**
+ * Quick Duel (one fixed rival), the Boss Gauntlet campaign (the difficulty ladder), Local Versus
+ * (two players, split-screen) or an online 1v1.
+ */
+export type GameMode = 'quick' | 'gauntlet' | 'versus' | 'online';
 
 const tmpRight = new THREE.Vector3();
 const WHITE = new THREE.Color(1, 1, 1);
@@ -63,6 +71,15 @@ export class App {
   readonly ai: AIController;
   /** A double fight's partner's AI (Game.partner); idle outside one. */
   readonly partnerAi: AIController;
+  /** Drives the rival (and partner) in single player: Game.enemyController outside Local Versus. */
+  private readonly aiDriver: TickController;
+  /** Local Versus: P2's own pad, and P2's seat (built on first use). */
+  readonly p2Pad = new GamepadInput();
+  private p2Source: LocalHumanSource | null = null;
+  /** The device split of the current (or last) Local Versus, for Rematch. */
+  private versusDevices: [DeviceBinding, DeviceBinding] | null = null;
+  /** Local Versus join screen: the pad that joined as P2, and whether A was let go since. */
+  private join: { p2: number | null; released: boolean } | null = null;
   private settings: Settings;
   /** Drives the player's wizard in the menu background (attract mode). */
   private readonly attract: AIController;
@@ -98,7 +115,8 @@ export class App {
     this.ai.allies = this.partnerAi.allies = game.enemies;
     this.ai.tickets = this.partnerAi.tickets = game.tickets;
     const ai = this.ai, partnerAi = this.partnerAi;
-    game.enemyController = {
+    this.p2Pad.slot = null;
+    game.enemyController = this.aiDriver = {
       update(dt) {
         ai.update(dt);
         if (game.partnerActive) partnerAi.update(dt);
@@ -117,6 +135,7 @@ export class App {
     game.presenter = this.cinematic;
     this.menus = new Menus(game.ui, this.settings, {
       start: () => this.startMatch(),
+      versus: () => this.showVersusJoin(),
       gauntlet: () => this.newGauntlet(),
       continueGauntlet: () => this.continueGauntlet(),
       gauntletStatus: () => {
@@ -153,11 +172,12 @@ export class App {
    * keeps the mesh and colours and uses starter stats. There is no mid-fight swap: menus call
    * this, and every match start calls it again. Equipping does not report Tickets, Relics, or scores.
    */
-  private applyStaff(): void {
+  private applyStaff(cosmetic = false): void {
     const load = getLoadout();
     if (load.replaced) this.menus.toast('Gear unavailable', load.replaced);
-    // Ranked flag is already on the hub session. Standalone play leaves it false.
-    const ranked = this.hub.ranked;
+    // Ranked flag is already on the hub session. Standalone play leaves it false. Versus and
+    // online use the same starter stats (`cosmetic`), so the staff is only a look there.
+    const ranked = this.hub.ranked || cosmetic;
     const equipped = equipStaff(load.staff, ranked);
     const player = this.game.player;
     player.staff = equipped;
@@ -268,11 +288,111 @@ export class App {
   padFrame(dt: number): void {
     const pad = this.game.input.pad;
     pad.update();
-    if (pad.wasPressed(CONFIG.gamepad.bindings.pause)) {
+    const split = this.game.split;
+    if (split) this.p2Pad.update();
+    const pause = CONFIG.gamepad.bindings.pause;
+    if (pad.wasPressed(pause) || (split && this.p2Pad.wasPressed(pause))) {
       if (this.state === 'playing') return this.pause();
       if (this.state === 'paused') return this.resume();
     }
-    this.menus.nav.update(pad, dt);
+    if (this.join && this.menus.current === 'versus-join') return this.joinFrame();
+    // Split-screen pause menu: whichever pad is there navigates it.
+    this.menus.nav.update(split && !pad.connected ? this.p2Pad : pad, dt);
+  }
+
+  /** Local Versus join screen, once per frame: A on a pad joins P2, A again (or B to go back). */
+  private joinFrame(): void {
+    const j = this.join!;
+    const holding = padHolding('a');
+    if (holding < 0) j.released = true;
+    if (j.released && holding >= 0) {
+      j.released = false;
+      if (j.p2 === null) {
+        j.p2 = holding;
+        this.audio.play('uiClick', { exactPitch: true });
+      } else if (holding === j.p2 || connectedPadIndices().length > 1) {
+        this.startVersusFromJoin();
+        return;
+      }
+    }
+    if (padHolding('b') >= 0 && j.p2 !== null) j.p2 = null;
+    this.menus.updateVersusJoin(this.joinView());
+  }
+
+  private joinView() {
+    const pads = connectedPadIndices();
+    const j = this.join;
+    const p2 = j?.p2 ?? null;
+    const devices = p2 !== null && pads.includes(p2) ? assignDevices(pads, true, p2) : null;
+    const p1Pad = devices?.[0].pad ?? null;
+    return {
+      p1: `Keyboard + mouse${typeof p1Pad === 'number' ? ` + Controller ${p1Pad + 1}` : ''}`,
+      p2: devices ? `Controller ${p2! + 1}` : null,
+      pads: pads.length,
+    };
+  }
+
+  /** Local Versus: the join screen over the attract duel. */
+  showVersusJoin(): void {
+    this.enterMenuState('quick');
+    this.join = { p2: null, released: false };
+    this.menus.showVersusJoin(this.joinView(), { start: () => this.startVersusFromJoin(), back: () => this.toMenu() });
+  }
+
+  private startVersusFromJoin(): void {
+    const j = this.join;
+    const pads = connectedPadIndices();
+    const devices = j && j.p2 !== null ? assignDevices(pads, true, j.p2) : null;
+    if (!devices) {
+      this.menus.toast('Player 2 needs a controller', 'Press A on a controller to join');
+      return;
+    }
+    this.join = null;
+    this.startVersus(devices);
+  }
+
+  /**
+   * Local Versus: P1 (seat 0, left) against P2 (seat 1, right, the rival's look and palette) in
+   * the moonlit arena, split-screen, best of three under VERSUS rules: no AI, reward spells, life
+   * packs or god mode, both staffs cosmetic (starter stats), and nothing reported to the hub.
+   */
+  startVersus(devices: [DeviceBinding, DeviceBinding]): void {
+    const g = this.game;
+    this.versusDevices = devices;
+    this.mode = 'versus';
+    this.dressEnemy(null);
+    g.input.pad.slot = devices[0].pad;
+    g.input.pad.excluded.clear();
+    g.playerController.kbm = devices[0].keyboardMouse;
+    this.p2Pad.slot = devices[1].pad;
+    g.setSplit(true);
+    if (!this.p2Source) {
+      this.p2Source = new LocalHumanSource(g.input, g.rigs[1], g.enemy, g.physics, () => [g.player], { keyboardMouse: false, pad: this.p2Pad });
+    }
+    this.p2Source.applyPadSettings(this.settings);
+    g.controllers[1] = this.p2Source;
+    if (!g.extraPads.includes(this.p2Pad)) g.extraPads.push(this.p2Pad);
+    g.enemyController = null;
+    g.enemy.intent.clear();
+    this.hud.setViews(2);
+    this.hud.setNames(['P1', 'P2']);
+    this.beginMatch(null, VERSUS);
+  }
+
+  /** Back to one player on one screen (every non-Versus mode starts with this). */
+  private leaveVersus(): void {
+    const g = this.game;
+    this.join = null;
+    if (!g.split && g.controllers[1] !== this.p2Source) return;
+    g.setSplit(false);
+    if (g.controllers[1] === this.p2Source) g.controllers[1] = null;
+    g.extraPads.length = 0;
+    g.enemyController = this.aiDriver;
+    g.input.pad.slot = 'any';
+    g.input.pad.excluded.clear();
+    g.playerController.kbm = true;
+    this.p2Pad.slot = null;
+    this.hud.setViews(1);
   }
 
   private applySettings(s: Settings): void {
@@ -284,6 +404,8 @@ export class App {
     g.renderer.setQuality({ bloom: s.bloom, shadows: s.shadows });
     this.audio.setVolumes(s.master, s.sfx, s.music);
     g.playerController.applyPadSettings(s);
+    this.p2Source?.applyPadSettings(s);
+    for (const r of g.rigs) r.sensitivity = CONFIG.camera.sensitivity * s.sensitivity;
   }
 
   /** Menu background: both wizards duel; a KO resets the arena after a beat. */
@@ -314,6 +436,7 @@ export class App {
 
   /** Quick Duel: the one Rival (fixed AI profile) in the moonlit arena. */
   startMatch(): void {
+    this.leaveVersus();
     this.mode = 'quick';
     this.dressEnemy(null);
     this.ai.setProfile(QUICK_DUEL_AI);
@@ -373,6 +496,7 @@ export class App {
       this.campaign.startNew();
     }
     const boss = this.campaign.boss;
+    this.leaveVersus();
     this.mode = 'gauntlet';
     this.dressEnemy(boss);
     const names = ['You', boss.name], titles = ['', boss.title];
@@ -384,6 +508,7 @@ export class App {
   /** Rematch / Retry / pause "Restart": the same opponent again. */
   restart(): void {
     if (this.mode === 'gauntlet') this.startBossFight();
+    else if (this.mode === 'versus' && this.versusDevices) this.startVersus(this.versusDevices);
     else this.startMatch();
   }
 
@@ -410,6 +535,10 @@ export class App {
    * is decided (the final KO) its result is settled: a toggle before the results changes nothing.
    */
   setGodMode(on: boolean): void {
+    if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.rules.godModeAllowed) {
+      this.menus.toast('God mode is off here', 'Local Versus and online duels are played even');
+      return;
+    }
     this.game.setGodMode(on);
     this.syncLearned();
     if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.decided) this.godUsed = true;
@@ -446,17 +575,22 @@ export class App {
     style.setProperty('--rival-lo', `#${c.clone().multiplyScalar(0.75).getHexString()}`);
   }
 
-  private beginMatch(boss: BossDef | null): void {
+  private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>): void {
     const g = this.game;
+    const r = rules ?? (boss ? undefined : QUICK);
+    const even = r !== undefined && !r.godModeAllowed;
     this.audio.gameplayMuted = false;
     g.player.intent.clear();
     this.syncLearned();
-    this.applyStaff();
-    // God mode's stats come back on the player (the menu's background duel fights without them).
-    g.holdGodMode(false);
+    // Versus / online: no reward spells, and the staff is the look only (starter stats).
+    if (even) g.player.learned.clear();
+    this.applyStaff(even);
+    // God mode's stats come back on the player (the menu's background duel fights without them),
+    // except where the rules forbid it: then they stay held off, whatever the flag says.
+    g.holdGodMode(even);
     this.gauntletOutcome = null;
     this.winUnsaved = null;
-    this.godUsed = CONFIG.debug.godMode;
+    this.godUsed = !even && CONFIG.debug.godMode;
     this.cinematic.abort();
     this.cinematic.armed = boss !== null;
     this.menus.hide();
@@ -465,7 +599,7 @@ export class App {
     g.playerControl = true;
     this.state = 'playing';
     this.resultsTimer = 0;
-    this.match.startMatch(boss);
+    this.match.startMatch(boss, r);
     this.audio.setPaused(false);
     this.audio.playMusic('musicBattle');
     this.audio.setAmbient(true);
@@ -521,6 +655,9 @@ export class App {
   /** Shared by the main menu, boss cards and the gauntlet-complete screen: attract duel behind a menu. */
   private enterMenuState(mode: GameMode): void {
     const g = this.game;
+    this.leaveVersus();
+    this.match.rules = QUICK;
+    g.spells.rewardSpellsEnabled = true;
     this.freshRun = false;
     this.cinematic.abort();
     this.cinematic.armed = false;
@@ -561,10 +698,11 @@ export class App {
       else this.syncLearned();
     }
     // Hub reports go around Campaign.recordWin: god-mode wins still earn Tickets and Tinubu's Crown.
-    if (!this.game.qaMode) {
+    // Local Versus and online report nothing from the client (rules.reportToHub; see planDuelWin).
+    if (!this.game.qaMode && this.match.rules.reportToHub) {
       const bossId = this.match.boss?.id ?? null;
       void this.hub.onDuelWin(
-        { playerWon: winner === this.game.player, bossId, godMode: this.godUsed, elapsed: this.match.elapsed },
+        { mode: this.mode, playerWon: winner === this.game.player, bossId, godMode: this.godUsed, elapsed: this.match.elapsed },
         (title, sub) => this.menus.toast(title, sub, 'tickets'),
       );
     }
@@ -639,6 +777,17 @@ export class App {
         facts: this.fightFacts(p1Won),
         tag: unsaved === 'god' ? 'God mode · progress not saved' : unsaved === 'skipped' ? 'Not saved · earlier wins used god mode' : undefined,
         learned: learned ? REWARD_SPELL_INFO[learned].name : undefined,
+        ...stats,
+      };
+    } else if (this.mode === 'versus') {
+      const draw = this.match.wins[0] === this.match.wins[1];
+      data = {
+        title: draw ? 'Draw' : p1Won ? 'Player 1 wins' : 'Player 2 wins',
+        subtitle: `${this.match.wins[0]} – ${this.match.wins[1]}`,
+        eyebrow: 'Local Versus',
+        victory: p1Won,
+        names: ['P1', 'P2'],
+        rounds,
         ...stats,
       };
     } else {

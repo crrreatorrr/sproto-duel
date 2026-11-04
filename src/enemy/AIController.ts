@@ -1,7 +1,7 @@
 import * as THREE from 'three';
+import type { IntentSource } from '../input/IntentSource';
 import { CONFIG, type AIProfile, type Difficulty } from '../config';
 import { events } from '../core/events';
-import type { TickController } from '../core/Game';
 import { chance, clamp, rand, randInt, wrapAngle } from '../core/math';
 import type { Physics } from '../physics/Physics';
 import type { Arena } from '../arena/Arena';
@@ -42,7 +42,13 @@ const tmpC = new THREE.Vector3();
  * the stage's signature volley, cast through SpellSystem.castVolley. In a double fight each boss
  * has its own controller; `allies` keeps the pair spread out and flanking the player.
  */
-export class AIController implements TickController {
+export class AIController implements IntentSource {
+  readonly kind = 'ai' as const;
+  /** IntentSource: the AI thinks once per fixed tick. */
+  tick(dt: number): void {
+    this.update(dt);
+  }
+
   state: AIState = 'approach';
   profile: AIProfile;
   /** What this AI may cast beyond bolts, shield and rolls (a boss stage), or null for everything. */

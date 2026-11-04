@@ -890,3 +890,21 @@ html, body {
   #ui .menu-panel.reveal { gap: 6px; }
   #ui .complete-roll .boss-portrait.small { width: 64px; }
 }
+
+/* Local Versus split-screen (HUD.setViews(2)): a crosshair and a spell row per half, a divider. */
+.hud.split::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; transform: translateX(-1px); background: rgba(0, 0, 0, 0.55); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); pointer-events: none; }
+.hud.split .crosshair { left: 25%; }
+.hud.split .crosshair.p2 { left: 75%; }
+.crosshair.p2 { display: none; }
+.hud.split .crosshair.p2 { display: block; }
+.hud.split .hud-bottom { left: 25%; transform: translateX(-50%) scale(0.82); transform-origin: 50% 100%; }
+.p2-slots { display: none; }
+.hud.split .p2-slots { display: flex; position: absolute; left: 75%; bottom: 22px; transform: translateX(-50%) scale(0.82); transform-origin: 50% 100%; }
+.hud.split .enemy-tag, .hud.split .offscreen-arrow, .hud.split .lock-reticle, .hud.split .reward-slots { display: none; }
+#ui.cinematic .p2-slots { visibility: hidden; }
+/* Local Versus join screen. */
+.versus-join .join-seats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+.versus-join .join-seat { border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 10px; padding: 12px; text-align: center; }
+.versus-join .join-seat.ready { border-color: #7fe0a0; box-shadow: 0 0 12px rgba(127, 224, 160, 0.35); }
+.versus-join .join-seat b { display: block; font-size: 1.1em; margin-bottom: 4px; }
+.versus-join .join-hint { opacity: 0.8; font-size: 0.92em; }

@@ -17,6 +17,12 @@ describe('planDuelWin', () => {
     expect(TICKETS_PER_WIN).toBe(20);
   });
 
+  it('reports nothing for Local Versus or online, win or not', () => {
+    expect(planDuelWin(win({ mode: 'versus', ranked: true }))).toEqual([]);
+    expect(planDuelWin(win({ mode: 'online', ranked: true, bossId: 'tinubu' }))).toEqual([]);
+    expect(planDuelWin(win({ mode: 'quick' }))).toHaveLength(1);
+  });
+
   it('reports nothing for a loss', () => {
     expect(planDuelWin(win({ playerWon: false, bossId: 'tinubu', ranked: true }))).toEqual([]);
   });

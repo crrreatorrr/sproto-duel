@@ -76,6 +76,8 @@ export class SpellSystem {
   readonly muzzleFx: MuzzleFx;
   /** The boss reward spells (carpet, pump, vape, lock-on, breath): their rules and effects. */
   readonly rewards: RewardSpells;
+  /** Learned reward spells can be cast (MatchRules.rewardSpells; off in Local Versus and online). */
+  rewardSpellsEnabled = true;
   /** Boss special powers (telegraphed zones, rings, sweeps, cones, seekers...), and how they look. */
   readonly powers: BossPowers;
   readonly powerFx: PowerFx;
@@ -178,8 +180,8 @@ export class SpellSystem {
     if (intent.wants('shield') && !w.dodging && !w.shielded && !w.riding) {
       if (this.raiseShield(w)) intent.consume('shield');
     }
-    // Boss reward spells (only wizards that learned them: the player).
-    if (w.learned.size > 0 || w.side === 0) this.rewards.handleIntents(w);
+    // Boss reward spells (only wizards that learned them: the player), unless the match rules them out.
+    if (this.rewardSpellsEnabled && (w.learned.size > 0 || w.side === 0)) this.rewards.handleIntents(w);
     // On the Magic Carpet: bolts only (drive-by), nothing that needs both feet planted.
     if (w.riding) {
       if (!w.dodging && w.cast === null && (intent.holdBolt || intent.wants('bolt')) && this.castBolt(w)) intent.consume('bolt');
@@ -723,7 +725,7 @@ export class SpellSystem {
       this.dealDamage(target, p.owner, p.damage, p.pos, 'bolt', tmpDir, p.knockback);
       this.fx.impact(p.pos, hit.normal, color, p.reflected ? 1.6 : 1);
       feel.freeze(S.bolt.hitStopMs, !p.reflected);
-      if (target === feel.local || p.owner === feel.local) feel.shake(S.bolt.shake);
+      if (feel.isLocal(target) || feel.isLocal(p.owner)) feel.shake(S.bolt.shake);
       else feel.shakeAt(p.pos, S.bolt.shake);
       events.emit('impact', { pos: p.pos, spell: 'bolt', surface: 'wizard' });
     } else if (tag.kind === 'pillar') {

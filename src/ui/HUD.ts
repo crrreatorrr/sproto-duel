@@ -5,6 +5,7 @@ import { bossStagePortrait } from '../assets/manifest';
 import { STAGE_COUNT } from '../campaign/BossStages';
 import { BOSSES, bossDisplayName, type BossFighter } from '../campaign/levels';
 import { events } from '../core/events';
+import { spellLabels } from '../core/Gamepad';
 import { feel } from '../core/feel';
 import type { Game } from '../core/Game';
 import type { Match } from '../core/Match';
@@ -131,6 +132,9 @@ export class HUD {
   private readonly dodgeLabel: HTMLElement;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
+  /** Local Versus: P2's crosshair, hit marker and spell row (built by setViews). */
+  private p2: { crosshair: HTMLElement; slots: Slot[]; hitMarker: number } | null = null;
+  private views = 1;
   private healFlash = 0;
   private hurt = 0;
 
@@ -307,10 +311,40 @@ export class HUD {
     box.classList.add('animate');
   }
 
+  /**
+   * One view, or Local Versus split-screen: a crosshair per half, P2's spell row on the right and
+   * "P1"/"P2" plates. The over-head enemy tags, off-screen arrows and Lock-On reticle are
+   * projected for one full-screen camera, so split mode hides them (styles.css .hud.split).
+   */
+  setViews(n: 1 | 2): void {
+    this.views = n;
+    this.root.classList.toggle('split', n > 1);
+    if (n > 1 && !this.p2) {
+      const crosshair = document.createElement('div');
+      crosshair.className = 'crosshair p2';
+      crosshair.innerHTML = '<i></i><i></i><i></i><i></i>';
+      this.root.appendChild(crosshair);
+      const row = document.createElement('div');
+      row.className = 'slots p2-slots';
+      const slots: Slot[] = [];
+      const q = <T extends HTMLElement>(sel: string, el: ParentNode) => el.querySelector(sel) as T;
+      SLOTS.forEach((sl, i) => {
+        const el = document.createElement('div');
+        el.className = `slot slot-${sl.spell}`;
+        el.innerHTML = `<div class="slot-icon">${spellIcon(sl.spell)}</div><div class="slot-sweep"></div><div class="slot-time"></div><kbd>${padP2Labels()[i]}</kbd><span class="slot-label">${sl.label}</span>`;
+        row.appendChild(el);
+        slots.push({ spell: sl.spell, root: el, sweep: q('.slot-sweep', el), time: q('.slot-time', el), label: q('.slot-label', el) });
+      });
+      this.root.appendChild(row);
+      this.p2 = { crosshair, slots, hitMarker: 0 };
+    }
+  }
+
   private bindEvents(): void {
     const g = this.game;
     events.on('damage', (e) => {
       if (e.source === g.player && e.target !== g.player) this.hitMarker = 0.14;
+      if (this.p2 && this.views > 1 && e.source === g.enemy && e.target !== g.enemy) this.p2.hitMarker = 0.14;
       if (e.target === g.player) {
         this.hurt = Math.min(1, this.hurt + e.amount / 25);
         feel.screenFlash(0xff2a2a, Math.min(0.35, 0.08 + e.amount / 60));
@@ -484,6 +518,11 @@ export class HUD {
 
     const p = g.player;
     this.updateSlots(p);
+    if (this.p2 && this.views > 1) {
+      this.updateSlots(g.enemy, this.p2.slots, 'p2');
+      this.p2.hitMarker = Math.max(0, this.p2.hitMarker - dt);
+      this.set('xh2', this.p2.crosshair, 'class', this.p2.hitMarker > 0 ? 'crosshair p2 hit' : 'crosshair p2');
+    }
     this.updateRewardSlots(p);
     this.updateReticle(p);
     const blink = p.staff?.blink;
@@ -596,8 +635,8 @@ export class HUD {
     });
   }
 
-  private updateSlots(p: Wizard): void {
-    for (const s of this.slots) {
+  private updateSlots(p: Wizard, slots: readonly Slot[] = this.slots, prefix = ''): void {
+    for (const s of slots) {
       let frac = 0;
       let seconds = 0;
       let cost = 0;
@@ -614,11 +653,11 @@ export class HUD {
       const noMana = p.mana < cost;
       const active = (s.spell === 'shield' && p.shielded) || p.cast?.spell === s.spell;
       const id = s.spell;
-      if (s.spell === 'bolt') this.set('boltlabel', s.label, 'text', p.staff?.boltLabel ?? 'Bolt');
-      this.set(`sw${id}`, s.sweep, 'style', `${(frac * 360).toFixed(1)}deg`, '--cd');
-      this.set(`st${id}`, s.time, 'text', seconds > 0.25 && s.spell !== 'bolt' ? seconds.toFixed(seconds < 1 ? 1 : 0) : '');
+      if (s.spell === 'bolt') this.set(`${prefix}boltlabel`, s.label, 'text', p.staff?.boltLabel ?? 'Bolt');
+      this.set(`${prefix}sw${id}`, s.sweep, 'style', `${(frac * 360).toFixed(1)}deg`, '--cd');
+      this.set(`${prefix}st${id}`, s.time, 'text', seconds > 0.25 && s.spell !== 'bolt' ? seconds.toFixed(seconds < 1 ? 1 : 0) : '');
       const cls = `slot slot-${s.spell}${frac > 0 && s.spell !== 'bolt' ? ' cooling' : ''}${noMana ? ' nomana' : ''}${active ? ' active' : ''}${s.spell === 'ultimate' && ready ? ' ready' : ''}`;
-      this.set(`sc${id}`, s.root, 'class', cls);
+      this.set(`${prefix}sc${id}`, s.root, 'class', cls);
     }
   }
 
@@ -727,4 +766,9 @@ export class HUD {
       arrow.style.transform = `translate3d(${ax.toFixed(1)}px, ${ay.toFixed(1)}px, 0) translate(-50%, -50%) rotate(${(-a).toFixed(3)}rad)`;
     }
   }
+}
+
+/** P2's spell keys in Local Versus: always a pad's (P2 has no keyboard). */
+function padP2Labels(): string[] {
+  return spellLabels('gamepad', 'xbox');
 }

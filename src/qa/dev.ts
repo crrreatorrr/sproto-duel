@@ -24,6 +24,7 @@ import { registerPowerScenarios } from './powerScenarios';
 import { registerArenaShiftScenarios } from './arenaShiftScenarios';
 import { registerFeelScenarios } from './feelScenarios';
 import { registerMenuScenarios } from './menuScenarios';
+import { registerVersusScenarios } from './versusScenarios';
 import { campaignSoak, soak, type CampaignSoakOptions } from './soak';
 import { CONFIG, type Difficulty } from '../config';
 import { BOSSES } from '../campaign/levels';
@@ -55,6 +56,7 @@ export function installDevTools(game: Game, app: App): void {
   registerPowerScenarios(qa, game, app);
   registerArenaShiftScenarios(qa, game);
   registerFeelScenarios(qa, game);
+  registerVersusScenarios(qa, game, app);
   const qaApi = Object.assign(qa, {
     /**
      * `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance.

@@ -17,6 +17,8 @@ export class CameraRig {
   pitch = -0.07;
   sensitivity = C.sensitivity;
   invertY = false;
+  /** Vertical field of view before sprint/dodge boosts (wider in split-screen: CONFIG.versus.fov). */
+  baseFov: number = C.fov;
   private readonly pivot = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private readonly forward = new THREE.Vector3();
@@ -72,8 +74,8 @@ export class CameraRig {
     const r = CONFIG.render.orbitRadius;
     cam.position.set(Math.sin(this.orbitAngle) * r, CONFIG.render.orbitHeight, Math.cos(this.orbitAngle) * r);
     cam.lookAt(0, 1.6, 0);
-    if (cam.fov !== C.fov) {
-      cam.fov = C.fov;
+    if (cam.fov !== this.baseFov) {
+      cam.fov = this.baseFov;
       cam.updateProjectionMatrix();
     }
   }
@@ -148,7 +150,7 @@ export class CameraRig {
 
     const boost = (sprinting ? C.sprintFovBoost : 0) + (dodging ? C.dodgeFovBoost : 0);
     this.fovBoost = damp(this.fovBoost, boost, 8, dt);
-    const fov = C.fov + this.fovBoost;
+    const fov = this.baseFov + this.fovBoost;
     if (Math.abs(cam.fov - fov) > 0.01) {
       cam.fov = fov;
       cam.updateProjectionMatrix();
