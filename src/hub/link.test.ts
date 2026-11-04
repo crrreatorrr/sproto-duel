@@ -53,7 +53,9 @@ describe('HubLink online', () => {
   });
 
   it('a standalone visit has no realtime client', () => {
-    expect(new HubLink(fakeApi()).realtime()).toBeNull();
+    expect(new HubLink(fakeApi()).realtime(() => {
+      throw new Error('not called standalone');
+    })).toBeNull();
   });
 });
 

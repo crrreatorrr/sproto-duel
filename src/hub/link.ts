@@ -1,4 +1,4 @@
-import { createHubSdk, HubSdkError, realtimeFromSdk, type HubRealtime, type HubSdk, type InitResult, type RelicId } from '@metaverse/hub-sdk';
+import { createHubSdk, HubSdkError, type HubRealtime, type HubSdk, type InitResult, type RealtimeOptions, type RelicId } from '@metaverse/hub-sdk';
 import { HUB_EXIT_SLUG, HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
 import { planDuelWin, type DuelWin } from './report';
 
@@ -51,9 +51,10 @@ export class HubLink {
    * The realtime client for online duels (the game-scope session from init), or null when this
    * visit isn't hub-connected (then Online Duel stays disabled). Created once.
    */
-  realtime(): HubRealtime | null {
+  realtime(make: (sdk: HubSdk, opts: Omit<RealtimeOptions, 'getToken'>) => HubRealtime | null): HubRealtime | null {
     if (!this.connected) return null;
-    this.rt ??= realtimeFromSdk(this.api, { serverUrl: nakamaUrl() });
+    // `make` is the SDK's realtimeFromSdk, passed in from the lazily loaded online stack.
+    this.rt ??= make(this.api, { serverUrl: nakamaUrl() });
     return this.rt;
   }
 

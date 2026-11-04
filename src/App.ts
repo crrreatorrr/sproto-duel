@@ -10,11 +10,11 @@ import { bindRumble, connectedPadIndices, GamepadInput, padHolding, rewardLabels
 import { bossModelKeys, nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
 import { ONLINE, QUICK, VERSUS, type MatchRules } from './core/rules';
-import { HubLobby } from './net/HubLobby';
-import { OnlineController } from './net/OnlineController';
-import { OnlineSession, type OnlineLobby, type SessionState } from './net/OnlineSession';
+import type { OnlineController } from './net/OnlineController';
+import type { OnlineLobby, OnlineSession, SessionState } from './net/OnlineSession';
 import type { OutcomeMsg, StartMsg } from './net/protocol';
-import { realScheduler } from './net/transport';
+/** The online stack, loaded on first use (keeps it out of the boot bundle). */
+type NetStack = typeof import('./net/onlineStack');
 import type { TickController } from './core/Game';
 import { assignDevices } from './input/assignDevices';
 import type { DeviceBinding } from './input/IntentSource';
@@ -114,6 +114,7 @@ export class App {
   private onlineLobbyCache: OnlineLobby | null = null;
   /** Dev only: a lobby on an in-page fake server with a scripted opponent (`?netsim=<latency ms>`). */
   devLobby: (() => OnlineLobby) | null = null;
+  private net: NetStack | null = null;
   private settings: Settings;
   /** Drives the player's wizard in the menu background (attract mode). */
   private readonly attract: AIController;
@@ -172,7 +173,7 @@ export class App {
     this.menus = new Menus(game.ui, this.settings, {
       start: () => this.startMatch(),
       versus: () => this.showVersusJoin(),
-      online: () => (!this.onlineBuilt ? null : this.onlineLobby()
+      online: () => (!this.onlineBuilt ? null : this.onlineAvailable
         ? { enabled: true, why: 'Quick match or a private room' }
         : { enabled: false, why: 'Enter from the hub portal to play online' }),
       openOnline: () => this.openOnline(),
@@ -427,9 +428,15 @@ export class App {
   /** Matchmaking for this visit: the hub realtime client, the dev fake (`?netsim`), or null standalone. */
   private onlineLobby(): OnlineLobby | null {
     if (this.devLobby) return (this.onlineLobbyCache ??= this.devLobby());
-    const rt = this.hub.realtime();
-    if (!rt) return null;
-    return (this.onlineLobbyCache ??= new HubLobby(rt));
+    if (this.onlineLobbyCache) return this.onlineLobbyCache;
+    if (!this.hub.connected || !this.net) return null;
+    const rt = this.hub.realtime(this.net.realtimeFromSdk);
+    return rt ? (this.onlineLobbyCache = new this.net.HubLobby(rt)) : null;
+  }
+
+  /** Online Duel can be offered: a hub-connected visit (or the dev fake). */
+  private get onlineAvailable(): boolean {
+    return this.devLobby !== null || this.hub.connected;
   }
 
   /** The Online Duel menu over the attract duel. `note`: why the last attempt ended. */
@@ -445,6 +452,15 @@ export class App {
 
   /** Search, open a room, or join one; START then begins the match (beginOnline). */
   startOnline(kind: 'quick' | 'create' | 'join', code = ''): void {
+    if (!this.net) {
+      this.menus.showOnlineStatus('Connecting…', 'Loading Online Duel', { cancel: () => this.openOnline() });
+      void import('./net/onlineStack').then((net) => {
+        this.net = net;
+        if (this.menus.current === 'online-status') this.startOnline(kind, code);
+      }, () => this.openOnline('Could not load Online Duel. Check your connection.'));
+      return;
+    }
+    const net = this.net;
     const lobby = this.onlineLobby();
     if (!lobby) {
       this.menus.toast('Online Duel', 'Enter from the hub portal to play online');
@@ -452,8 +468,8 @@ export class App {
     }
     this.endOnline();
     const N = CONFIG.net;
-    const s = new OnlineSession(lobby, {
-      scheduler: realScheduler,
+    const s = new net.OnlineSession(lobby, {
+      scheduler: net.realScheduler,
       staff: getLoadout().staff,
       inputDelayTicks: N.inputDelayTicks,
       maxInputLagTicks: N.maxInputLagTicks,
@@ -499,7 +515,7 @@ export class App {
     this.mode = 'online';
     this.dressEnemy(null);
     this.onlineOutcome = null;
-    const ctl = (this.onlineCtl = new OnlineController(this.game, this.match, s, realScheduler));
+    const ctl = (this.onlineCtl = new this.net!.OnlineController(this.game, this.match, s, this.net!.realScheduler));
     ctl.begin(start);
     this.hud.setNames(['You', start.names[1 - start.seat] || 'Opponent']);
     this.beginMatch(null, ONLINE, !s.isHost);
@@ -535,7 +551,8 @@ export class App {
     const me = s?.seat ?? 0;
     const won = o.winnerSeat === me;
     const paid = Object.values(o.paid).reduce((a, b) => a + b, 0);
-    const myPay = (this.onlineLobby()?.selfId && o.paid[this.onlineLobby()!.selfId!]) || 0;
+    const self = this.onlineLobby()?.selfId;
+    const myPay = (self && o.paid[self]) || 0;
     switch (o.status) {
       case 'verified':
         return won ? (myPay ? `Confirmed · +${myPay} Tickets` : 'Confirmed · no Tickets (daily limit reached)') : 'Confirmed';
