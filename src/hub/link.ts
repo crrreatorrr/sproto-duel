@@ -1,6 +1,7 @@
 import { createHubSdk, HubSdkError, type HubRealtime, type HubSdk, type InitResult, type RealtimeOptions, type RelicId } from '@metaverse/hub-sdk';
 import { HUB_EXIT_SLUG, HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
 import { planDuelWin, type DuelWin } from './report';
+import { pageServerKey } from './serverKey';
 
 export interface HubStatus {
   connected: boolean;
@@ -19,11 +20,9 @@ type Notify = (title: string, sub: string) => void;
 /** Written by the SDK when a portal ticket or a cached visit is live. */
 const HUB_SESSION_KEY = `hub:${HUB_GAME_ID}:session`;
 
-// Nakama's client server key. Custom-auth ticket redeem sends it as Basic auth; it is
-// not the runtime HTTP key. Like the hub, only `vite dev` falls back to the compose
-// default. A production build takes VITE_NAKAMA_SERVER_KEY, or every redeem is refused
-// and the game runs without a hub session (no Tickets banked, no Relic sent).
-const NAKAMA_SERVER_KEY = import.meta.env.VITE_NAKAMA_SERVER_KEY || (import.meta.env.DEV ? 'defaultkey' : '');
+// Nakama's client server key. The rule (env key, else the local stock key in dev or on a
+// loopback host) is in ./serverKey.ts.
+const NAKAMA_SERVER_KEY = pageServerKey();
 
 /**
  * The game's view of one hub visit.
