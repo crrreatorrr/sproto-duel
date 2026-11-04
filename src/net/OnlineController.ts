@@ -42,6 +42,8 @@ export class OnlineController {
   private readonly pose = emptyPose();
   /** Snapshots sent (host) or applied (guest). */
   snapshots = 0;
+  /** Guest: point the camera at the replicated pose on the next frame (match and round starts). */
+  private needSnap = true;
   active = false;
 
   constructor(
@@ -95,10 +97,12 @@ export class OnlineController {
       this.offs.push(this.session.on('snapshot', (snap) => this.onSnapshot(snap)));
       g.replicaHooks.push(this.guestTick);
       // A new round on the host: clear the replica's arena the way Match.startRound does there.
+      this.needSnap = true;
       this.offs.push(events.on('roundIntro', () => {
         if (g.role !== 'replica') return;
         g.resetArena();
-        g.rig.snap(g.player.pos, g.player.facing);
+        // The host respawned everyone: face the way the replicated wizard does, once it has moved there.
+        this.needSnap = true;
       }));
     }
     this.offs.push(events.on('roundEnd', (e) => this.onRoundEnd(e.winner, e.reason)));
@@ -147,6 +151,16 @@ export class OnlineController {
       w.facing = w.prevFacing = pose.facing;
       w.placeBody();
     });
+    if (this.needSnap && this.match.phase === 'intro') {
+      // Our wizard's spawn mark on the host may be the far side (seat 1): snap the camera behind it
+      // once the interpolated pose (100 ms behind) has reached the newest snapshot's.
+      const p = this.game.player;
+      const mine = this.session.snapshots.newest?.wizards[this.session.seat];
+      if (mine && Math.hypot(mine.pos[0] - p.pos.x, mine.pos[2] - p.pos.z) < 0.3) {
+        this.game.rig.snap(p.pos, p.facing);
+        this.needSnap = false;
+      }
+    }
     applyProjectiles(this.game, this.session.snapshots.extrapolatedProjectiles(now), this.seats);
     for (const p of this.game.spells.pool.active) p.prevPos.copy(p.pos);
   }

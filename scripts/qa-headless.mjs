@@ -8,6 +8,8 @@
  *   npm run qa:headless -- versus.      # only scenarios whose name contains "versus."
  *   QA_PERF=10 npm run qa:headless      # also print __duel.qa.perf(10) and renderer.info
  *   QA_URL_QUERY='&netsim=80' ...       # extra query string for the page
+ *   QA_FROM=158 / QA_SHARD=0/2          # resume at a position, or run every other scenario
+ *   QA_SCENARIO_TIMEOUT_MS=1200000      # per scenario (SwiftShader cinematics take minutes)
  *
  * Exits non-zero when any scenario fails. Perf under SwiftShader is only comparable run to run
  * on the same machine.
@@ -141,17 +143,23 @@ const t0 = Date.now();
 // One scenario per evaluate: progress shows as it goes, and QA_SHARD=i/n splits the list.
 const names = (await evaluate('__duel.qa.list()')).filter((n) => !filter || n.includes(filter));
 const shard = /^(\d+)\/(\d+)$/.exec(process.env.QA_SHARD || '');
-const mine = shard ? names.filter((_, i) => i % Number(shard[2]) === Number(shard[1])) : names;
+const from = Math.max(0, Number(process.env.QA_FROM || 1) - 1);
+const mine = (shard ? names.filter((_, i) => i % Number(shard[2]) === Number(shard[1])) : names).slice(from);
+const scenarioMs = Number(process.env.QA_SCENARIO_TIMEOUT_MS || 20 * 60 * 1000);
 const summary = { passed: 0, failed: 0, failures: [] };
 for (const [i, name] of mine.entries()) {
   let r;
   try {
-    r = await evaluate(`__duel.qa.run(${JSON.stringify(name)}).then((x) => ({ pass: x.pass, detail: String(x.detail).slice(0, 600), ms: x.ms }))`, 10 * 60 * 1000);
+    r = await evaluate(`__duel.qa.run(${JSON.stringify(name)}).then((x) => ({ pass: x.pass, detail: String(x.detail).slice(0, 600), ms: x.ms }))`, scenarioMs);
   } catch (err) {
-    if (!/navigated|closed/i.test(String(err))) throw err;
-    console.warn('[qa] page reloaded; waiting for the harness again');
+    const timedOut = /timed out/.test(String(err));
+    if (!timedOut && !/navigated|closed/i.test(String(err))) throw err;
+    // A stuck scenario leaves the page mid-run: reload it and go on with the next one.
+    console.warn(`[qa] ${timedOut ? `${name} timed out` : 'page reloaded'}; reloading`);
+    await send('Page.reload', { ignoreCache: false });
+    await sleep(2000);
     await ready();
-    r = { pass: false, detail: `page reloaded during ${name}`, ms: 0 };
+    r = { pass: false, detail: timedOut ? `timed out after ${scenarioMs} ms` : `page reloaded during ${name}`, ms: scenarioMs };
   }
   if (r.pass) summary.passed++;
   else {
