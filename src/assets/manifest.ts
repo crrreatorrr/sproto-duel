@@ -440,5 +440,8 @@ export const UI_ICONS = {
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
+
+/** Campaign boss stage models (`boss<Id>1..3`): loaded on demand before a gauntlet fight, not at boot. */
+export const isBossModelKey = (key: string): boolean => /^boss[A-Z]\w*[123]$/.test(key);
 export type TextureKey = keyof typeof TEXTURES;
 export type SoundKey = keyof typeof SOUNDS;

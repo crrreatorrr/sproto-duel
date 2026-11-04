@@ -78,6 +78,9 @@ const EMBER_RATE = A.wallRadius * 2.08;
  * Ring of magic fire at the arena edge. Touching it burns (damage ticks) and shoves you inward.
  * The radius shrinks during sudden death.
  */
+/** Burn tick point (dealDamage and the impact effect copy it). */
+const tmpBurn = new THREE.Vector3();
+
 export class FireRing {
   private readonly walls: THREE.Mesh<THREE.CylinderGeometry, THREE.ShaderMaterial>[] = [];
   private readonly glow: THREE.Mesh<THREE.RingGeometry, THREE.ShaderMaterial>;
@@ -223,7 +226,7 @@ export class FireRing {
       w.burnTimer += dt;
       while (w.burnTimer >= A.fireTickInterval) {
         w.burnTimer -= A.fireTickInterval;
-        const p = new THREE.Vector3(w.pos.x, lava ? 0.3 : 1.0, w.pos.z);
+        const p = tmpBurn.set(w.pos.x, lava ? 0.3 : 1.0, w.pos.z);
         damage(w, (lava ? A.lavaDps : A.fireDps) * A.fireTickInterval, p);
         events.emit('burn', { wizard: w });
         this.fx.impact(p, null, this.burnColor, 0.5);

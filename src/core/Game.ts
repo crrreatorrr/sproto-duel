@@ -35,6 +35,13 @@ const tmpEye = new THREE.Vector3();
 const tmpColor = new THREE.Color();
 const FADE = CONFIG.camera.bossFade;
 
+/** Every stage model a gauntlet boss (and its partner) can wear: load them before dressing it. */
+export function bossModelKeys(boss: BossDef): ModelKey[] {
+  const keys: ModelKey[] = [];
+  for (const def of bossFighters(boss)) for (const st of def.stages) if (!keys.includes(st.model)) keys.push(st.model);
+  return keys;
+}
+
 /** The standing wizard in `list` nearest `from`, or null if all are down. */
 export function nearestStanding(from: Wizard, list: readonly Wizard[]): Wizard | null {
   let best: Wizard | null = null;

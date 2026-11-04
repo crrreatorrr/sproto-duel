@@ -7,7 +7,7 @@ import { BOSSES, bossDisplayName, type BossDef } from './campaign/levels';
 import { DoubleTap } from './core/DoubleTap';
 import { events } from './core/events';
 import { bindRumble, connectedPadIndices, GamepadInput, padHolding, rewardLabels, spellLabels } from './core/Gamepad';
-import { nearestStanding, type Game } from './core/Game';
+import { bossModelKeys, nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
 import { QUICK, VERSUS, type MatchRules } from './core/rules';
 import type { TickController } from './core/Game';
@@ -466,6 +466,15 @@ export class App {
   showBossCard(freshRun = false): void {
     const c = this.campaign;
     const boss = c.boss;
+    // Boss stage models load on demand (AssetLoader.loadAll skips them): wait for this boss's.
+    const keys = bossModelKeys(boss);
+    if (!this.game.assets.modelsReady(keys)) {
+      this.menus.toast('Summoning…', bossDisplayName(boss));
+      void this.game.assets.ensureModels(keys).then(() => {
+        if (this.state !== 'playing' && this.state !== 'paused' && this.campaign.boss === boss) this.showBossCard(freshRun);
+      });
+      return;
+    }
     this.enterMenuState('gauntlet');
     this.freshRun = freshRun;
     this.dressEnemy(boss);
