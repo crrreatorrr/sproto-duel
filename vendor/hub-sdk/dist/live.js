@@ -2,6 +2,7 @@ import { resolveHubEnv } from './env';
 import { HubSdkError } from './errors';
 import { sessionVarsFromToken, tokenExpiryMs, userIdFromToken } from './nakama';
 import { getOrCreateDeviceId } from './storage';
+import { EMPTY_SAVE, encodeSave, readSaveResult } from './save';
 import { readTicketParam, stripTicketParam } from './ticket';
 import { GAME_IDS, canonicalGameId, isBoardId, isRelicId, } from './types';
 /** IndexedDB database for earn, event, and exchange writes that have not been acked. */
@@ -404,6 +405,17 @@ export function createLiveHubSdk(env, client) {
             if (opts?.limit !== undefined)
                 body.limit = opts.limit;
             return client.rpc('leaderboard.top', body, { token: active.token });
+        },
+        async loadSave() {
+            if (!active)
+                return { ...EMPTY_SAVE };
+            return readSaveResult(await client.rpc('save.get', {}, { token: active.token }));
+        },
+        async writeSave(data) {
+            encodeSave(data);
+            if (!active)
+                return { ...EMPTY_SAVE };
+            return readSaveResult(await client.rpc('save.put', { data }, { token: active.token }));
         },
         async earnTickets(amount, reason, key) {
             if (!key)

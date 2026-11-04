@@ -1,12 +1,13 @@
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
-export declare const GAME_IDS: readonly ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter"];
+export declare const GAME_IDS: readonly ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade"];
 export type GameId = (typeof GAME_IDS)[number];
 /** Earn-once relics. The primary key on the server is (user, relic). */
-export declare const RELIC_IDS: readonly ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt"];
+export declare const RELIC_IDS: readonly ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt", "breakwater_coin"];
 export type RelicId = (typeof RELIC_IDS)[number];
 /**
  * The four Relics socketed on the Four Lights monument. The Tidebreaker Belt (Sproto Fighter)
  * is a Relic too, but it sits on its own plinth in the Bar and does not count toward Four Lights.
+ * So does the Breakwater Coin (Sproto Arcade, the Bar cabinet's second game).
  */
 export declare const FOUR_LIGHTS_RELIC_IDS: readonly ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown"];
 export declare const RELIC_BY_GAME: Record<GameId, RelicId>;
@@ -126,7 +127,27 @@ export interface HubSdk {
         variant?: string;
         limit?: number;
     }): Promise<LeaderboardTop>;
+    /** This game's cloud save (`save.get`). Standalone resolves `{ data: null, updatedAt: 0 }`. */
+    loadSave?(): Promise<SaveResult>;
+    /**
+     * Replace this game's cloud save (`save.put`). Errors throw `HubSdkError`
+     * (`bad_save`, `save_too_large`). Standalone resolves `{ data: null, updatedAt: 0 }`.
+     */
+    writeSave?(data: Record<string, unknown>): Promise<SaveResult>;
 }
+/**
+ * One cloud save per player per game (`save.get` / `save.put`). The server stores the
+ * object as given after checking it is a JSON object of at most `SAVE_MAX_BYTES`.
+ * A save never grants Relics, Tickets or items.
+ */
+export interface SaveResult {
+    /** The stored object, or null when this player has no save for this game. */
+    data: Record<string, unknown> | null;
+    /** Epoch ms of the last write, 0 when there is no save. */
+    updatedAt: number;
+}
+/** Largest save the server accepts, in bytes of its JSON text. */
+export declare const SAVE_MAX_BYTES = 4096;
 /** Game session handed to realtime (`realtimeFromSdk`). */
 export interface HubSessionInfo {
     token: string;
