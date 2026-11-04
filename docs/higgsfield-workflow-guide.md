@@ -4,7 +4,7 @@ Prices checked 2026-11-04 with Higgsfield's live price check, on the Ultra plan.
 
 **Default:** use the low-cost workflow. Use the free workflow when you have more time than credits.
 
-**What "free" means:** no credits beyond the Ultra plan. Concept images are free only on higgsfield.ai with the Unlimited toggle on. Unlimited does not apply through MCP or CLI, so generating them from a Claude chat costs about 1 credit each. Check Manage Account → Subscription → Active unlimited models for what is currently active.
+**What "free" means:** no credits beyond the Ultra plan. Concept images are free only on higgsfield.ai with the Unlimited toggle on. Unlimited does not apply through MCP or CLI, so generating them that way from a Claude chat costs about 1 credit each. To keep them free, the agent controls higgsfield.ai through Chrome instead (see [Unlimited through Chrome](#unlimited-through-chrome)). Check Manage Account → Subscription → Active unlimited models for what is currently active.
 
 ## Which workflow each game uses
 
@@ -22,6 +22,16 @@ Prices checked 2026-11-04 with Higgsfield's live price check, on the Ultra plan.
 4. **Retries:** Claude shows the reason and price, then waits for approval, unless you turn on skip approvals.
 5. **Report:** you get the credits used and final files at the end.
 
+## Unlimited through Chrome
+
+When a task uses Unlimited, the agent generates on higgsfield.ai in your Chrome rather than through MCP or CLI. In Claude Code that means Claude in Chrome. Other agents with browser control can do the same. This covers only concept images on models with Unlimited active; paid steps stay as listed in each workflow.
+
+1. **Sign in:** be signed in to higgsfield.ai in Chrome. The agent never enters your password, so it asks you if the site wants a login.
+2. **Check the model:** the agent confirms it's in Manage Account → Subscription → Active unlimited models.
+3. **Check the toggle:** the agent switches on Unlimited for that model and checks that the Generate button shows no credit cost.
+4. **Check the balance:** the agent notes your credits before the first image and checks them after it. If they dropped, it stops and tells you.
+5. **Save the results:** the agent asks before downloading, unless your brief says downloads are fine, and files the images with the task.
+
 ## Skip approvals
 
 When you say so, such as "skip approvals", Claude completes the whole workflow for that task without stopping at approval steps. It never carries over to another task.
@@ -35,7 +45,8 @@ Claude still stops and asks if:
 
 - The next step would go over the credit limit.
 - A step fails again after its retry.
-- A step needs your login or something only you can do, such as switching on the Unlimited toggle.
+- A step needs your login or something only you can do, such as signing in to higgsfield.ai.
+- The Unlimited toggle can't be switched on, or a generation would cost credits in a free workflow.
 - A repo's instructions pause that work. For example, a stop on animation production in `AGENTS.md` still applies.
 
 Skip approvals covers only the steps in this guide. Committing, merging and publishing still follow each repo's rules.
