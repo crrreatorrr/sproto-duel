@@ -19,18 +19,18 @@ describe('titleStaffCycle', () => {
   it('cycles every staff without a session, the unowned ones locked', () => {
     const list = titleStaffCycle(false, ['duel_staff_sproto']);
     expect(ids(list)).toEqual([...STAFF_IDS]);
-    expect(locked(list)).toEqual(['duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu']);
+    expect(locked(list)).toEqual(['duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might']);
   });
 
   it('unlocks staffs the local cache owns when there is no session', () => {
     const list = titleStaffCycle(false, ['duel_staff_sproto', 'duel_staff_moonward']);
     expect(ids(list)).toEqual([...STAFF_IDS]);
-    expect(locked(list)).toEqual(['duel_staff_momentum', 'duel_staff_nobu']);
+    expect(locked(list)).toEqual(['duel_staff_momentum', 'duel_staff_nobu', 'duel_staff_fighters_might']);
   });
 
   it('starts at the equipped staff and keeps catalog order after it', () => {
     const list = titleStaffCycle(true, [...STAFF_IDS], 'duel_staff_moonward');
-    expect(ids(list)).toEqual(['duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_sproto', 'duel_staff_momentum']);
+    expect(ids(list)).toEqual(['duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might', 'duel_staff_sproto', 'duel_staff_momentum']);
   });
 
   it('ignores a start staff that is not in the cycle', () => {

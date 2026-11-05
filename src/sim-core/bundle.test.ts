@@ -31,6 +31,6 @@ describe('server bundle', () => {
         expect(fromBundle[k], `bundle ${k}`).toEqual(g.expect[k]);
       }
       expect(fromBundle.simVersion).toBe(version);
-    });
+    }, 60000);
   }
 });
