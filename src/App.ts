@@ -433,7 +433,11 @@ export class App {
     return rt ? (this.onlineLobbyCache = new this.net.HubLobby(rt)) : null;
   }
 
-  /** Online Duel can be offered: a hub-connected visit (or the dev fake). */
+  /**
+   * Online Duel can be offered: a hub-connected visit (or the dev fake).
+   * Device login is forced to a hub-scope session, and sproto_arena only accepts
+   * `scope=game` plus `game=sproto`, so a standalone visit stays disabled.
+   */
   private get onlineAvailable(): boolean {
     return this.devLobby !== null || this.hub.connected;
   }
@@ -932,7 +936,8 @@ export class App {
       else if (c.recordWin() === 'unsaved') this.winUnsaved = 'skipped';
       else this.syncLearned();
     }
-    // Hub reports go around Campaign.recordWin: god-mode wins still earn Tickets and Tinubu's Crown.
+    // Hub reports go around Campaign.recordWin. A gauntlet win against a story boss posts
+    // sproto.boss_defeated (the hub pays). Quick Duel posts no Tickets. God mode skips the board.
     // Local Versus and online report nothing from the client (rules.reportToHub; see planDuelWin).
     if (!this.game.qaMode && this.match.rules.reportToHub) {
       const bossId = this.match.boss?.id ?? null;
