@@ -161,6 +161,10 @@ const FROZEN_DECAY = 11880;
 /** Below this the wizard counts as standing on the floor (Wizard FLOOR_EPS). */
 const FLOOR_EPS = fx(1e-3);
 const STD_HEIGHT = fx(W.height);
+/** Scratch objects for hot paths (never held across calls). */
+const SCRATCH_MV = { x: 0, z: 0 };
+const SCRATCH_AT = { x: 0, z: 0 };
+const SCRATCH_DIR = { x: 0, y: 0, z: 0 };
 const CHEST = fx(1.2);
 const RS = CONFIG.rewardSpells;
 const CARPET_TIME = sec(RS.carpet.duration);
@@ -379,6 +383,11 @@ export class SimWizard {
     return this.sizeScale;
   }
 
+  /** Press an action now (the sim's AI; inputs do it through applyInput). */
+  press(a: number): void {
+    this.buffered[a] = INPUT_BUFFER;
+  }
+
   wants(a: number): boolean {
     return this.buffered[a] > 0;
   }
@@ -388,7 +397,7 @@ export class SimWizard {
 
   /** Apply one tick of input (presses buffer for CONFIG.feel.inputBuffer). */
   applyInput(f: SimInput): void {
-    const mv = { x: 0, z: 0 };
+    const mv = SCRATCH_MV;
     moveVector(f.move, mv);
     this.moveX = mv.x;
     this.moveZ = mv.z;
@@ -689,7 +698,8 @@ export class SimWizard {
     const blinkReady = !!(this.staff && this.staff.blink) && this.sprint && this.cd[CD_BLINK] <= 0;
     if (this.wants(A_DODGE) && footing && this.alive && !frozen && !this.dodging && !this.blinking && !this.riding && (blinkReady || this.cd[CD_DODGE] <= 0)) {
       this.consume(A_DODGE);
-      const dir = { x: 0, y: 0, z: 0 };
+      const dir = SCRATCH_DIR;
+      dir.x = dir.y = dir.z = 0;
       // A move shorter than 0.1 rolls backwards (Wizard: lengthSq < 0.01).
       if (this.moveX * this.moveX + this.moveZ * this.moveZ < K_0_1 * K_0_1 || !setLength2(dir, this.moveX, this.moveZ, ONE)) {
         dir.x = -this.forwardX();
@@ -839,7 +849,9 @@ export class SimWizard {
     // Horizontal: substeps of at most 0.15 m, pushed out of anything solid after each.
     const dist = len2(mx, mz);
     const steps = max(1, Math.ceil(dist / K_0_15));
-    const at = { x: p.x, z: p.z };
+    const at = SCRATCH_AT;
+    at.x = p.x;
+    at.z = p.z;
     for (let i = 1; i <= steps; i++) {
       at.x = p.x + Math.floor((mx * i) / steps) - Math.floor((mx * (i - 1)) / steps);
       at.z = p.z + Math.floor((mz * i) / steps) - Math.floor((mz * (i - 1)) / steps);
@@ -920,7 +932,7 @@ export class SimWizard {
         dx = this.forwardX();
         dz = this.forwardZ();
       }
-      const n = { x: 0, y: 0, z: 0 };
+      const n = SCRATCH_DIR;
       if (setLength2(n, dx, dz, ONE)) {
         const along = mul(this.knock.x, n.x) + mul(this.knock.z, n.z);
         if (along < HEAD_SLIDE) {

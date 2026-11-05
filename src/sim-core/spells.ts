@@ -115,6 +115,8 @@ export interface SimProjectile {
   evaded: number;
   /** Volley shots keep their kind 'volley' for presentation. */
   volley: boolean;
+  /** AI bookkeeping: bit per wizard index that already judged this projectile (Projectile.seenMask). */
+  seen: number;
 }
 
 export interface UltWave {
@@ -155,6 +157,7 @@ const tmp: V3 = { x: 0, y: 0, z: 0 };
 const tmpDir: V3 = { x: 0, y: 0, z: 0 };
 const tmpC: V3 = { x: 0, y: 0, z: 0 };
 const hit: Hit = { kind: 0, index: -1, t: 0 };
+const SCRATCH_U: V3 = { x: 0, y: 0, z: 0 };
 const spellQuery: ArenaQuery = { world: true, seeThrough: false, floor: true, bodies: null };
 const worldOnly: ArenaQuery = { world: true, seeThrough: false, floor: false, bodies: null };
 
@@ -413,7 +416,7 @@ export class SimSpells {
     const p: SimProjectile = {
       id: this.nextId++, kind, owner: null as unknown as SimWizard, caster: null as unknown as SimWizard,
       pos: { x: 0, y: 0, z: 0 }, prev: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 },
-      radius: 0, damage: 0, knockback: 0, power: 0, basePower: 0, life: 0, reflected: false, homing: -1, seek: -1, evaded: -1, volley: false,
+      radius: 0, damage: 0, knockback: 0, power: 0, basePower: 0, life: 0, reflected: false, homing: -1, seek: -1, evaded: -1, volley: false, seen: 0,
     };
     this.active.push(p);
     return p;
@@ -667,7 +670,7 @@ export class SimSpells {
       const mx = vt(p.vel.x, dt), my = vt(p.vel.y, dt), mz = vt(p.vel.z, dt);
       const len = len3(mx, my, mz);
       if (len < 4) continue;
-      const u = { x: 0, y: 0, z: 0 };
+      const u = SCRATCH_U;
       setLength3(u, mx, my, mz, ONE);
       if (this.checkShields(p, u, len)) continue;
       this.checkEvade(p, u, len);
