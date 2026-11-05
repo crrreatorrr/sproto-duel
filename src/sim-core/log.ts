@@ -23,6 +23,11 @@ export interface DuelLog {
   staffs: (string | null)[];
   /** Gauntlet: the boss fought (hub story-boss id). */
   bossId?: string | null;
+  /** Boss reward spells seat 0 has learned (carpet, pump, vape, lockon, breath); the hub should
+   * check they are ones this player has earned. Ignored by even rules. */
+  learned?: string[];
+  /** Seat 0 played in god mode (testing aid). The replay simulates it; the hub decides what it pays. */
+  godMode?: boolean;
   /** Ticks simulated, up to and including the tick the match ended. */
   ticks: number;
   /** One encoded stream per seat that plays from input (CPU seats are simulated). */

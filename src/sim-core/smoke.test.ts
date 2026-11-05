@@ -14,7 +14,7 @@ describe('sim-core smoke', () => {
     expect(isqrt(1e15)).toBe(31622776);
   });
   it('a duel where seat 0 holds fire at seat 1', () => {
-    const w = new SimWorld({ seed: 7, rules: 'quick', arena: 'moonlit', staffs: ['duel_staff_sproto', null] });
+    const w = new SimWorld({ seed: 7, rules: 'versus', arena: 'moonlit', staffs: ['duel_staff_sproto', null] });
     const a = emptyInput();
     a.held = HELD_BOLT;
     a.aimDist = 15;

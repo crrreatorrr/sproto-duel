@@ -2,7 +2,7 @@ import type { AIProfile, TeamPalette } from '../config';
 import type { ArenaThemeId } from '../arena/themes';
 import type { ModelKey } from '../assets/manifest';
 import { BOSS_PORTRAITS } from '../assets/manifest';
-import { gunMuzzle, handAndMouth, phoneMuzzle, staffMuzzle, twoPhones, vapeMuzzle, type MuzzleSet } from '../wizard/muzzles';
+import { gunMuzzle, handAndMouth, phoneMuzzle, staffMuzzle, twoPhones, vapeMuzzle, type MuzzleSet } from '../wizard/muzzleSets';
 import type { RewardSpellId } from '../spells/rewardCatalog';
 import type { TransformStyleId } from './transformStyles';
 

@@ -4,7 +4,7 @@
  * PRNG, so the server places them exactly where the player saw them.
  */
 import { CONFIG } from '../config';
-import type { SimArena } from './arena';
+import type { Hazard, SimArena } from './arena';
 import type { SimEvents } from './events';
 import { ONE, cos, fx, isqrt, len2, mul, sec, sin } from './fixed';
 import type { Rng } from './rng';
@@ -24,6 +24,7 @@ const MIN_TICKET = fx(T.minTicketDistance);
 const ZONE = fx(A.pickupZoneMargin);
 const BOOST = sec(T.boostDuration);
 const RETRY = sec(T.retryDelay);
+const NO_HAZARDS: readonly Hazard[] = [];
 
 export interface SimTicket {
   id: number;
@@ -45,6 +46,8 @@ export class SimTickets {
     private readonly wizards: readonly SimWizard[],
     private readonly rng: Rng,
     private readonly events: SimEvents,
+    /** Kept-out floor an arena shift added (Arena.shiftHazards). */
+    private readonly shiftHazards: () => readonly Hazard[] = () => NO_HAZARDS,
   ) {}
 
   /** Round reset: no tickets, the first-spawn clock restarts. */
@@ -117,7 +120,8 @@ export class SimTickets {
     return false;
   }
 
-  private validSpot(x: number, z: number): boolean {
+  /** Open floor for a pickup (GoldenTickets.isValidSpot; life packs reuse it). */
+  validSpot(x: number, z: number): boolean {
     if (len2(x, z) > this.arena.fireRadius - MARGIN) return false;
     if (this.excluded(x, z)) return false;
     for (const w of this.wizards) if (w.active && len2(w.pos.x - x, w.pos.z - z) < MIN_WIZ) return false;
@@ -128,7 +132,7 @@ export class SimTickets {
   /** Out of lava, vape clouds and the rails of sliding cover (Arena.excludesPickup). */
   private excluded(x: number, z: number): boolean {
     const a = this.arena;
-    if (a.hazardAt(x, z, ZONE, [])) return true;
+    if (a.hazardAt(x, z, ZONE, this.shiftHazards())) return true;
     for (const c of a.clouds) if (len2(x - c.cx, z - c.cz) < c.r + ZONE) return true;
     for (const ob of a.obstacles) {
       const m = ob.mover;

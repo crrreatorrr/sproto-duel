@@ -10,6 +10,8 @@ import { simVersion } from './version';
 import { SimWorld, type SimSetup } from './world';
 import type { SimInput } from './wizard';
 import { isArenaId, type ArenaId } from './arena';
+import { bossArena, isBossId } from './bosses';
+import { REWARDS } from './rewards';
 
 /** Longest log accepted: 45 minutes of ticks (a Boss Gauntlet fight's safety cap is 35). */
 export const MAX_TICKS = 60 * 60 * 45;
@@ -34,9 +36,8 @@ export interface ReplayOptions {
 }
 
 /** The arena a log's rules play in (duels: the moonlit arena; bosses pick theirs in A5). */
-export function arenaFor(rules: string, _bossId: string | null | undefined): ArenaId {
-  void _bossId;
-  return 'moonlit';
+export function arenaFor(rules: string, bossId: string | null | undefined): ArenaId {
+  return rules === 'gauntlet' && bossId ? bossArena(bossId) : 'moonlit';
 }
 
 function emptyHash(): string {
@@ -80,10 +81,22 @@ export function setupFromLog(log: DuelLog): SimSetup | string {
     const s = log.staffs[i];
     if (s !== null && (typeof s !== 'string' || !staffStats(s))) return 'unknown staff';
   }
-  if (log.bossId !== undefined && log.bossId !== null && typeof log.bossId !== 'string') return 'bad bossId';
+  if (log.rules === 'gauntlet') {
+    if (!isBossId(log.bossId)) return 'unknown bossId';
+  } else if (log.bossId !== undefined && log.bossId !== null) return 'bossId outside a boss fight';
+  if (log.godMode !== undefined && typeof log.godMode !== 'boolean') return 'godMode must be a boolean';
+  const learned: string[] = [];
+  if (log.learned !== undefined && log.learned !== null) {
+    if (!isArray(log.learned)) return 'learned must be a list';
+    for (let i = 0; i < log.learned.length; i++) {
+      const id = log.learned[i];
+      if (typeof id !== 'string' || (REWARDS as readonly string[]).indexOf(id) < 0 || learned.indexOf(id) >= 0) return 'bad learned spell';
+      learned.push(id);
+    }
+  }
   const arena = arenaFor(log.rules, log.bossId);
   if (!isArenaId(arena)) return 'unknown arena';
-  return { seed: log.seed | 0, rules: log.rules, arena, staffs: [log.staffs[0], log.staffs[1]], bossId: log.bossId || null };
+  return { seed: log.seed | 0, rules: log.rules, arena, staffs: [log.staffs[0], log.staffs[1]], bossId: log.bossId || null, learned, godMode: !!log.godMode };
 }
 
 /** Re-run `log`. Never throws. */
@@ -206,6 +219,8 @@ export class LogRecorder {
       inputs: this.writers.map((w) => w.encode()),
     };
     if (s.bossId) out.bossId = s.bossId;
+    if (s.learned && s.learned.length) out.learned = s.learned.slice();
+    if (s.godMode) out.godMode = true;
     if (this.forfeit) out.forfeit = this.forfeit;
     if (claimed) out.claimed = claimed;
     return out;

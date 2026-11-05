@@ -154,6 +154,35 @@ read directly, so tuning cannot drift):
 - `staffs.ts`: all staffs, including `duel_staff_fighters_might` (Fist Bolt: 2x damage, 1.85x fire
   interval). The game's Staff Rack has no mesh for it yet; the sim accepts it in a loadout.
 
+## CPU rival and story bosses (A5)
+
+Quick Duel and Boss Gauntlet fights run their CPU fighters inside the sim, so the server
+re-runs the opponent exactly. Only seat 0 (the player) is logged.
+
+- `ai.ts` ports `src/enemy/AIController.ts`: states, threat perception, timed and perfect
+  shields, rolls, wave jumps, retreats to cover, golden tickets, double-fight formation, stage
+  volleys, special powers and evading them. Every random choice comes from the world's PRNG.
+  The reward-spell, life-pack and spring logic of AIController is left out: only the QA soak's
+  reference player used it, never the rival or a boss.
+- `stages.ts` ports BossStages: three bars per boss, stage stats (damage, spell damage,
+  Ultimate charge, hurtbox from the stage model's fit height, muzzles, flight), the evolve
+  shockwave. **Transformations follow the live game.** The cinematic freezes the world, then the
+  boss is back with a full bar and is immune for `cinematic.grace` s. In the sim this happens in
+  zero ticks: the game stops stepping the sim while its cinematic plays, so the log has no ticks
+  for it.
+- `powers.ts` (BossPowers: all nine hazard kinds), `rewards.ts` (the five reward spells),
+  `shifts.ts` (pools, quicksand, spring, vents, ring cap) and `lifepacks.ts` port the rest of a
+  boss fight.
+- The gauntlet clock and its safety caps (stage cap, 35-minute cap) close the fire ring as in
+  `GauntletClock`.
+- **Boss ids**: `sahil`, `obama` (the double fight with The Midget: one defeat when both are
+  down), `broccoli`, `agent`, `tinubu`. The arena comes from the boss.
+- **Extra log fields**: `bossId` (gauntlet), `learned` (the reward spells the player brings: the
+  hub should check they are ones this account has earned) and `godMode` (seat 0 in god mode; the
+  replay simulates it, and the hub decides whether such a win pays; we suggest not).
+- **Size**: one seat, about 1.1 KB of log per minute for the scripted bot. A 15-20 minute boss
+  fight can reach the 16 KB limit; see the PR notes.
+
 ## Differences from the Rapier version
 
 Kept small on purpose; each is a consequence of replacing the physics engine:
