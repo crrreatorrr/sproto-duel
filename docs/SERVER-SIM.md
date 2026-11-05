@@ -34,6 +34,86 @@ DuelSim.replay(log) -> { ok, error?, simVersion, winnerSeat: 0|1|null, wins: [n,
   of at most 4096 bytes.
 - CI fails if the bundle changes without its version header changing.
 
+## Input log (schema 1)
+
+```js
+{
+  schema: 1,
+  simVersion: '04bb17c13f61ddde',   // DUEL_SIM_VERSION of the bundle built from the client's source
+  seed: 123456,                     // server-issued (online: OP_START seed)
+  rules: 'online',                  // 'online' | 'versus' | 'quick' | 'gauntlet'
+  staffs: ['duel_staff_nobu', null],// hub item id per seat; even rules (online, versus) ignore staff stats
+  bossId: 'sahil',                  // gauntlet only
+  ticks: 13464,                     // 60 Hz ticks simulated, up to and including the match's last
+  inputs: ['<base64>', '<base64>'], // one stream per input seat (seat 0 first); CPU seats are simulated
+  forfeit: { tick: 3000, seat: 1 }, // optional: seat leaving before tick index `tick`
+  claimed: { winnerSeat: 1, wins: [1, 2], rounds: 3, ticks: 13464 }
+}
+```
+
+Each seat's stream (`src/sim-core/log.ts`) is a varint record count followed by range-coded
+records (`rc.ts`, an adaptive binary range coder in integer math). A record is written only on a
+tick where something changed or was read: the gap since the previous record, a flags byte, then
+the changed fields:
+
+| Field | When | Content |
+|---|---|---|
+| move | the move changed | 0 = none, else 1 + 32 directions x 4 speeds; persists |
+| held | held buttons changed | bit 0 hold bolt, bit 1 sprint; persists |
+| press | a button was pressed | 12 bits in intent-frame order (bolt, blast, shield, stun, ultimate, dodge, jump, carpet, pump, vape, lockon, breath) |
+| facing | the sim read the facing | 1/1024 turn, delta-coded |
+| aim | the sim read the aim | yaw and pitch from the chest (1/1024 turn) and a distance bucket (0.5 m x 1.25^k) |
+
+**Facing and aim are read lazily.** The sim pulls them only on ticks that use them: a spell
+leaving the muzzle, a roll with no direction, a boss flash checking where you look. The log
+keeps them only for those ticks. A replay that needs one the log doesn't carry fails with
+`facing or aim missing`, and a logged one that goes unused fails with `unused facing or aim`.
+Both are tamper checks. This is what keeps logs small: aim moves every frame, but it matters
+only a few times a second.
+
+The game records the stream as it plays (`LogRecorder` in `replay.ts`): before each tick it
+quantizes each local seat's intent into a `SimInput`, and after the step writes whatever the sim
+read.
+
+### Sizes
+
+The scripted bots in `src/sim-core/testing/bot.ts` play busier than most people do: they change
+direction constantly and fire in bursts. A full three-round online match (13 464 ticks, both seats
+logged) takes 10.0 KB of JSON, against the hub's 16 KB limit. Gauntlet and Quick Duel logs carry
+one seat. `chunkLog(json, id)` splits a log into socket messages of at most 4096 bytes
+(`id:i:n:part`), and `joinChunks` reassembles them in any order (both are exported by the bundle
+too).
+
+## Calling replay() on the hub
+
+```js
+// Load once at module init (like Fighter's vendor/sproto-sim.js): it defines DUEL_SIM_VERSION and DuelSim.
+var r = DuelSim.replay(logObjectOrJson);
+if (!r.ok) { /* reject: r.error says why; r.endHash is still set */ }
+// r.winnerSeat (0 | 1), r.wins, r.rounds, r.ticks, r.endHash, r.endReason ('ko' | 'time' | 'forfeit')
+```
+
+- `replay` checks `log.simVersion === DUEL_SIM_VERSION` and rejects anything else. Keep the
+  bundle of every client build still in play if old logs must verify (one per version).
+- It rejects logs that run past the match's end, end before it, carry streams that don't decode,
+  or whose `claimed` result differs from the replay. Compare `winnerSeat` with the seat the
+  reporting player holds.
+- **Seats:** seat 0 always spawns on the -z mark (side 0) and seat 1 on +z, whichever client
+  hosts. Online, seat numbers are the server's `OP_START` seats.
+- `endReason` is an extra field beyond the locked contract: the forfeit pay rules need it.
+
+## Versioning
+
+`DUEL_SIM_VERSION` is `sha256(body)[0:16]`, where *body* is every byte of the bundle after its
+first line (the first line is `var DUEL_SIM_VERSION = '...';\n`). Any change to `src/sim-core` or
+to the tuning it reads (`src/config.ts`) changes the bundle and so the version, and old logs stop
+verifying against the new bundle. `npm run build:server-sim` regenerates it. CI fails when:
+
+- the committed bundle differs from a fresh build (`npm run check:server-sim`);
+- the header doesn't match the body hash, or the bundle uses anything outside ES5 or the allowed
+  `Math` functions (`scripts/check-server-bundle.mjs`);
+- a pull request changes the bundle without changing the version (`--base origin/main`).
+
 ## Determinism
 
 - **Integers only.** Every simulated quantity is an integer in a JS number, far inside +-2^53, so

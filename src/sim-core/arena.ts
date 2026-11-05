@@ -56,6 +56,8 @@ export interface Solid {
   s: number;
   y0: number;
   y1: number;
+  /** Radius of a circle around (x, z) holding the footprint (cheap rejects). */
+  br: number;
 }
 
 interface PartDef {
@@ -332,24 +334,32 @@ export function rebuildSolids(ob: Obstacle): void {
       k = ob.stumpScale;
     }
     const wy = ob.yaw + p.yaw;
+    const hx = mul(p.hx, k), hz = mul(p.hz, k), r = mul(p.r, k);
     list.push({
       ob: ob.index,
       box: p.box,
       x: ob.x + mul(p.x, oc) + mul(p.z, os),
       z: ob.z - mul(p.x, os) + mul(p.z, oc),
-      r: mul(p.r, k),
-      hx: mul(p.hx, k),
-      hz: mul(p.hz, k),
+      r,
+      hx,
+      hz,
       c: cos(wy),
       s: sin(wy),
       y0: p.y0,
       y1,
+      br: p.box ? isqrt(hx * hx + hz * hz) + 2 : r + 2,
     });
   }
   ob.solids = list;
 }
 
 // ------------------------------------------------------------------ primitive tests
+
+/** Could a disc of radius `r` at (x, z) touch the solid's footprint? (bounding-circle box test) */
+function near(s: Solid, x: number, z: number, r: number): boolean {
+  const reach = s.br + r;
+  return x - s.x <= reach && s.x - x <= reach && z - s.z <= reach && s.z - z <= reach;
+}
 
 /** Horizontal distance from (x, z) to a solid's footprint (0 inside), expanded by nothing. */
 export function solidDistance(s: Solid, x: number, z: number): number {
@@ -622,10 +632,13 @@ export class SimArena {
     out.kind = HIT_NONE;
     out.index = -1;
     out.t = maxT;
+    const ex = ox + mul(dx, maxT), ez = oz + mul(dz, maxT);
+    const x0 = min(ox, ex) - grow, x1 = max(ox, ex) + grow, z0 = min(oz, ez) - grow, z1 = max(oz, ez) + grow;
     if (q.world) {
       for (const ob of this.obstacles) {
         if (q.seeThrough && ob.seeThrough) continue;
         for (const s of ob.solids) {
+          if (s.x + s.br < x0 || s.x - s.br > x1 || s.z + s.br < z0 || s.z - s.br > z1) continue;
           const t = raySolid(ox, oy, oz, dx, dy, dz, s, grow, out.t);
           if (t >= 0 && (out.kind === HIT_NONE || t < out.t)) {
             out.kind = HIT_OBSTACLE;
@@ -634,9 +647,10 @@ export class SimArena {
           }
         }
       }
-      // The outer wall: leaving the circle below its top.
+      // The outer wall: leaving the circle below its top (both ends inside: no crossing).
       const wr = WALL_RADIUS - grow;
-      if (rayCircle(ox, oz, dx, dz, 0, 0, wr)) {
+      const wr2 = wr * wr;
+      if ((ox * ox + oz * oz > wr2 || ex * ex + ez * ez > wr2) && rayCircle(ox, oz, dx, dz, 0, 0, wr)) {
         const t = max(0, span.b);
         if (t <= out.t && (out.kind === HIT_NONE || t < out.t)) {
           const y = oy + mul(dy, t);
@@ -660,6 +674,7 @@ export class SimArena {
     }
     if (q.bodies) {
       for (const b of q.bodies) {
+        if (b.x + b.r + 2 < x0 || b.x - b.r - 2 > x1 || b.z + b.r + 2 < z0 || b.z - b.r - 2 > z1) continue;
         const t = rayBody(ox, oy, oz, dx, dy, dz, b, grow, out.t);
         if (t >= 0 && (out.kind === HIT_NONE || t < out.t)) {
           out.kind = HIT_WIZARD;
@@ -690,7 +705,7 @@ export class SimArena {
     let best = maxT;
     for (const ob of this.obstacles) {
       for (const s of ob.solids) {
-        if (s.y1 <= y + SKIN || s.y0 >= y + h) continue;
+        if (s.y1 <= y + SKIN || s.y0 >= y + h || !near(s, x + (mul(dx, maxT) >> 1), z + (mul(dz, maxT) >> 1), r + (maxT >> 1) + 2)) continue;
         const t = raySolid(x, s.y0, z, dx, 0, dz, s, r, best);
         if (t >= 0 && t < best) best = t;
       }
@@ -710,12 +725,12 @@ export class SimArena {
       let any = false;
       for (const ob of this.obstacles) {
         for (const s of ob.solids) {
-          if (s.y1 <= y + SKIN || s.y0 >= y + h) continue;
+          if (s.y1 <= y + SKIN || s.y0 >= y + h || !near(s, p.x, p.z, rr)) continue;
           if (pushOut(p, s, rr)) any = true;
         }
       }
-      const d = len2(p.x, p.z);
       const lim = WALL_RADIUS - rr;
+      const d = p.x * p.x + p.z * p.z > lim * lim ? len2(p.x, p.z) : 0;
       if (d > lim) {
         p.x = muldiv(p.x, lim, d);
         p.z = muldiv(p.z, lim, d);
@@ -735,7 +750,7 @@ export class SimArena {
     let best = -1;
     for (const ob of this.obstacles) {
       for (const s of ob.solids) {
-        if (s.y1 > maxY || s.y1 < minY || s.y1 <= best) continue;
+        if (s.y1 > maxY || s.y1 < minY || s.y1 <= best || !near(s, x, z, r)) continue;
         if (solidDistance(s, x, z) < r) best = s.y1;
       }
     }
@@ -747,7 +762,7 @@ export class SimArena {
     let best = -1;
     for (const ob of this.obstacles) {
       for (const s of ob.solids) {
-        if (s.y0 < y || s.y0 > maxY) continue;
+        if (s.y0 < y || s.y0 > maxY || !near(s, x, z, r)) continue;
         if (best >= 0 && s.y0 >= best) continue;
         if (solidDistance(s, x, z) < r) best = s.y0;
       }
@@ -763,7 +778,7 @@ export class SimArena {
     let best = 0;
     for (const ob of this.obstacles) {
       for (const s of ob.solids) {
-        if (solidDistance(s, x, z) >= r) continue;
+        if (!near(s, x, z, r) || solidDistance(s, x, z) >= r) continue;
         if (s.y0 > maxY) continue;
         if (s.y1 > maxY) return -2;
         if (s.y1 > best) best = s.y1;
@@ -776,7 +791,7 @@ export class SimArena {
   blocked(x: number, z: number, clear: number, top: number): boolean {
     for (const ob of this.obstacles) {
       for (const s of ob.solids) {
-        if (s.y0 > top) continue;
+        if (s.y0 > top || !near(s, x, z, clear)) continue;
         if (solidDistance(s, x, z) < clear) return true;
       }
     }

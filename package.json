@@ -5,13 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node scripts/check-prod-debug.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/check-prod-debug.mjs && node scripts/build-server-sim.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "gen:audio": "node scripts/gen-placeholder-audio.mjs",
     "check:assets": "node scripts/check-assets.mjs",
-    "qa:headless": "node scripts/qa-headless.mjs"
+    "qa:headless": "node scripts/qa-headless.mjs",
+    "build:server-sim": "node scripts/build-server-sim.mjs",
+    "check:server-sim": "node scripts/build-server-sim.mjs --check && node scripts/check-server-bundle.mjs",
+    "gen:goldens": "node scripts/gen-goldens.mjs",
+    "test:goja": "cd tools/goja-replay && go run . -bundle ../../dist/duel-sim.server.js -goldens ../../tests/golden"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

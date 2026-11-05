@@ -15,6 +15,17 @@ import {
   A_BLAST, A_BOLT, A_SHIELD, A_STUN, A_ULT, CD_BLAST, CD_BOLT, CD_SHIELD, CD_STUN, type CastKind, type SimWizard,
 } from './wizard';
 
+const K_0_8 = fx(0.8);
+const K_0_75 = fx(0.75);
+const K_0_4 = fx(0.4);
+const K_0_3 = fx(0.3);
+const K_1_6 = fx(1.6);
+const K_0_05 = fx(0.05);
+const K_0_6 = fx(0.6);
+const K_0_35 = fx(0.35);
+const K_1_5 = fx(1.5);
+const K_1_2 = fx(1.2);
+const K_0_01 = fx(0.01);
 const S = CONFIG.spells;
 const B = S.bolt;
 const BL = S.blast;
@@ -63,7 +74,7 @@ const ULT_SHIELD = fx(U.shieldMultiplier);
 const ULT_PILLAR = fx(U.pillarDamage);
 const ULT_KNOCK = fx(U.knockback);
 const WAVE_CLEAR = fx(CONFIG.wizard.jump.waveClearance);
-const CLASH_SCALE = fx(1.6);
+const CLASH_SCALE = K_1_6;
 const CLASH_KEEP = fx(CONFIG.clash.winnerSpeedKeep);
 const WALL_EDGE = fx(CONFIG.arena.wallRadius);
 const CAST_TIME = { blast: sec(BL.castTime), stun: sec(ST.castTime), ultimate: sec(U.castTime) };
@@ -237,7 +248,7 @@ export class SimSpells {
       const whole = Math.floor(bank / ONE) * ONE;
       t.bank[i] = bank - whole;
       tmp.x = (t.from.x + t.to.x) >> 1;
-      tmp.y = target.pos.y + fx(0.8);
+      tmp.y = target.pos.y + K_0_8;
       tmp.z = (t.from.z + t.to.z) >> 1;
       this.dealDamage(target, t.owner, whole, tmp, 'trail', null, 0);
     }
@@ -335,7 +346,7 @@ export class SimSpells {
       }
     }
     w.cast = { spell, elapsed: 0, duration: CAST_TIME[spell] };
-    this.world.events.at('castStart', w.pos, w.index, spell);
+    this.world.events.atPos('castStart', w.pos, w.index, spell);
     return true;
   }
 
@@ -413,7 +424,7 @@ export class SimSpells {
     p.volley = volley;
     w.stats.casts++;
     w.advanceMuzzle();
-    this.world.events.at('cast', p.pos, w.index, volley ? 'volley' : 'bolt', p.id);
+    this.world.events.atPos('cast', p.pos, w.index, volley ? 'volley' : 'bolt', p.id);
     return p;
   }
 
@@ -441,7 +452,7 @@ export class SimSpells {
     w.castPulse = ONE;
     w.stats.casts++;
     w.advanceMuzzle();
-    this.world.events.at('cast', p.pos, w.index, 'blast', p.id);
+    this.world.events.atPos('cast', p.pos, w.index, 'blast', p.id);
   }
 
   private raiseShield(w: SimWizard): boolean {
@@ -457,7 +468,7 @@ export class SimSpells {
     w.cd[CD_SHIELD] = SHIELD_CD;
     w.stats.casts++;
     this.world.events.push('shieldUp', w.index);
-    this.world.events.at('cast', w.pos, w.index, 'shield');
+    this.world.events.atPos('cast', w.pos, w.index, 'shield');
     return true;
   }
 
@@ -472,7 +483,7 @@ export class SimSpells {
     const muzzle = w.muzzleIndex('stun');
     const origin = this.muzzleOrigin(w, 'stun', muzzle, 0, { x: 0, y: 0, z: 0 });
     const dir = this.aimDirection(w, origin, { x: 0, y: 0, z: 0 });
-    this.world.events.at('cast', origin, w.index, 'stun');
+    this.world.events.atPos('cast', origin, w.index, 'stun');
     w.advanceMuzzle();
     this.fireBeam(w, origin, dir, false);
   }
@@ -482,7 +493,7 @@ export class SimSpells {
     out.length = 0;
     for (const o of this.world.wizards) {
       if (!o.active || !o.alive || o.invulnerable || o.side === side) continue;
-      out.push(o.body({ index: 0, x: 0, y: 0, z: 0, r: 0, h: 0 }));
+      out.push(o.body());
     }
     return out;
   }
@@ -515,15 +526,15 @@ export class SimSpells {
       tmpC.x = o.pos.x;
       tmpC.y = o.pos.y + o.chestY;
       tmpC.z = o.pos.z;
-      if (raySphere(origin, dir, reach, tmpC, fx(0.8)) >= 0) ev.at('dodgeEvade', tmpC, o.index);
+      if (raySphere(origin, dir, reach, tmpC, K_0_8) >= 0) ev.atPos('dodgeEvade', tmpC, o.index);
     }
     const end = { x: origin.x + mul(dir.x, reach), y: origin.y + mul(dir.y, reach), z: origin.z + mul(dir.z, reach) };
     ev.push('beam', caster.index, reflected ? 'reflected' : '', 0, -1, origin.x, origin.y, origin.z);
-    ev.at('beamEnd', end, caster.index);
+    ev.atPos('beamEnd', end, caster.index);
 
     if (shieldOwner && shieldDist <= hitDist) {
       const perfect = shieldOwner.shieldAge <= PERFECT;
-      ev.at('block', end, shieldOwner.index, 'stun', 0, -1, perfect);
+      ev.atPos('block', end, shieldOwner.index, 'stun', 0, -1, perfect);
       if (perfect && !reflected && caster.alive) {
         this.perfectFeedback(shieldOwner, end);
         const back = { x: 0, y: 0, z: 0 };
@@ -537,7 +548,7 @@ export class SimSpells {
       const stuns = !target.evolving;
       target.applyStun(STUN_TIME);
       this.dealDamage(target, caster, STUN_DAMAGE, end, 'stun', null, 0);
-      ev.at('impact', end, target.index, 'stun');
+      ev.atPos('impact', end, target.index, 'stun');
       if (stuns) ev.push('stunned', target.index);
     } else if (hitKind === HIT_OBSTACLE) {
       this.damageObstacle(hitIndex, STUN_DAMAGE, end);
@@ -549,7 +560,7 @@ export class SimSpells {
     w.ultAnnounced = false;
     w.castPulse = ONE;
     w.stats.casts++;
-    this.waves.push({ owner: w, x: w.pos.x, z: w.pos.z, radius: fx(0.6), hitWizards: [], hitObstacles: [] });
+    this.waves.push({ owner: w, x: w.pos.x, z: w.pos.z, radius: K_0_6, hitWizards: [], hitObstacles: [] });
     this.world.events.push('cast', w.index, 'ultimate', 0, -1, w.pos.x, 0, w.pos.z);
     this.world.events.push('ultWave', w.index, '', 0, -1, w.pos.x, 0, w.pos.z);
   }
@@ -565,7 +576,7 @@ export class SimSpells {
       p.life -= dt;
       if (p.life <= 0) {
         if (p.kind === 'blast') this.explode(p.pos, p.owner, p.damage, null, null);
-        else this.world.events.at('fizzle', p.pos, p.owner.index, p.kind, p.id);
+        else this.world.events.atPos('fizzle', p.pos, p.owner.index, p.kind, p.id);
         this.release(p);
         continue;
       }
@@ -642,8 +653,8 @@ export class SimSpells {
     const perfect = o.shieldAge <= PERFECT;
     const n = { x: 0, y: 0, z: 0 };
     if (!setLength3(n, point.x - center.x, point.y - center.y, point.z - center.z, ONE)) n.y = ONE;
-    ev.at('block', point, o.index, p.kind, p.id, -1, perfect);
-    const out = SHIELD_R + p.radius + fx(0.05);
+    ev.atPos('block', point, o.index, p.kind, p.id, -1, perfect);
+    const out = SHIELD_R + p.radius + K_0_05;
     if (perfect) {
       const victim = p.owner;
       p.owner = o;
@@ -677,10 +688,10 @@ export class SimSpells {
     const d = { x: 0, y: 0, z: 0 };
     if (!setLength3(d, vx, vy, vz, ONE)) d.y = ONE;
     d.x += rng.frac() - (ONE >> 1);
-    d.y += fx(0.6) + mul(rng.frac(), fx(0.4));
+    d.y += K_0_6 + mul(rng.frac(), K_0_4);
     d.z += rng.frac() - (ONE >> 1);
     if (!setLength3(d, d.x, d.y, d.z, ONE)) d.y = ONE;
-    const speed = mul(BOLT_SPEED, fx(0.6));
+    const speed = mul(BOLT_SPEED, K_0_6);
     p.vel.x = mul(d.x, speed);
     p.vel.y = mul(d.y, speed);
     p.vel.z = mul(d.z, speed);
@@ -697,7 +708,7 @@ export class SimSpells {
   private perfectFeedback(o: SimWizard, point: V3): void {
     o.stats.perfects++;
     o.addUlt(PERFECT_ULT);
-    this.world.events.at('perfect', point, o.index);
+    this.world.events.atPos('perfect', point, o.index);
   }
 
   private checkEvade(p: SimProjectile, u: V3, len: number): void {
@@ -706,9 +717,9 @@ export class SimSpells {
       tmpC.x = o.pos.x;
       tmpC.y = o.pos.y + o.chestY;
       tmpC.z = o.pos.z;
-      if (raySphere(p.pos, u, len, tmpC, fx(0.75) + p.radius) < 0) continue;
+      if (raySphere(p.pos, u, len, tmpC, K_0_75 + p.radius) < 0) continue;
       p.evaded = o.index;
-      this.world.events.at('dodgeEvade', tmpC, o.index);
+      this.world.events.atPos('dodgeEvade', tmpC, o.index);
     }
   }
 
@@ -716,19 +727,19 @@ export class SimSpells {
     const ev = this.world.events;
     if (p.kind === 'blast') {
       this.explode(p.pos, p.owner, p.damage, null, kind === HIT_WIZARD ? this.world.wizards[index] : null);
-      ev.at('impact', p.pos, p.owner.index, 'blast', p.id, kind === HIT_WIZARD ? index : -1);
+      ev.atPos('impact', p.pos, p.owner.index, 'blast', p.id, kind === HIT_WIZARD ? index : -1);
       this.release(p);
       return;
     }
     if (kind === HIT_WIZARD) {
       const target = this.world.wizards[index];
       this.dealDamage(target, p.owner, p.damage, p.pos, 'bolt', p.vel, p.knockback);
-      ev.at('impact', p.pos, p.owner.index, 'bolt', p.id, index, p.reflected);
+      ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, index, p.reflected);
     } else if (kind === HIT_OBSTACLE) {
       this.damageObstacle(index, p.damage, p.pos);
-      ev.at('impact', p.pos, p.owner.index, 'bolt', p.id, -1);
+      ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, -1);
     } else {
-      ev.at('impact', p.pos, p.owner.index, 'bolt', p.id, -1);
+      ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, -1);
     }
     this.release(p);
   }
@@ -737,7 +748,7 @@ export class SimSpells {
     const arena = this.world.arena;
     const ob = arena.obstacles[index];
     if (!ob || !ob.alive) return;
-    this.world.events.at('pillarHit', point, -1, '', index);
+    this.world.events.atPos('pillarHit', point, -1, '', index);
     if (arena.damageObstacle(ob, amount)) {
       this.world.events.push('pillarBreak', -1, ob.seeThrough ? 'glass' : '', index, -1, ob.x, ob.height >> 1, ob.z);
     }
@@ -746,29 +757,29 @@ export class SimSpells {
   /** Blast explosion: splash with falloff, blocked by cover, shields and i-frames. */
   private explode(pos: V3, owner: SimWizard, damage: number, ignore: SimWizard | null, direct: SimWizard | null): void {
     const arena = this.world.arena;
-    const ox = pos.x, oy = max(pos.y, fx(0.4)), oz = pos.z;
+    const ox = pos.x, oy = max(pos.y, K_0_4), oz = pos.z;
     let hitAny = false;
     for (const o of this.world.wizards) {
       if (!o.active || !o.alive || o.side === owner.side || o === ignore) continue;
       const k = o.sizeScale;
-      const y = clamp(oy, o.pos.y + mul(fx(0.3), k), o.pos.y + mul(fx(1.6), k));
+      const y = clamp(oy, o.pos.y + mul(K_0_3, k), o.pos.y + mul(K_1_6, k));
       const d = max(0, len3(o.pos.x - ox, y - oy, o.pos.z - oz) - o.radius);
       if (d > SPLASH) continue;
       tmpC.x = o.pos.x;
       tmpC.y = o.pos.y + o.chestY;
       tmpC.z = o.pos.z;
       if (o.invulnerable) {
-        this.world.events.at('dodgeEvade', tmpC, o.index);
+        this.world.events.atPos('dodgeEvade', tmpC, o.index);
         continue;
       }
       if (o.shielded) {
-        this.world.events.at('block', tmpC, o.index, 'blast', 0, -1, false);
+        this.world.events.atPos('block', tmpC, o.index, 'blast', 0, -1, false);
         continue;
       }
       if (!arena.clear(ox, oy, oz, tmpC.x, tmpC.y, tmpC.z, false)) continue;
       const falloff = o === direct ? ONE : lerp(ONE, SPLASH_FALLOFF, muldiv(d, ONE, SPLASH));
       let dx = o.pos.x - ox, dz = o.pos.z - oz;
-      if (len2(dx, dz) < fx(0.01)) {
+      if (len2(dx, dz) < K_0_01) {
         dx = this.world.rng.frac() - (ONE >> 1);
         dz = this.world.rng.frac() - (ONE >> 1);
       }
@@ -780,7 +791,7 @@ export class SimSpells {
       if (!ob.alive) continue;
       const d = obstacleDistance(ob, ox, oz);
       if (d > SPLASH) continue;
-      this.damageObstacle(ob.index, mul(damage, lerp(ONE, fx(0.35), muldiv(max(0, d), ONE, SPLASH))), { x: ob.x, y: oy, z: ob.z });
+      this.damageObstacle(ob.index, mul(damage, lerp(ONE, K_0_35, muldiv(max(0, d), ONE, SPLASH))), { x: ob.x, y: oy, z: ob.z });
     }
     this.world.events.push('explosion', owner.index, hitAny ? 'hit' : '', SPLASH, -1, ox, oy, oz);
   }
@@ -829,7 +840,7 @@ export class SimSpells {
       winner.vel.z = mul(winner.vel.z, CLASH_KEEP);
       this.release(loser);
     }
-    this.world.events.at('clash', pos, a.owner.index, winner ? winner.kind : '', winner ? winner.id : 0, b.owner.index);
+    this.world.events.atPos('clash', pos, a.owner.index, winner ? winner.kind : '', winner ? winner.id : 0, b.owner.index);
   }
 
   // ------------------------------------------------------------------ ultimate
@@ -844,7 +855,7 @@ export class SimSpells {
         if (!ob.alive || wave.hitObstacles.indexOf(ob.index) >= 0) continue;
         if (obstacleDistance(ob, wave.x, wave.z) > wave.radius) continue;
         wave.hitObstacles.push(ob.index);
-        this.damageObstacle(ob.index, ULT_PILLAR, { x: ob.x, y: fx(1.5), z: ob.z });
+        this.damageObstacle(ob.index, ULT_PILLAR, { x: ob.x, y: K_1_5, z: ob.z });
       }
       for (const o of this.world.wizards) {
         if (!o.active || o.side === wave.owner.side || !o.alive || wave.hitWizards.indexOf(o.index) >= 0) continue;
@@ -859,8 +870,8 @@ export class SimSpells {
         const p = list[k];
         if (p.owner.side === wave.owner.side) continue;
         const d = len2(p.pos.x - wave.x, p.pos.z - wave.z);
-        if (d > wave.radius + fx(0.3) || d < prev - fx(1.5)) continue;
-        this.world.events.at('clash', p.pos, p.owner.index, '', 0, wave.owner.index);
+        if (d > wave.radius + K_0_3 || d < prev - K_1_5) continue;
+        this.world.events.atPos('clash', p.pos, p.owner.index, '', 0, wave.owner.index);
         this.release(p);
       }
       if (wave.radius >= WAVE_MAX) this.waves.splice(i, 1);
@@ -871,18 +882,18 @@ export class SimSpells {
     const ev = this.world.events;
     const chest = { x: o.pos.x, y: o.pos.y + o.chestY, z: o.pos.z };
     if (o.invulnerable || o.airHeight >= WAVE_CLEAR || o.riding) {
-      ev.at('evaded', chest, o.index);
+      ev.atPos('evaded', chest, o.index);
       return;
     }
-    if (!this.world.arena.clear(wave.x, fx(1.2), wave.z, chest.x, chest.y, chest.z, false)) {
-      ev.at('cover', chest, o.index);
+    if (!this.world.arena.clear(wave.x, K_1_2, wave.z, chest.x, chest.y, chest.z, false)) {
+      ev.atPos('cover', chest, o.index);
       return;
     }
     let damage = ULT_DAMAGE, knock = ULT_KNOCK;
     if (o.shielded) {
       damage = mul(damage, ULT_SHIELD);
-      knock = mul(knock, fx(0.4));
-      ev.at('block', chest, o.index, 'ultimate', 0, -1, false);
+      knock = mul(knock, K_0_4);
+      ev.atPos('block', chest, o.index, 'ultimate', 0, -1, false);
     }
     this.dealDamage(o, wave.owner, damage, chest, 'ultimate', { x: o.pos.x - wave.x, y: 0, z: o.pos.z - wave.z }, knock);
   }
@@ -906,7 +917,7 @@ export class SimSpells {
       if (kind !== 'fire' && kind !== 'scorch') target.hitFlash = sec(CONFIG.wizard.hitFlashTime);
       if (source && source !== target) source.stats.hits++;
       if (knockDir && knockback > 0 && !target.evolving) target.addKnockback(knockDir.x, knockDir.z, knockback);
-      ev.at('damage', point, target.index, kind, 0, source ? source.index : -1);
+      ev.atPos('damage', point, target.index, kind, 0, source ? source.index : -1);
       return 0;
     }
     const dealt = target.takeDamage(amount);
@@ -917,7 +928,7 @@ export class SimSpells {
       if (kind !== 'ultimate') source.addUlt(mul(dealt, ULT_PER_DEALT));
     }
     if (knockDir && knockback > 0) target.addKnockback(knockDir.x, knockDir.z, knockback);
-    ev.at('damage', point, target.index, kind, dealt, source ? source.index : -1);
+    ev.atPos('damage', point, target.index, kind, dealt, source ? source.index : -1);
     if (!target.alive) {
       ev.push('ko', target.index, '', 0, source && source !== target ? source.index : -1);
       this.world.handleKo();

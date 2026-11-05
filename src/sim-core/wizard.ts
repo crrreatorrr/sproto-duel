@@ -161,6 +161,17 @@ const FROZEN_DECAY = 11880;
 /** Below this the wizard counts as standing on the floor (Wizard FLOOR_EPS). */
 const FLOOR_EPS = fx(1e-3);
 const STD_HEIGHT = fx(W.height);
+const CHEST = fx(1.2);
+const PUMP_ULT = fx(CONFIG.rewardSpells.pump.ultChargeMultiplier);
+const K_0_02 = fx(0.02);
+const K_0_1 = fx(0.1);
+const K_0_55 = fx(0.55);
+const K_0_15 = fx(0.15);
+const K_0_9 = fx(0.9);
+const K_0_2 = fx(0.2);
+const K_WAND_X = fx(-0.34);
+const K_WAND_Y = fx(1.36);
+const K_WAND_Z = fx(0.72);
 
 export class SimWizard {
   readonly pos: V3 = { x: 0, y: 0, z: 0 };
@@ -233,6 +244,9 @@ export class SimWizard {
 
   radius = fx(W.radius);
   height = fx(W.height);
+  /** Height relative to a standard wizard (Q16) and the chest height, kept in step by setHitbox. */
+  sizeScale = ONE;
+  chestY = CHEST;
   /** Look-frame scale (a boss stage grows; Q16). */
   lookScale = ONE;
   staff: StaffStats | null = null;
@@ -310,13 +324,12 @@ export class SimWizard {
   get canAct(): boolean {
     return this.alive && !this.stunned && !this.evolving && !this.dodging && !this.blinking && this.cast === null && !this.riding && !this.breathing;
   }
-  /** Height relative to a standard wizard (Q16). */
-  get sizeScale(): number {
-    return muldiv(this.height, ONE, STD_HEIGHT);
-  }
-  /** Chest height above the feet. */
-  get chestY(): number {
-    return mul(fx(1.2), this.sizeScale);
+  /** Resize the collision cylinder (a short boss): chest, muzzle and shield follow. */
+  setHitbox(radius: number, height: number): void {
+    this.radius = radius;
+    this.height = height;
+    this.sizeScale = muldiv(height, ONE, STD_HEIGHT);
+    this.chestY = mul(CHEST, this.sizeScale);
   }
   get shieldCenterY(): number {
     return this.sizeScale;
@@ -415,9 +428,9 @@ export class SimWizard {
       lz = p.z;
     } else {
       const k = this.sizeScale;
-      lx = mul(fx(-0.34), k);
-      ly = mul(fx(1.36), k);
-      lz = mul(fx(0.72), k);
+      lx = mul(K_WAND_X, k);
+      ly = mul(K_WAND_Y, k);
+      lz = mul(K_WAND_Z, k);
     }
     lx = mul(lx, this.lookScale);
     ly = mul(ly, this.lookScale);
@@ -434,7 +447,10 @@ export class SimWizard {
     this.muzzleTurn++;
   }
 
-  body(out: Body): Body {
+  /** This wizard's query body (one reused object). */
+  private readonly ownBody: Body = { index: 0, x: 0, y: 0, z: 0, r: 0, h: 0 };
+
+  body(out: Body = this.ownBody): Body {
     out.index = this.index;
     out.x = this.pos.x;
     out.y = this.pos.y;
@@ -490,7 +506,7 @@ export class SimWizard {
 
   addUlt(amount: number): void {
     let a = mul(amount, this.ultChargeMultiplier);
-    if (this.pumped) a = mul(a, fx(CONFIG.rewardSpells.pump.ultChargeMultiplier));
+    if (this.pumped) a = mul(a, PUMP_ULT);
     this.ult = min(ULT_MAX, this.ult + a);
     if (this.ult >= ULT_MAX && !this.ultAnnounced) {
       this.ultAnnounced = true;
@@ -532,8 +548,8 @@ export class SimWizard {
     this.cast = null;
     this.carpetTime = 0;
     this.breathTime = 0;
-    this.vel.x = mul(this.vel.x, fx(0.2));
-    this.vel.z = mul(this.vel.z, fx(0.2));
+    this.vel.x = mul(this.vel.x, K_0_2);
+    this.vel.z = mul(this.vel.z, K_0_2);
   }
 
   /** Once per tick before movement. */
@@ -609,7 +625,7 @@ export class SimWizard {
       this.consume(A_DODGE);
       const dir = { x: 0, y: 0, z: 0 };
       // A move shorter than 0.1 rolls backwards (Wizard: lengthSq < 0.01).
-      if (len2(this.moveX, this.moveZ) < fx(0.1) || !setLength2(dir, this.moveX, this.moveZ, ONE)) {
+      if (this.moveX * this.moveX + this.moveZ * this.moveZ < K_0_1 * K_0_1 || !setLength2(dir, this.moveX, this.moveZ, ONE)) {
         dir.x = -this.forwardX();
         dir.z = -this.forwardZ();
       }
@@ -637,7 +653,7 @@ export class SimWizard {
     }
 
     this.sprinting = false;
-    const moving = len2(this.moveX, this.moveZ) > fx(0.1);
+    const moving = this.moveX * this.moveX + this.moveZ * this.moveZ > K_0_1 * K_0_1;
     if (!this.alive || frozen) {
       this.blinkTime = 0;
       this.vel.x -= mul(this.vel.x, FROZEN_DECAY);
@@ -652,7 +668,7 @@ export class SimWizard {
       this.vel.z = muldiv(z - this.pos.z, 6000, dt);
     } else if (this.dodging) {
       const t = ONE - muldiv(this.dodgeTime, ONE, DODGE_TIME);
-      const speed = mul(DODGE_SPEED, ONE - mul(fx(0.55), mul(t, t)));
+      const speed = mul(DODGE_SPEED, ONE - mul(K_0_55, mul(t, t)));
       this.vel.x = mul(this.dodgeDir.x, speed);
       this.vel.z = mul(this.dodgeDir.z, speed);
     } else {
@@ -704,7 +720,7 @@ export class SimWizard {
     const startY = p.y;
     // Horizontal: substeps of at most 0.15 m, pushed out of anything solid after each.
     const dist = len2(mx, mz);
-    const steps = max(1, Math.ceil(dist / fx(0.15)));
+    const steps = max(1, Math.ceil(dist / K_0_15));
     const at = { x: p.x, z: p.z };
     for (let i = 1; i <= steps; i++) {
       at.x = p.x + Math.floor((mx * i) / steps) - Math.floor((mx * (i - 1)) / steps);
@@ -720,8 +736,8 @@ export class SimWizard {
     this.onWizard = null;
     let movedY = dy;
     if (dy < 0) {
-      const top = arena.topBelow(p.x, p.z, this.radius, p.y + dy, p.y + fx(0.02));
-      const head = this.headBelow(p.y + dy, p.y + fx(0.02), others);
+      const top = arena.topBelow(p.x, p.z, this.radius, p.y + dy, p.y + K_0_02);
+      const head = this.headBelow(p.y + dy, p.y + K_0_02, others);
       if (head && (top < 0 || head.pos.y + head.height >= top)) {
         movedY = head.pos.y + head.height - p.y;
         this.onWizard = head;
@@ -753,7 +769,7 @@ export class SimWizard {
       if (o === this || !o.active || !o.alive || !this.alive) continue;
       // Vertical overlap only (someone mid-jump passes over).
       if (o.pos.y >= this.pos.y + this.height || this.pos.y >= o.pos.y + o.height) continue;
-      const want = this.radius + o.radius + fx(0.02);
+      const want = this.radius + o.radius + K_0_02;
       const dx = at.x - o.pos.x, dz = at.z - o.pos.z;
       const d = len2(dx, dz);
       if (d >= want) continue;
@@ -803,7 +819,7 @@ export class SimWizard {
       this.groundY = this.pos.y;
     } else {
       if (this.coyote > 0) this.coyote = max(0, this.coyote - dt);
-      const top = arena.topBelow(this.pos.x, this.pos.z, mul(this.radius, fx(0.9)), 0, this.pos.y);
+      const top = arena.topBelow(this.pos.x, this.pos.z, mul(this.radius, K_0_9), 0, this.pos.y);
       this.groundY = top > 0 ? min(this.pos.y, top) : 0;
     }
   }
