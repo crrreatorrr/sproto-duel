@@ -37,25 +37,21 @@ function fakeApi(): HubSdk & { calls: unknown[][] } {
 }
 
 describe('HubLink online', () => {
-  it('shows the server-paid amount and never earns from the client', async () => {
+  it('never notifies or earns for an online outcome', async () => {
     const api = fakeApi();
-    (api.getTicketBalance as ReturnType<typeof vi.fn>).mockResolvedValue({ balance: 140, sessionCapLeft: 0, dailyCapLeft: 0, serverTime: 0 });
     const link = new HubLink(api);
     link.attach(profile());
-    const notes: string[] = [];
-    const toast = (title: string, sub: string) => notes.push(`${title}|${sub}`);
+    const notify = vi.fn();
 
-    // A server-paid 0 renders no earn toast (notify is not called).
-    await link.onOnlineOutcome({ status: 'verified', paid: { me: 0 } }, 'me', toast);
-    await link.onOnlineOutcome({ status: 'verified', paid: { other: 20 } }, 'me', (title) => notes.push(title));
-    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 0 }, balances: { me: 160 } }, 'me', toast);
-    expect(notes).toEqual([]);
+    await link.onOnlineOutcome({ status: 'verified', paid: {} }, 'me', notify);
+    await link.onOnlineOutcome({ status: 'verified', paid: { me: 0 } }, 'me', notify);
+    await link.onOnlineOutcome({ status: 'verified', paid: { me: 20 } }, 'me', notify);
+    await link.onOnlineOutcome({ status: 'verified', paid: { other: 20 }, balances: { me: 140 } }, 'me', notify);
+    await link.onOnlineOutcome({ status: 'forfeit', paid: {} }, 'me', notify);
+    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 0 }, balances: { me: 160 } }, 'me', notify);
+    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 20 }, balances: { me: 160 } }, 'me', notify);
 
-    // A non-zero server amount is shown exactly, including on a forfeit.
-    await link.onOnlineOutcome({ status: 'verified', paid: { me: 20 }, balances: { me: 140 } }, 'me', toast);
-    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 20 }, balances: { me: 160 } }, 'me', toast);
-    expect(notes).toEqual(['+20 Tickets|Balance 140', '+20 Tickets|Balance 160']);
-
+    expect(notify).not.toHaveBeenCalled();
     expect(api.earnTickets).not.toHaveBeenCalled();
     expect(api.reportEvent).not.toHaveBeenCalled();
     expect(api.calls).toEqual([]);
