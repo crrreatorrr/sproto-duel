@@ -9,6 +9,7 @@ import { bossStagePortrait } from '../assets/manifest';
 import { STAGE_COUNT, stageAttackSummary } from '../campaign/BossStages';
 import { ARENA_NAMES, BOSSES, bossDisplayName, type BossDef, type BossFighter } from '../campaign/levels';
 import { bossPortraitHtml, bossStyleVars } from '../campaign/portrait';
+import { ticketChipLabel, ticketChipText } from './ticketChip';
 
 export interface Settings {
   /** Multiplier on CONFIG.camera.sensitivity. */
@@ -179,6 +180,8 @@ export interface MenuHandlers {
   exchangeTickets(tickets: number): Promise<ExchangeView>;
   /** Close the hub session and go back to the Sproto Duel portal. */
   exitHub(): void;
+  /** Re-read the Ticket balance for the main menu's chip (read only; standalone does nothing). */
+  refreshTickets?(): Promise<unknown>;
   /** Owned staffs and the equipped one. Sproto is always owned. */
   staffRack(): { owned: { id: string; name: string; line: string; accent: string; bolt: string }[]; selected: string; ranked: boolean };
   /** Equip a staff. No-op mid-fight. */
@@ -412,7 +415,8 @@ export class Menus {
           <button class="ghost" data-act="exit">Return to Hub<small>Sproto Duel portal</small></button>
         </div>
         <p class="tip">Tip: raise your Shield just as a spell arrives to send it back.</p>
-      </div>`, 'main');
+      </div>
+      <div class="ticket-chip" data-ticket-chip role="status"><span>Tickets</span><b></b></div>`, 'main');
     this.on(s, '[data-act="start"]', () => this.h.start());
     this.on(s, '[data-act="versus"]', () => this.h.versus?.());
     this.on(s, '[data-act="online"]', () => this.h.openOnline?.());
@@ -423,6 +427,24 @@ export class Menus {
     this.on(s, '[data-act="exchange"]', () => this.showExchange());
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
     this.bindStaff(s);
+    this.paintTicketChip(s);
+  }
+
+  /** The always-visible Ticket chip: the balance now, then again once a fresh read lands. */
+  private paintTicketChip(s: HTMLElement): void {
+    const chip = s.querySelector<HTMLElement>('[data-ticket-chip]');
+    if (!chip) return;
+    const paint = () => {
+      const status = this.h.hubStatus();
+      chip.querySelector('b')!.textContent = ticketChipText(status);
+      chip.title = ticketChipLabel(status);
+      chip.setAttribute('aria-label', chip.title);
+      chip.classList.toggle('linked', status.connected);
+    };
+    paint();
+    void this.h.refreshTickets?.().then(() => {
+      if (chip.isConnected) paint();
+    });
   }
 
   private onlineButtonHtml(): string {
@@ -664,12 +686,30 @@ export class Menus {
         <button data-act="howto">How to Play</button>
         <button data-act="settings">Settings</button>
         <button class="ghost" data-act="quit">Quit to Menu</button>
+        <button class="ghost" data-act="exit">Return to Hub</button>
       </div>`, 'pause');
     this.on(s, '[data-act="resume"]', () => this.h.resume());
     this.on(s, '[data-act="restart"]', () => this.h.restart());
     this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stages, restartLabel)));
     this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stages, restartLabel)));
     this.on(s, '[data-act="quit"]', () => this.h.quit());
+    this.on(s, '[data-act="exit"]', () => this.showExitConfirm(() => this.showPause(subtitle, stages, restartLabel)));
+  }
+
+  /**
+   * Return to Hub mid-run asks first: leaving ends this fight with no result (the main menu's
+   * button leaves at once).
+   */
+  showExitConfirm(back: () => void): void {
+    const s = this.mount(`
+      <div class="menu-panel pause exit-confirm">
+        <h2>Return to Hub?</h2>
+        <p class="note">This fight ends here and counts for nothing. Saved gauntlet progress, learned spells and your staff are kept.</p>
+        <button class="primary" data-act="stay" data-back data-autofocus>Keep Fighting</button>
+        <button class="ghost" data-act="leave">Leave for the Hub</button>
+      </div>`, 'exit-confirm');
+    this.on(s, '[data-act="stay"]', back);
+    this.on(s, '[data-act="leave"]', () => this.h.exitHub());
   }
 
   /** The five-step gauntlet ladder: cleared, current and locked fights. */

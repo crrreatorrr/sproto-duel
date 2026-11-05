@@ -195,6 +195,7 @@ export class App {
       hubStatus: () => this.hub.status(),
       exchangeTickets: (tickets) => this.hub.exchangeTickets(tickets),
       exitHub: () => this.hub.exitHub(),
+      refreshTickets: () => this.hub.refreshBalance(),
       staffRack: () => this.staffRack(),
       selectStaff: (id) => this.selectStaff(id),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
