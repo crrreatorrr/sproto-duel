@@ -5,12 +5,17 @@
  */
 
 /** Bumped on any wire change (opcodes, bodies, snapshot format). Matchmaking and rooms only pair equal versions. */
-export const NET_VERSION = '1';
+export const NET_VERSION = '2';
 /** Hub game id (Contract C1): matchmaker property, label `game`, ctx.vars.game. Never "sproto-duel". */
 export const GAME_ID = 'sproto';
 export const MATCH_KIND = 'sproto_arena';
 export const RPC_ROOM_CREATE = 'sproto.room_create';
 export const RPC_ROOM_JOIN = 'sproto.room_join';
+/** Read-only menu count. The server caches it for 3 s; the client polls at most every 10 s. */
+export const RPC_ONLINE_COUNT = 'sproto.online_count';
+/** Quick-match accept window, and the rematch offer window. The server owns both clocks. */
+export const ACCEPT_S = 10;
+export const REMATCH_S = 15;
 
 export const OP = {
   HELLO: 1,
@@ -25,7 +30,12 @@ export const OP = {
   PEER: 16,
   PING: 17,
   FORFEIT: 18,
-  REMATCH: 19,
+  ACCEPT: 19,
+  DECLINE: 20,
+  FOUND: 21,
+  ACCEPT_END: 22,
+  REMATCH: 23,
+  REMATCH_STATE: 24,
 } as const;
 export type OpCode = (typeof OP)[keyof typeof OP];
 
@@ -111,6 +121,81 @@ export function asPeer(x: unknown): PeerMsg | null {
 export function asPing(x: unknown): PingMsg | null {
   if (!isObj(x) || typeof x.c !== 'number') return null;
   return { c: x.c, s: typeof x.s === 'number' ? x.s : undefined };
+}
+
+/** Quick-match accept window. `accepted[seat]` is that seat's answer so far. */
+export interface FoundMsg {
+  acceptS: number;
+  seat: 0 | 1;
+  accepted: [boolean, boolean];
+  names: [string, string];
+}
+
+export interface AcceptEndMsg {
+  status: 'declined' | 'accept_timeout';
+  bySeat: number | null;
+  next: 'queue' | 'lobby';
+}
+
+export type RematchPhase = 'open' | 'offered' | 'started' | 'closed';
+export type RematchStateMsg =
+  | { phase: 'open'; waitS: number }
+  | { phase: 'offered'; seat: 0 | 1; waitS: number }
+  | { phase: 'started'; matchId: string; waitS: number }
+  | { phase: 'closed'; reason: 'declined' | 'rematch_timeout'; next: 'lobby'; waitS: number };
+
+/** `sproto.online_count`. `ageMs` is how old the server's cache is. */
+export interface OnlineCount {
+  online: number;
+  queued: number;
+  ageMs: number;
+}
+
+const pairNames = (x: unknown): [string, string] | null => {
+  if (!Array.isArray(x) || x.length !== 2) return null;
+  return [String(x[0] ?? '').slice(0, 24), String(x[1] ?? '').slice(0, 24)];
+};
+
+const pairBools = (x: unknown): [boolean, boolean] | null => {
+  if (!Array.isArray(x) || x.length !== 2 || typeof x[0] !== 'boolean' || typeof x[1] !== 'boolean') return null;
+  return [x[0], x[1]];
+};
+
+export function asFound(x: unknown): FoundMsg | null {
+  if (!isObj(x) || !isSeat(x.seat)) return null;
+  const names = pairNames(x.names);
+  const accepted = pairBools(x.accepted);
+  if (!names || !accepted) return null;
+  const acceptS = typeof x.acceptS === 'number' && x.acceptS > 0 ? x.acceptS : ACCEPT_S;
+  return { acceptS, seat: x.seat, accepted, names };
+}
+
+export function asAcceptEnd(x: unknown): AcceptEndMsg | null {
+  if (!isObj(x)) return null;
+  if (x.status !== 'declined' && x.status !== 'accept_timeout') return null;
+  if (x.next !== 'queue' && x.next !== 'lobby') return null;
+  return { status: x.status, bySeat: x.bySeat === null || isSeat(x.bySeat) ? x.bySeat : null, next: x.next };
+}
+
+export function asRematchState(x: unknown): RematchStateMsg | null {
+  if (!isObj(x)) return null;
+  const waitS = typeof x.waitS === 'number' && x.waitS >= 0 ? x.waitS : 0;
+  if (x.phase === 'open') return { phase: 'open', waitS };
+  if (x.phase === 'offered' && isSeat(x.seat)) return { phase: 'offered', seat: x.seat, waitS };
+  if (x.phase === 'started' && typeof x.matchId === 'string' && x.matchId) return { phase: 'started', matchId: x.matchId, waitS };
+  if (x.phase === 'closed' && (x.reason === 'declined' || x.reason === 'rematch_timeout') && x.next === 'lobby') {
+    return { phase: 'closed', reason: x.reason, next: 'lobby', waitS };
+  }
+  return null;
+}
+
+export function asOnlineCount(x: unknown): OnlineCount | null {
+  if (!isObj(x) || typeof x.online !== 'number' || typeof x.queued !== 'number') return null;
+  return {
+    online: Math.max(0, Math.floor(x.online)),
+    queued: Math.max(0, Math.floor(x.queued)),
+    ageMs: typeof x.ageMs === 'number' && x.ageMs >= 0 ? x.ageMs : 0,
+  };
 }
 
 export function normalizeStaff(s: unknown): string {

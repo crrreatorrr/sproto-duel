@@ -5,7 +5,7 @@
  * the match; the server keeps the seat for CONFIG.net.reconnectGraceS.
  */
 import type { HubRealtime } from '@metaverse/hub-sdk';
-import { matchmakerRequest, NET_VERSION, RPC_ROOM_CREATE, RPC_ROOM_JOIN } from './protocol';
+import { asOnlineCount, matchmakerRequest, NET_VERSION, RPC_ONLINE_COUNT, RPC_ROOM_CREATE, RPC_ROOM_JOIN, type OnlineCount } from './protocol';
 import type { OnlineLobby } from './OnlineSession';
 import { HubRealtimeTransport, type NetTransport } from './transport';
 
@@ -53,6 +53,18 @@ export class HubLobby implements OnlineLobby {
     const r = await this.rt.rpc<{ matchId: string }>(RPC_ROOM_JOIN, { code, v: NET_VERSION });
     const h = await this.rt.joinMatch({ matchId: r.matchId });
     return new HubRealtimeTransport(h);
+  }
+
+  async joinMatch(matchId: string): Promise<NetTransport> {
+    const h = await this.rt.joinMatch({ matchId });
+    return new HubRealtimeTransport(h);
+  }
+
+  async onlineCount(): Promise<OnlineCount> {
+    const raw = await this.rt.rpc<unknown>(RPC_ONLINE_COUNT, {});
+    const count = asOnlineCount(raw);
+    if (!count) throw new Error('bad_count');
+    return count;
   }
 
   cancel(): void {

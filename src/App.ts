@@ -12,7 +12,7 @@ import { Match } from './core/Match';
 import { GAUNTLET, ONLINE, QUICK, VERSUS, type MatchRules } from './core/rules';
 import type { OnlineController } from './net/OnlineController';
 import type { OnlineLobby, OnlineSession, SessionState } from './net/OnlineSession';
-import type { OutcomeMsg, StartMsg } from './net/protocol';
+import type { AcceptEndMsg, FoundMsg, OutcomeMsg, RematchStateMsg, StartMsg } from './net/protocol';
 /** The online stack, loaded on first use (keeps it out of the boot bundle). */
 type NetStack = typeof import('./net/onlineStack');
 import type { TickController } from './core/Game';
@@ -50,6 +50,8 @@ const ONLINE_REASONS: Record<string, string> = {
   match_ended: 'The match ended.',
   wrong_scope: 'Enter Sproto Duel from the hub portal to play online.',
   cancelled: 'Search cancelled.',
+  already_queued: 'You are already searching.',
+  already_in_match: 'You are already in a match.',
 };
 
 /** Quick Duel has one opponent; the Boss Gauntlet is the difficulty ladder. */
@@ -107,6 +109,20 @@ export class App {
   onlineCtl: OnlineController | null = null;
   private onlineOutcome: OutcomeMsg | null = null;
   private onlineLobbyCache: OnlineLobby | null = null;
+  /** Last `sproto.online_count`. Polled at most every 10 s, and only while an online menu is up. */
+  private onlineCounts: { online: number; queued: number } | null = null;
+  private onlineCountAt = Number.NEGATIVE_INFINITY;
+  /** Socket round trip from the count RPC, until a match PING replaces it. -1 before either. */
+  private socketRtt = -1;
+  /** When the current quick-match search started, and a one-line notice (a re-queue). */
+  private searchT0 = 0;
+  private searchNote = '';
+  /** Local copy of the accept-window clock. 0 until the first FOUND. */
+  private acceptDeadline = 0;
+  private acceptTotal = 10;
+  /** Local copy of the rematch clock. 0 until the server opens or offers. */
+  private rematchDeadline = 0;
+  private rematchTotal = 15;
   /** Dev only: a lobby on an in-page fake server with a scripted opponent (`?netsim=<latency ms>`). */
   devLobby: (() => OnlineLobby) | null = null;
   private net: NetStack | null = null;
@@ -244,6 +260,7 @@ export class App {
       this.menus.toast('Gear unavailable', id);
       return;
     }
+    if (this.onlineSession) this.onlineSession.staffId = id;
     this.applyStaff();
   }
 
@@ -281,6 +298,7 @@ export class App {
       if (!CONFIG.controls.pause.includes(e.code) || e.repeat) return;
       if (this.state === 'playing') this.pause();
       else if (this.state === 'paused' && performance.now() - this.pausedAt > 300) this.resume();
+      else if (this.state === 'menu') this.escapeOnline();
     });
     // Browsers only start audio after a gesture.
     const firstGesture = () => {
@@ -446,13 +464,20 @@ export class App {
 
   /** The Online Duel menu over the attract duel. `note`: why the last attempt ended. */
   openOnline(note = ''): void {
+    this.searchNote = '';
+    this.searchT0 = 0;
     this.enterMenuState('quick');
     this.menus.showOnline({
-      quick: () => this.startOnline('quick'),
+      quick: () => {
+        this.searchNote = '';
+        this.startOnline('quick');
+      },
       create: () => this.startOnline('create'),
       join: (code) => this.startOnline('join', code),
       back: () => this.toMenu(),
     }, note);
+    this.menus.setOnlineCounts(this.onlineCounts?.online ?? null, this.onlineCounts?.queued ?? null);
+    void this.refreshCounts();
   }
 
   /** Search, open a room, or join one; START then begins the match (beginOnline). */
@@ -472,6 +497,8 @@ export class App {
       return;
     }
     this.endOnline();
+    this.acceptDeadline = 0;
+    this.rematchDeadline = 0;
     const N = CONFIG.net;
     const s = new net.OnlineSession(lobby, {
       scheduler: net.realScheduler,
@@ -492,6 +519,9 @@ export class App {
     s.on('peer', (p) => this.menus.toast(p.present ? 'Opponent is back' : 'Opponent disconnected', p.present ? '' : `Waiting up to ${p.graceS} s`));
     s.on('outcome', (o) => this.onOutcome(s, o));
     s.on('cancel', (reason) => this.onOnlineEnded(s, reason));
+    s.on('found', (f) => this.onFound(s, f));
+    s.on('acceptEnd', (m) => this.onAcceptEnd(s, m));
+    s.on('rematch', (m) => this.onRematch(s, m));
     if (kind === 'quick') void s.quickMatch();
     else if (kind === 'create') {
       void s.createRoom().then((c) => {
@@ -502,15 +532,148 @@ export class App {
 
   private onlineState(s: OnlineSession, st: SessionState, cancel: () => void): void {
     if (s !== this.onlineSession || this.state === 'playing' || this.state === 'paused') return;
+    // A rematch joins straight out of the results screen.
+    if (st === 'starting' && this.state === 'results') return;
+    if (st === 'accepting') return;
+    if (st === 'searching') {
+      this.searchT0 = performance.now();
+      this.menus.showSearching(this.searchView(), { cancel: () => { s.leave(); cancel(); } });
+      return;
+    }
+    if (st === 'rematch') return;
     const screens: Partial<Record<SessionState, [string, string]>> = {
       connecting: ['Connecting…', 'Opening the hub connection'],
-      searching: ['Searching…', 'Looking for an opponent'],
       'hosting-room': ['Creating Room…', ''],
       'joining-room': ['Joining Room…', s.roomCode ?? ''],
       starting: ['Opponent Found', 'Starting…'],
     };
     const screen = screens[st];
-    if (screen) this.menus.showOnlineStatus(screen[0], screen[1], { cancel: () => (s.leave(), cancel()) });
+    if (screen) this.menus.showOnlineStatus(screen[0], screen[1], { cancel: () => { s.leave(); cancel(); } });
+  }
+
+  private searchView() {
+    const s = this.onlineSession;
+    return {
+      elapsedS: this.searchT0 ? (performance.now() - this.searchT0) / 1000 : 0,
+      online: this.onlineCounts?.online ?? null,
+      queued: this.onlineCounts?.queued ?? null,
+      note: this.searchNote,
+      rttMs: s && s.rttMs >= 0 ? s.rttMs : this.socketRtt,
+    };
+  }
+
+  private foundView(s: OnlineSession) {
+    const f = s.found!;
+    const total = this.acceptTotal || f.acceptS;
+    return {
+      names: f.names,
+      accepted: f.accepted,
+      seat: f.seat,
+      leftS: this.acceptDeadline ? Math.max(0, (this.acceptDeadline - performance.now()) / 1000) : f.acceptS,
+      totalS: total,
+      rttMs: s.rttMs >= 0 ? s.rttMs : this.socketRtt,
+    };
+  }
+
+  private rematchView(s: OnlineSession) {
+    const m = s.rematchState;
+    const offeredBy = m && m.phase === 'offered' ? (m.seat === s.seat ? 'you' : 'them') : null;
+    return {
+      leftS: this.rematchDeadline ? Math.max(0, (this.rematchDeadline - performance.now()) / 1000) : this.rematchTotal,
+      totalS: this.rematchTotal,
+      offeredBy,
+      youOffered: s.rematchYes || offeredBy === 'you',
+    } as const;
+  }
+
+  private onFound(s: OnlineSession, f: FoundMsg): void {
+    if (s !== this.onlineSession || s.state !== 'accepting') return;
+    if (!this.acceptDeadline) {
+      this.acceptDeadline = performance.now() + f.acceptS * 1000;
+      this.acceptTotal = f.acceptS;
+    }
+    const view = this.foundView(s);
+    if (this.menus.current === 'match-found') this.menus.setMatchFound(view);
+    else this.menus.showMatchFound(view, { accept: () => s.accept(), decline: () => s.decline() });
+  }
+
+  /** ACCEPT_END. `next` is this seat's own step: re-queue, or back to the menu. */
+  private onAcceptEnd(s: OnlineSession, m: AcceptEndMsg): void {
+    if (s !== this.onlineSession) return;
+    if (m.next === 'queue') {
+      this.searchNote = m.status === 'declined' ? 'Opponent declined. Searching again.' : 'No accept. Searching again.';
+      this.acceptDeadline = 0;
+      this.startOnline('quick');
+      return;
+    }
+    this.openOnline(m.status === 'accept_timeout' ? 'Accept timed out.' : 'Match declined.');
+  }
+
+  private onRematch(s: OnlineSession, m: RematchStateMsg): void {
+    if (s !== this.onlineSession) return;
+    if (m.phase === 'closed') {
+      this.openOnline(m.reason === 'rematch_timeout' ? 'Rematch timed out.' : 'Rematch declined.');
+      return;
+    }
+    if (m.phase === 'started') return;
+    this.rematchDeadline = performance.now() + m.waitS * 1000;
+    this.rematchTotal = m.waitS || 15;
+    this.paintRematch();
+  }
+
+  private paintRematch(): void {
+    const s = this.onlineSession;
+    const m = s?.rematchState;
+    if (!s || !m || (m.phase !== 'open' && m.phase !== 'offered') || this.menus.current !== 'results') return;
+    this.menus.showRematch(this.rematchView(s), {
+      yes: () => s.rematch(true),
+      no: () => {
+        s.rematch(false);
+        this.openOnline('Rematch declined.');
+      },
+    });
+  }
+
+  /** Online menu, the search screen, or the accept modal. The fight and the results do not poll. */
+  private onlineMenuOpen(): boolean {
+    const c = this.menus.current;
+    return c === 'online' || c === 'online-status' || c === 'match-found';
+  }
+
+  /** At most one `sproto.online_count` every 10 s, and only while an online menu is open. */
+  private async refreshCounts(): Promise<void> {
+    if (!this.onlineMenuOpen()) return;
+    const now = performance.now();
+    if (now - this.onlineCountAt < 10_000) return;
+    this.onlineCountAt = now;
+    const lobby = this.onlineLobby();
+    if (!lobby) return;
+    const t0 = performance.now();
+    try {
+      const c = await lobby.onlineCount();
+      this.socketRtt = Math.max(0, performance.now() - t0);
+      this.onlineCounts = { online: c.online, queued: c.queued };
+    } catch {
+      // Keep the last numbers. The next try waits out the 10 s gap.
+    }
+    this.menus.setOnlineCounts(this.onlineCounts?.online ?? null, this.onlineCounts?.queued ?? null);
+    if (this.onlineSession?.state === 'searching') this.menus.setSearching(this.searchView());
+  }
+
+  /** Esc on the search screen cancels the ticket. Esc on Match Found declines. */
+  private escapeOnline(): void {
+    const s = this.onlineSession;
+    if (!s) return;
+    const cur = this.menus.current;
+    if (cur === 'match-found' && s.state === 'accepting') {
+      s.decline();
+      this.menus.root.querySelectorAll('button').forEach((b) => { (b as HTMLButtonElement).disabled = true; });
+      return;
+    }
+    if (cur === 'online-status' && (s.state === 'searching' || s.state === 'connecting' || s.state === 'hosting-room' || s.state === 'joining-room' || s.state === 'starting')) {
+      s.leave();
+      this.openOnline();
+    }
   }
 
   /** START: both sides set up their game (the host runs the sim, the guest a replica). */
@@ -1068,6 +1231,7 @@ export class App {
       };
     }
     this.menus.showResults(data);
+    if (this.mode === 'online') this.paintRematch();
     this.audio.playMusic('musicMenu');
   }
 
@@ -1098,7 +1262,11 @@ export class App {
   private frame(dt: number): void {
     const g = this.game;
     if (this.state === 'playing' || this.state === 'paused') this.hud.update(dt);
-    this.hud.setPing(this.onlineCtl?.active ? this.onlineSession?.rttMs ?? -1 : null);
+    const session = this.onlineSession;
+    if (session?.active && !this.onlineCtl?.active) session.update();
+    this.hud.setPing(this.onlineCtl?.active ? session?.rttMs ?? -1 : null);
+    if (this.onlineMenuOpen() && performance.now() - this.onlineCountAt >= 10_000) void this.refreshCounts();
+    this.tickOnlineScreens();
     if (this.resultsTimer > 0) {
       this.resultsTimer -= dt;
       if (this.resultsTimer <= 0 && this.state === 'playing') this.showResults();
@@ -1106,5 +1274,16 @@ export class App {
     const cam = g.renderer.camera;
     tmpRight.setFromMatrixColumn(cam.matrixWorld, 0);
     this.audio.setListener(cam.position, tmpRight);
+  }
+
+  /** Countdown rings and the search clock. Text only; the ring dash is the time left. */
+  private tickOnlineScreens(): void {
+    const s = this.onlineSession;
+    if (!s) return;
+    if (s.state === 'searching' && this.menus.current === 'online-status') this.menus.setSearching(this.searchView());
+    else if (s.state === 'accepting' && s.found && this.menus.current === 'match-found') this.menus.setMatchFound(this.foundView(s));
+    else if (s.state === 'rematch' && this.menus.current === 'results' && (s.rematchState?.phase === 'open' || s.rematchState?.phase === 'offered')) {
+      this.menus.setRematch(this.rematchView(s));
+    }
   }
 }
