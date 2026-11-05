@@ -15,7 +15,8 @@
     "build:server-sim": "node scripts/build-server-sim.mjs",
     "check:server-sim": "node scripts/build-server-sim.mjs --check && node scripts/check-server-bundle.mjs",
     "gen:goldens": "node scripts/gen-goldens.mjs",
-    "test:goja": "cd tools/goja-replay && go run . -bundle ../../dist/duel-sim.server.js -goldens ../../tests/golden"
+    "test:goja": "cd tools/goja-replay && go run . -runs 1 -bundle ../../dist/duel-sim.server.js -goldens ../../tests/golden",
+    "test:goldens-browser": "node scripts/check-goldens-browser.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
@@ -30,6 +31,7 @@
     "@types/three": "^0.186.0",
     "acorn": "8.15.0",
     "esbuild": "0.28.2",
+    "playwright": "1.63.0",
     "typescript": "^7.0.2",
     "typescript5": "npm:typescript@5.9.3",
     "vite": "^8.3.5",

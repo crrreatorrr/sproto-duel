@@ -1,0 +1,46 @@
+{
+ "name": "gauntlet-agent-god-win",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 303,
+  "rules": "gauntlet",
+  "staffs": [
+   "duel_staff_fighters_might",
+   null
+  ],
+  "ticks": 3454,
+  "inputs": [
+   "vQQAAAET/Pppw3YSRg9L4uc27uK+76d76vvfCVsCN4AU1r7GNYvnJjn+HmArwfH2VDNUe/ezrrkNk8ZIABu+6jnGshOUdOPxaIAAHASMI+7bJB2h/DvaiIfgArMHivFvNSZ8Ne6AsuRrhVG+jcDzYNY4Iut35iuOYzRgaiIZvsP8TAK9KdpqZYLKWTU3I1e/oKjNyUhcDdqQUjLSiP4esmRZ1hgwmEAx0WGCx0rdRwd5BhN7tSMaxwem+2aNoTVsjp12hvoFwXy+XVKrxD2+1od1pkPXydh4lQ/NhFXbe6nqmJaKfpfp89caPWx1/Dd/bhupu0Yohj0Yrtpevg0vTVeefFsD0nG0Rv8uXqc4z22QJAg6qkWnOoLNW8yj+vWyatOYKGTn76Kr3EXtmmDlljU9ZswkdmdlRKhOZmnM/RmTF/xf2VTMZZLsp3sSI3IjYF4W9zaRaDO21+jaav1vEiVwkATlvv/rLgm4VWbt57yayzTlA31pnH35aJ0BqnZpSFU0HSRdYStbPz7BQSkYu+OqDNwuCClPtxknVL+fcRrc13hHCWGyGEw0HmftntFHPjyHb0jfKkAoDVavv3wFdjYqdCykYhpZOiQiuf6euQzG80UB4QfObn4986wEqG9eDvfaLGj4OTZaYbawzs7/ZR320FuUtruSayCfYtX2MmK5YDYighCLuukCBI/6fkb4rJQHUPRt0U8/VTly4/cMU6lj0xMU38pgbW1uCU7JFzYT7ZXJOpgdGYw40LRDPa2lQnLYs3mudLcppbxoamoiRXbkV4wUK/17IzUN0QVu/vGsEa9jc3O+aPDf1uqNtQ09FUByVNl1G7/Jak/AaJ/8vT0S4EbxONTCo/Y/b0GFXUpBzUsIQweTKnXwwuXKzx9zhINPDUNXVksjSJ+jFr8ChdGhQvNE3bN68dUit86FOPZEWj2VUssfNEZtUt6ukD4Psleuoe3GyNqu8GOrXTGjtrMa8O31v8+l1Aq5gEAv2n4b02fbHyWwuGzPsbg5QrgMxA0PAt1AQ0H/58IwAvWzKgNQfxgvyXfSpxvYp8QLIPn/uCiT3UwoKwWlwkVhk+shPZQbICwY1gm0hakTyVXbTkimZVw3ZNDAcLgIawV5YouYSqkXngETzOJJhF4wGpj4cq0qDZuwxzdn/640iSAHw3CrGLaLfApkebLU9WcJuRVvdLsrYsX8v/EGHhPWfIbSTXPtEdppdSt37tCn6fppfCOtUkj57kvX0qP2lzwj/S+93o73cbtKuGcSNdDsFf9x/Qosxs3ijuJ+11QnJr471DE5fK0/te8RkfBvNpWIQPMj/A4bJtagpYHn/5yriveBK1kF0L9ca4lj9/BUUDT9MyOhmR8L76IWYZO2M9ZrRRrhneM2R5XShDbconLPSWCsgGySukmmYMpLZ7Q1pL/164THPqZ+YBsqlsfxpZcM8paHnJWQdYw4jkYw533nWBJLcxdLnCo5F2g9HM1Kt0/xHyhJaDzNMP9AUSuPijUUaZ8/D8+XzKxqgIke00aFDaHjz8v6DxyBFXsuYXKERw3ELfFKCUJHkaU9K41pjKdnbR4iGLm73qa6+xWLjjbx9W5WHMSJ+UqCuWU0gOlVip+Slpk28HoxiEOfrUFi14QZbRer4ZcdDf/nhBvbECcZk2gT5/EnxKpUsDoD4SL3W+iICHqU0Vju2+v7IF7V2i91+kxyDAAYvw=="
+  ],
+  "bossId": "agent",
+  "learned": [
+   "carpet",
+   "pump",
+   "vape"
+  ],
+  "godMode": true,
+  "claimed": {
+   "winnerSeat": 0,
+   "wins": [
+    1,
+    0
+   ],
+   "rounds": 1,
+   "ticks": 3454
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 0,
+  "wins": [
+   1,
+   0
+  ],
+  "rounds": 1,
+  "ticks": 3454,
+  "endHash": "72552010d123ace6",
+  "endReason": "ko",
+  "bossId": "agent"
+ }
+}

@@ -183,6 +183,52 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
 - **Size**: one seat, about 1.1 KB of log per minute for the scripted bot. A 15-20 minute boss
   fight can reach the 16 KB limit; see the PR notes.
 
+## Golden replays and tests (A4)
+
+`tests/golden/*.json` holds 23 recorded matches: `{ name, log, expect }`. `npm run gen:goldens`
+rewrites them from `src/sim-core/testing/goldens.ts`. Run it only for an intended sim change, and
+review the diff. They cover:
+
+- online and Local Versus: KO, timeouts, a drawn round, and forfeits by either seat, one of them
+  during the intro;
+- Quick Duel against the CPU rival with every staff, including `duel_staff_fighters_might`; with
+  all reward spells learned; and in god mode;
+- every boss: a god-mode win through all three stages, and an honest loss.
+
+The inputs come from scripted bots (`src/sim-core/testing/bot.ts`), not people. The same logs are
+checked in four places, and each must give the frozen `endHash` and result:
+
+| Where | Command | CI |
+|---|---|---|
+| source, Node | `npm test` (`src/sim-core/bundle.test.ts`) | test and build |
+| bundle, Node (bare vm context) | `npm test` | test and build |
+| bundle, Chromium | `npm run test:goldens-browser` | server-sim |
+| bundle, goja | `npm run test:goja` (`tools/goja-replay`) | server-sim |
+
+`src/sim-core/fuzz.test.ts` replays 24 random well-formed logs twice, which must hash the same,
+and 200 random byte streams, which must be rejected without throwing.
+
+## Performance
+
+Measured on the 23 goldens (4-core 2.8 GHz Xeon container):
+
+| Engine | Duel (7k-19k ticks) | Boss fight, god-mode win (2k-4k ticks) | Boss fight, long loss (16k-36k ticks) |
+|---|---|---|---|
+| Node 22 (V8), bundle in plain script scope, warm | 40-80 ms | 25-50 ms | 100-400 ms |
+| Chromium (V8) | 25-55 ms | | |
+| goja | 1.5-2.8 s | 1.2-1.4 s | 4-20 s |
+
+**The 50 ms target is not met on goja.** On this machine goja runs a bare `for` loop at about
+540 ns per iteration and a function call at about 0.85 us. A 14,000-tick match at 60 Hz therefore
+leaves a budget of about 3.5 us, roughly four calls, per tick. Two optimisation passes (no per-tick
+allocations, cheap bounding-box rejects) gave about 30%. Inlining the fixed-point helpers at build
+time gave about 5% more and was dropped. Options for the hub:
+
+1. Verify off the request path: replay at match end on a pooled JS VM, and pay when it's done.
+2. Run `dist/duel-sim.server.js` in a small Node sidecar: duels in under 100 ms, boss fights in
+   under half a second.
+3. Keep goja and accept multi-second verifies for long fights.
+
 ## Differences from the Rapier version
 
 Kept small on purpose; each is a consequence of replacing the physics engine:

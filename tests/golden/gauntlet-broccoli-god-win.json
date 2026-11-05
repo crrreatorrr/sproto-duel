@@ -1,0 +1,45 @@
+{
+ "name": "gauntlet-broccoli-god-win",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 302,
+  "rules": "gauntlet",
+  "staffs": [
+   "duel_staff_fighters_might",
+   null
+  ],
+  "ticks": 3151,
+  "inputs": [
+   "nQQAAAEUDcrWdsWAb3OVpuswEIy1L42YKymVqdUbKtngglcluC7o6qi4XL/+6ZGmLSyhtid3mHHtXBi4ZBQ5Pdh7ozhbDv1s9ZNcH598QpqhIACek14VDT0+gl7+c0p0myLA8QGAAUCpO4k+lW7eh2jh6t3+UmWFQEIEwLlkMIcVVnBBh1xUG/nU+44GyIugqdyNCYz0QOdZFKSiwRd2vJl9ZN0X6ErIuhkRpSiVdH9dNUFsEIIjSYpRiXIShFMZbpdQWAZLq9WW6eE9PXqCcNe7AXFSGTW9UnwCHYm6X5EBxHC8s0ISLx9A7GyKnX/AEf61wedtru3VBtYY8MHeGueyog8r4A0wFzIbQAhibNtoQAF3hzqq1hJI9Pm7ntxoUtkSMu0oy7/IJx3ZMcirpoaYdqgiar0xu8pSfv+BoA3bF1PUKmflT7Lyumv6n5g8u0ZH0kBrib199jd2OS19cZdr9AyYCwhg5lg41c0fTe0UeptQj6JaS2YWptsl2HM1r0IOWLlJjFco/0gGZutieuzqfJHZnXmM59Wr+NAjq0kiGkQk5BfXdT+SYOSzCoiZBWHGYSnFRPf31F6YJQAuve/rPPT2igZ0zWoKf0VQ2DRwgPq/MzDf5FgmBRvns4JzwlqMiLnn8E7VJ9YRSl0oSjBs3G5sER5RDjdc6ojb9YvDBYLoxf0C6Q56/g9LTvR4nQUoPLCUQS7dvSmVN18WfXXHH9cOc1JEVHZVWHCVdnMdRn9VoVsEBsWQ4iM0WFGTFmeiBrkRIgwPCtw2OsdXiJRe9RaKtveq2iIS9cEw+6Z4FDYhu7cYyLlhBvlwLbXETxsJtknDun1w3CRvZVPwZ9rFPC6/qrATofWrV6Cxbwcpv3O/JPSpycYj6Ng5EYqoVy/AtwLsv+HIvxy0rFgXegnAlTKSKRREu027Dmk30934p9CkLC/3AXEXHztDf2v/1pbjXNTZzr5U1ZYxu+cFVYihFNmBqsfVlGbuW/HmvjEXCyRdthjwao4t/aFK/qyvXevsq5t1VwGXiz8q/dqq5NnwXy8vq8F1chZv+/ZYkClQiN0oYIWMJ1OEHy8GwchLbLM68q9M7p6Z/MLhPAmNF/LhyDNRV1gwqIeaCHbATwEIfOwMgvxrj8CSDeyz61dGuMIHfjEUARh1EWS0ev8bAc/OADWJ7ECmKLqKaVCo1t4wGxbYwNueJJTVabZTTlhARdUxSHIjNjnUkvJSMQFYY5MGk/POKUmHMBq6npa2r6y5c2znHvgP9kDWEKEeXN68zanPOmAYdcs+VW7EgIo7PQ6RKl20pH5cjb+FkdJ6GbBI4pBT9J8EjPxEiC5Zf7mXs19A49fxa2ZF90fvnJUdM1i6s3wpeKotw2wLodpUuAK2pYADKFmdWQBnl4wmlCz0frJ7paCWSLTcDfPKAZargqMjgFLX4EiOQ3HUxWew21Cn4IBCLEVQ1HuNJ8ZK1qFSqTg8IlxOah3vvm+Z/DuTuvP2C6YYqZRXLlgMnrNAGToB4CSXJ642NZhHuNrVVZ+OxYuPY9vQHs+Pxyvs536F792hlJHHZxlR1hr82uL/9qE4ufXaFzQXwfw2LBaTilOWlvMNgHHbZu0C5pEosuSx5qicsQA="
+  ],
+  "bossId": "broccoli",
+  "learned": [
+   "carpet",
+   "pump"
+  ],
+  "godMode": true,
+  "claimed": {
+   "winnerSeat": 0,
+   "wins": [
+    1,
+    0
+   ],
+   "rounds": 1,
+   "ticks": 3151
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 0,
+  "wins": [
+   1,
+   0
+  ],
+  "rounds": 1,
+  "ticks": 3151,
+  "endHash": "cff55b0edc7ad971",
+  "endReason": "ko",
+  "bossId": "broccoli"
+ }
+}

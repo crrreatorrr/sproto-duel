@@ -1,0 +1,39 @@
+{
+ "name": "quick-god-mode",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 211,
+  "rules": "quick",
+  "staffs": [
+   null,
+   null
+  ],
+  "ticks": 3688,
+  "inputs": [
+   "gQMAAAFz+30+jwfIxNcw1v6PyY/juYFHcv7O3DI9nGtMmvagXyXZtTNSpuSRStlD7zd2gH6Bi3mMu7vqHoF+kcovrdAOu0pjdEAAAAACH65WGJYBgADdsqg8NVpDAjbpKbyq9TMkCuJnNsNIAxYcBVxElrOIALCRb7XoxUvr/Ldl4Uy29Z5gVcun6bu+SAWEemivllcRE0CpFzlqFjUKA6s7qDJRosmCW8NW+CLh4DJzKTRr0viWMaAJeVgFCdkbmrIfSiQa7TMJ2ICCmjN/cfBZ7AGbRqL2zzjvdAAAMPuO5l2CB4RoMLBCczHS8DADbA19aIgNZ1VB5xE/DyVb67v50OhLBDJP+hv8fdQ7yI6NcglEyLwvruTtj6DcAQwP8EqP7Ol12U9Rcypf5ahetvZ1JWXS2MV5XcSR8jdCTtf47gmyoTRyAuSRxgJ3kRArRom+7aNRsXIUyK8G1x3DiKAnxAFnd2p1f9f/ll9WvbFujD/bPHccnHuQSyOC9msd1JwMKQ5r/S4vc+dmimrwcC7Xu8/ZpLdlM1/YdE8nJisboq1bTKV0JgFVLnaEocAPTj9JQOgVmNx/PjIPhCesTLckPqbOFp0nK8kHd9+4hg6kks0Js27XsLorFcXmXVV6mcJgaiyzddzkOjGWf6WpZ5prZUiGUSskg9QXqNtoRAsFHDPLdD8ZsmYejqYdbClGzsYxawzwtq0mYtTTs3cx6C4MxXTG/giCpvlJT15WfJdiUTb9EzurMceRONRPdJDaoo1J5yqtUTD+ovA2KF/RH22Oro5CuMcYg4YhLcM/ssNU98s7cOaaLA07A7bIJ+E6afQevXcw6DxWLNc/0EiBTE6zK8LMqkM6F2mhQwQ5V9QSUFs9Z4FscL/2nOw2BA7Gm8Wx4q/tXmvw+fDXl2uoAHFt0B5+LP58+ZIueQSz+0XLzcVAKw2ry9e2L4S9qXx5j4hlZXTjsrqRP1zX/cWmi4PLDwJn2VJ80Xyir8OO/HI5N7Lvz/vxpP6hbOQTZP2WAYGBV8ckI9YYd5NeKWI/t/Do/VYQck8ekyzvpRtXJOwMNioVPAmco6Kh7NYQLZbg6lUECc1Lg9XBAn8LcxdeaNVp1jllR0LxPeFEBN+tWuZmWzx1v8140UwbuxNl2HEy5b2IwaCmYOVMxVfcVoh3ihnLRdWzufhIKE9tktrozLo4L3oDDwLZdSeYvHAmTHwafxnHzI9GOGjlqE9/83ACWCPZSnscidy7jefLnJx9tuQQIGrXbMlXXH3EY/af6gtMAGjxAA=="
+  ],
+  "godMode": true,
+  "claimed": {
+   "winnerSeat": 0,
+   "wins": [
+    2,
+    0
+   ],
+   "rounds": 2,
+   "ticks": 3688
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 0,
+  "wins": [
+   2,
+   0
+  ],
+  "rounds": 2,
+  "ticks": 3688,
+  "endHash": "c6cdbdb068df818b",
+  "endReason": "ko"
+ }
+}

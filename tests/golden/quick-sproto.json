@@ -1,0 +1,38 @@
+{
+ "name": "quick-sproto",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 200,
+  "rules": "quick",
+  "staffs": [
+   "duel_staff_sproto",
+   null
+  ],
+  "ticks": 7282,
+  "inputs": [
+   "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"
+  ],
+  "claimed": {
+   "winnerSeat": 1,
+   "wins": [
+    0,
+    2
+   ],
+   "rounds": 2,
+   "ticks": 7282
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 1,
+  "wins": [
+   0,
+   2
+  ],
+  "rounds": 2,
+  "ticks": 7282,
+  "endHash": "ec8c75ca43ff18d0",
+  "endReason": "ko"
+ }
+}

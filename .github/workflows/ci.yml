@@ -43,7 +43,7 @@ jobs:
   server-sim:
     name: server sim bundle
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,6 +69,13 @@ jobs:
         if: github.event_name == 'pull_request'
         run: node scripts/check-server-bundle.mjs --base origin/${{ github.base_ref }}
 
+      # The same golden logs in Chromium (the browser build's engine).
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Golden replays in Chromium
+        run: npm run test:goldens-browser
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -76,6 +83,7 @@ jobs:
           cache-dependency-path: tools/goja-replay/go.sum
 
       # The same golden logs replay to the same results and hashes on goja, the engine of the hub's
-      # Nakama TypeScript runtime (Node replays them in npm test).
+      # Nakama TypeScript runtime (Node replays them in npm test, src/sim-core/bundle.test.ts).
+      # Long boss fights take 10-20 s each on goja: see docs/SERVER-SIM.md "Performance".
       - name: Golden replays on goja
         run: npm run test:goja

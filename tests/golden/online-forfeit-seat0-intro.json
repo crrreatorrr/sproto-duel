@@ -1,0 +1,43 @@
+{
+ "name": "online-forfeit-seat0-intro",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 105,
+  "rules": "online",
+  "staffs": [
+   null,
+   null
+  ],
+  "ticks": 60,
+  "inputs": [
+   "BgAAARQbmmvDhMhGxltyKXyP4N0pAQAA",
+   "BAAAAVQTLSSszJFB23g1vg0A"
+  ],
+  "forfeit": {
+   "tick": 60,
+   "seat": 0
+  },
+  "claimed": {
+   "winnerSeat": 1,
+   "wins": [
+    0,
+    0
+   ],
+   "rounds": 0,
+   "ticks": 60
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 1,
+  "wins": [
+   0,
+   0
+  ],
+  "rounds": 0,
+  "ticks": 60,
+  "endHash": "bd0cc48e07808ffb",
+  "endReason": "forfeit"
+ }
+}
