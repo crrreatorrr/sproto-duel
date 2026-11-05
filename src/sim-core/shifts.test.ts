@@ -11,6 +11,7 @@ const m = (v: number) => v / ONE;
 
 function fight(bossId = 'sahil', seed = 5): SimWorld {
   const w = new SimWorld({ seed, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId, learned: [] });
+  w.ais.length = 0; // bosses stand still in these tests
   while (w.actionsLocked) w.step([null]);
   return w;
 }
@@ -152,6 +153,7 @@ describe('arena shifts', () => {
 
   it('clears with the round and stays out of duels', () => {
     const duel = new SimWorld({ seed: 1, rules: 'quick', arena: 'moonlit', staffs: [null, null] });
+    duel.ais.length = 0; // bosses stand still in these tests
     duel.shifts.applyStage(2);
     ticks(duel, 10);
     expect(duel.shifts.features.length).toBe(0);

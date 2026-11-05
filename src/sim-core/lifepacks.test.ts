@@ -10,6 +10,7 @@ const m = (v: number) => v / ONE;
 
 function fight(seed = 21, bossId = 'broccoli'): SimWorld {
   const w = new SimWorld({ seed, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId, learned: [] });
+  w.ais.length = 0; // bosses stand still in these tests
   while (w.actionsLocked) w.step([null]);
   return w;
 }
@@ -108,6 +109,7 @@ describe('life packs', () => {
 
   it('stays off in duels', () => {
     const w = new SimWorld({ seed: 1, rules: 'versus', arena: 'moonlit', staffs: [null, null] });
+    w.ais.length = 0; // bosses stand still in these tests
     w.wizards[0].health = fx(10);
     for (let i = 0; i < 1500; i++) w.step([null, null]);
     expect(w.lifePacks.spawned).toBe(0);

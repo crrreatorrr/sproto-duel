@@ -13,6 +13,7 @@ const m = (v: number) => v / ONE;
 
 function fight(learned = ALL, bossId = 'sahil', seed = 3): SimWorld {
   const w = new SimWorld({ seed, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId, learned });
+  w.ais.length = 0; // bosses stand still in these tests
   while (w.actionsLocked) w.step([null]);
   return w;
 }
