@@ -16,6 +16,12 @@ npm run dev
 
 Open http://localhost:5173 and pick **Boss Gauntlet**, **Quick Duel** or **Local Versus** (the game captures the mouse).
 
+Right of the main menu, a big live Wizard Sproto (the in-game rig and staff models, on its own small
+canvas) holds up each staff you own in turn, swapping every few seconds with a flash and a pop.
+Without a hub session it cycles every staff and shows the ones you don't own as locked dark
+silhouettes. It is display only, pauses while hidden, and is freed when a fight starts
+(`src/ui/TitleStaffPreview.ts`; the list is `titleStaffCycle` in `src/ui/titleStaffs.ts`).
+
 ```bash
 npm run build      # typecheck + production build into dist/
 npm run gen:audio  # regenerate the synthesized placeholder sounds
