@@ -47,8 +47,9 @@ export class HubLink {
   private rt: HubRealtime | null = null;
 
   /**
-   * The realtime client for online duels (the game-scope session from init), or null when this
-   * visit isn't hub-connected (then Online Duel stays disabled). Created once.
+   * The realtime client for online duels (the game-scope session from a portal ticket), or null
+   * when this visit isn't hub-connected. A device session cannot replace that ticket: the hub
+   * forces it to hub scope, and the arena rejects it. Created once.
    */
   realtime(make: (sdk: HubSdk, opts: Omit<RealtimeOptions, 'getToken'>) => HubRealtime | null): HubRealtime | null {
     if (!this.connected) return null;
@@ -100,8 +101,10 @@ export class HubLink {
 
   /**
    * Report a finished duel. Losses and standalone visits do nothing.
-   * God-mode wins still earn Tickets and can grant Tinubu's Crown; they do not post a score.
-   * The match id is the operation id (`sproto:win:<id>`, `sproto.boss_defeated:<id>`).
+   * This never calls earnTickets. A story-boss gauntlet win posts `sproto.boss_defeated`
+   * (the hub pays 20 T once per boss per UTC day and may grant Tinubu's Crown).
+   * After that event, the shown balance is refreshed. A Ticket toast appears only when it rose.
+   * The match id is the operation id (`sproto.boss_defeated:<id>`).
    * On a queued error the SDK has already saved that id and resends it on the next init,
    * so this does not call again with a new one.
    */
@@ -111,16 +114,14 @@ export class HubLink {
     const calls = planDuelWin({ ...win, ranked: this.ranked, matchId });
     let title = '';
     let sub = '';
+    let crown = false;
+    let eventPosted = false;
     for (const call of calls) {
       try {
-        if (call.kind === 'earn') {
-          const earned = await this.api.earnTickets(call.amount, call.reason, call.key);
-          this.balance = earned.balance;
-          title = earned.capped ? 'Tickets capped' : `+${call.amount} Tickets`;
-          sub = earned.capped ? `Daily cap reached · Balance ${earned.balance}` : `Balance ${earned.balance}`;
-        } else if (call.kind === 'event') {
+        if (call.kind === 'event') {
           const reported = await this.api.reportEvent(call.eventId, call.data, call.key);
-          if (reported.granted === 'tinubu_crown') sub = sub ? `${sub} · Tinubu's Crown` : "Tinubu's Crown";
+          eventPosted = true;
+          if (reported.granted === 'tinubu_crown') crown = true;
         } else {
           await this.api.submitScore(call.boardId, call.value, call.meta);
         }
@@ -133,6 +134,23 @@ export class HubLink {
         if (!title) title = 'Tickets';
         sub = sub ? `${sub} · ${message}` : message;
       }
+    }
+    if (eventPosted) {
+      const before = this.balance;
+      try {
+        const next = (await this.api.getTicketBalance()).balance;
+        if (typeof before === 'number' && next > before) {
+          title = `+${next - before} Tickets`;
+          sub = sub ? `Balance ${next} · ${sub}` : `Balance ${next}`;
+        }
+        this.balance = next;
+      } catch {
+        /* no Ticket toast unless the shown balance actually rose */
+      }
+    }
+    if (crown) {
+      sub = sub ? `${sub} · Tinubu's Crown` : "Tinubu's Crown";
+      if (!title) title = "Tinubu's Crown";
     }
     if (title) notify(title, sub);
   }

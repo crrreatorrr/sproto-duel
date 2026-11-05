@@ -98,15 +98,16 @@ arena. Main menu → **Local Versus** → Player 2 presses A on a controller →
 
 ## Online Duel
 
-On the main menu in every build. It needs a hub visit (enter Sproto Duel from its portal). A visit
-that did not come from the portal still sees the button; it stays disabled and says to enter from
-the portal. There is no `VITE_ONLINE` gate.
+On the main menu in every build. The button is enabled after a hub visit (enter Sproto Duel from
+its portal). A visit that did not come from the portal still sees the button, and it stays disabled.
+There is no `VITE_ONLINE` gate. Device login cannot fill in for that visit: the hub forces it to a
+hub-scope session, and an online match only accepts `scope=game` with `game=sproto`.
 
 - **Quick Match** pairs you with whoever is searching (same protocol version); **Create Room** shows
   a 6-character code to share; **Join Room** takes one. Esc opens Resume / Forfeit: the fight never
   pauses. The HUD shows a ping chip.
 - Rules: the Versus rules above, never paused. The stake is **0 Tickets**. There is no wager and no
-  Ticket hold. The client does not call `earnTickets` (or any other Ticket mint) for an online win,
+  Ticket hold. The client does not call `earnTickets` for an online win, or for any other win,
   and it does not show a payout. The hub can still record the match on `sproto_wins`. A verified
   win, a forfeit, a dispute, a draw and a timeout all pay 0 T, until a server-verified Duel sim
   exists.
@@ -159,6 +160,11 @@ after it is a clear step up; Tinubu is close to impossible. This ladder is the g
 difficulty setting (Quick Duel is one fixed rival, best of three). A card introduces each fight;
 win to unlock the next, lose and you retry the same one. Progress is saved in the browser, so
 **Continue** on the main menu resumes at the next fight. Beating Tinubu clears the gauntlet.
+A gauntlet win against Sahil, Bitcoin Obama, Broccoli Head, Glowie, or Tinubu posts
+`sproto.boss_defeated` with `boss` set to `sahil`, `obama`, `broccoli`, `agent`, or `tinubu`.
+The hub pays 20 Tickets once per player per boss per UTC day. The Midget is not a separate boss.
+Quick Duel pays nothing. The client does not call `earnTickets`.
+
 **New Gauntlet** only replaces a saved run once you press **Begin** on fight 1's card (the button
 says so); backing out to the main menu keeps Continue.
 
