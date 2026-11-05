@@ -43,12 +43,21 @@ describe('HubLink online', () => {
     const link = new HubLink(api);
     link.attach(profile());
     const notes: string[] = [];
-    await link.onOnlineOutcome({ status: 'verified', paid: { me: 20 } }, 'me', (t, sub) => notes.push(`${t}|${sub}`));
-    expect(notes).toEqual(['+20 Tickets|Balance 140']);
-    await link.onOnlineOutcome({ status: 'verified', paid: { other: 20 } }, 'me', (t) => notes.push(t));
-    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 20 }, balances: { me: 160 } }, 'me', (t, sub) => notes.push(`${t}|${sub}`));
+    const toast = (title: string, sub: string) => notes.push(`${title}|${sub}`);
+
+    // A server-paid 0 renders no earn toast (notify is not called).
+    await link.onOnlineOutcome({ status: 'verified', paid: { me: 0 } }, 'me', toast);
+    await link.onOnlineOutcome({ status: 'verified', paid: { other: 20 } }, 'me', (title) => notes.push(title));
+    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 0 }, balances: { me: 160 } }, 'me', toast);
+    expect(notes).toEqual([]);
+
+    // A non-zero server amount is shown exactly, including on a forfeit.
+    await link.onOnlineOutcome({ status: 'verified', paid: { me: 20 }, balances: { me: 140 } }, 'me', toast);
+    await link.onOnlineOutcome({ status: 'forfeit', paid: { me: 20 }, balances: { me: 160 } }, 'me', toast);
     expect(notes).toEqual(['+20 Tickets|Balance 140', '+20 Tickets|Balance 160']);
+
     expect(api.earnTickets).not.toHaveBeenCalled();
+    expect(api.reportEvent).not.toHaveBeenCalled();
     expect(api.calls).toEqual([]);
   });
 
