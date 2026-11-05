@@ -156,7 +156,7 @@ export class SimWorld {
     }
     this.spells = new SimSpells(this);
     this.spells.rewardSpells = this.rules.rewardSpells;
-    this.tickets = new SimTickets(this.arena, this.wizards, this.rng, this.events);
+    this.tickets = new SimTickets(this.arena, this.wizards, this.rng, this.events, () => this.shifts.hazards);
     this.powers = new SimPowers(this);
     this.rewards = new SimRewards(this);
     this.shifts = new SimShifts(this);
@@ -530,6 +530,18 @@ export class SimWorld {
     h.int(this.arena.fireRadius);
     for (const t of this.tickets.list) h.int(t.id).int(t.x).int(t.z).int(t.age);
     h.int(this.tickets.spawnTimer);
+    // Reward spells, arena shifts and life packs (modes with none hash as before).
+    if (this.rules.rewardSpells) {
+      for (const w of this.wizards) {
+        for (let i = 0; i < w.rcd.length; i++) h.int(w.rcd[i]);
+        h.int(w.carpetTime).int(w.pumpTime).int(w.lockTime).int(w.breathTime).int(w.scorchTime).int(w.scorchTimer).int(w.groundSlow);
+      }
+      for (const s of this.rewards.smokes) h.int(s.owner).int(s.x).int(s.z).int(s.age);
+      for (const f of this.shifts.features) h.int(f.id).int(f.x).int(f.z).int(f.r).int(f.age).int(f.charge).int(f.timer).int(f.period);
+      const lp = this.lifePacks;
+      h.int(this.arena.ringCap).int(lp.spawned).int(lp.dueAt).bool(lp.pack.active);
+      if (lp.pack.active) h.int(lp.pack.id).int(lp.pack.x).int(lp.pack.z).int(lp.pack.age);
+    }
     return h.hex();
   }
 }
