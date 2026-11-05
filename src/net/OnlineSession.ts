@@ -270,6 +270,10 @@ export class OnlineSession {
       case OP.START: {
         const s = asStart(parseJson(data));
         if (!s) return;
+        // START begins the match we are still waiting on: the accept window, a room, or the
+        // new match joined after REMATCH_STATE started. A replay on a match that already
+        // started (including one sitting in the rematch window) is not another fight.
+        if (this.state !== 'accepting' && this.state !== 'starting' && this.state !== 'hosting-room' && this.state !== 'joining-room') return;
         const first = this.start === null;
         this.start = s;
         this.startDeadline = Infinity;
