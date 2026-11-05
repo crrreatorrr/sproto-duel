@@ -137,6 +137,13 @@ describe('HubLink', () => {
   });
 });
 
+function eventPosts(api: ReturnType<typeof fakeApi>): { data: { boss: string; elapsed: number }; key: string }[] {
+  return (api.reportEvent as ReturnType<typeof vi.fn>).mock.calls.map((call) => ({
+    data: call[1] as { boss: string; elapsed: number },
+    key: call[2] as string,
+  }));
+}
+
 function connected(api: ReturnType<typeof fakeApi>, ranked = false): HubLink {
   const link = new HubLink(api);
   link.attach({ playerId: 'p', ranked, relics: [], effects: {}, ticketsCapLeft: 100, serverTime: 0 });
@@ -200,6 +207,75 @@ describe('story boss payout', () => {
       { boss: 'agent', elapsed: 11 },
       expect.stringMatching(/^sproto\.boss_defeated:/),
     );
+    expect(api.earnTickets).not.toHaveBeenCalled();
+  });
+
+  it('posts once on one key when the same fight id is passed twice', async () => {
+    const api = fakeApi();
+    (api.reportEvent as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    const link = connected(api);
+    const matchId = 'fight-same';
+    const win = { mode: 'gauntlet' as const, playerWon: true, bossId: 'sahil', godMode: false, elapsed: 10, matchId };
+    await link.onDuelWin(win);
+    await link.onDuelWin(win);
+    const posts = eventPosts(api);
+    expect(posts).toHaveLength(1);
+    expect(posts[0].key).toBe('sproto.boss_defeated:fight-same');
+    expect(posts[0].data).toEqual({ boss: 'sahil', elapsed: 10 });
+    expect(api.earnTickets).not.toHaveBeenCalled();
+  });
+
+  it('posts two distinct keys for two Gauntlet fights against the same boss', async () => {
+    const api = fakeApi();
+    (api.reportEvent as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    const link = connected(api);
+    const first = link.beginFight();
+    await link.onDuelWin({ mode: 'gauntlet', playerWon: true, bossId: 'obama', godMode: false, elapsed: 10, matchId: first });
+    const second = link.beginFight();
+    await link.onDuelWin({ mode: 'gauntlet', playerWon: true, bossId: 'obama', godMode: false, elapsed: 10, matchId: second });
+    const posts = eventPosts(api);
+    expect(first).not.toBe(second);
+    expect(posts).toHaveLength(2);
+    expect(posts.map((post) => post.key)).toEqual([
+      `sproto.boss_defeated:${first}`,
+      `sproto.boss_defeated:${second}`,
+    ]);
+    expect(new Set(posts.map((post) => post.key)).size).toBe(2);
+    expect(api.earnTickets).not.toHaveBeenCalled();
+  });
+
+  it('posts a different boss once on a new key', async () => {
+    const api = fakeApi();
+    (api.reportEvent as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    const link = connected(api);
+    await link.onDuelWin({ mode: 'gauntlet', playerWon: true, bossId: 'sahil', godMode: false, elapsed: 10 });
+    await link.onDuelWin({ mode: 'gauntlet', playerWon: true, bossId: 'broccoli', godMode: false, elapsed: 10 });
+    const posts = eventPosts(api);
+    expect(posts).toHaveLength(2);
+    expect(posts[1].key).not.toBe(posts[0].key);
+    expect(posts.filter((post) => post.data.boss === 'broccoli')).toHaveLength(1);
+    expect(posts[1].data).toEqual({ boss: 'broccoli', elapsed: 10 });
+    expect(api.earnTickets).not.toHaveBeenCalled();
+  });
+
+  it('sends boss_defeated data as exactly { boss, elapsed }', async () => {
+    const api = fakeApi();
+    (api.reportEvent as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    const link = connected(api);
+    await link.onDuelWin({ mode: 'gauntlet', playerWon: true, bossId: 'agent', godMode: false, elapsed: 12.4 });
+    const posts = eventPosts(api);
+    expect(posts).toHaveLength(1);
+    expect(posts[0].data).toEqual({ boss: 'agent', elapsed: 12 });
+    expect(Object.keys(posts[0].data)).toEqual(['boss', 'elapsed']);
+  });
+
+  it('does not post boss_defeated for a Quick Duel fight id', async () => {
+    const api = fakeApi();
+    const link = connected(api);
+    const matchId = link.beginFight();
+    await link.onDuelWin({ mode: 'quick', playerWon: true, bossId: 'tinubu', godMode: false, elapsed: 10, matchId });
+    await link.onDuelWin({ mode: 'quick', playerWon: true, bossId: 'agent', godMode: false, elapsed: 22, matchId });
+    expect(api.reportEvent).not.toHaveBeenCalled();
     expect(api.earnTickets).not.toHaveBeenCalled();
   });
 
