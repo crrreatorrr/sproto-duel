@@ -610,4 +610,60 @@ describe('replayed match messages', () => {
     expect.soft(a.state).not.toBe('playing');
     expect.soft(b.state).not.toBe('playing');
   });
+
+  it('honors the new match START in pre-play and ignores a START for the old match', async () => {
+    const { clock, server, a, b } = await playing();
+    const oldId = server.matches[0].id;
+    const oldStart = JSON.stringify({
+      seat: a.start!.seat, hostSeat: a.start!.hostSeat, names: a.start!.names, staffs: a.start!.staffs,
+      rules: 'online1', seed: 111, matchId: oldId,
+    });
+    b.forfeit();
+    await settle(clock, 400, [a, b]);
+    expect(a.state).toBe('rematch');
+    const oldLink = ends(server, 'alice');
+    let plays = 0;
+    let nextMatch = '';
+    const phases: SessionState[] = [];
+    a.on('state', (st) => {
+      phases.push(st);
+      if (st === 'playing') plays++;
+    });
+    a.on('rematch', (m) => { if (m.phase === 'started') nextMatch = m.matchId; });
+
+    oldLink.serverEnd.send(OP.START, oldStart);
+    await settle(clock, 200, [a, b]);
+    expect(a.state).toBe('rematch');
+    expect(plays).toBe(0);
+
+    a.rematch(true);
+    b.rematch(true);
+    let sawPrePlay = false;
+    for (let i = 0; i < 90 && a.state !== 'playing'; i++) {
+      if (a.state === 'starting') {
+        sawPrePlay = true;
+        oldLink.serverEnd.send(OP.START, oldStart);
+      }
+      clock.advance(TICK);
+      a.update();
+      b.update();
+      await flush();
+    }
+
+    expect(sawPrePlay).toBe(true);
+    expect(phases).toContain('starting');
+    expect(plays).toBe(1);
+    expect(a.state).toBe('playing');
+    expect(b.state).toBe('playing');
+    expect(nextMatch).not.toBe('');
+    expect(nextMatch).not.toBe(oldId);
+    expect(server.matches.some((m) => m.id === nextMatch && m.phase === 'playing')).toBe(true);
+    expect(a.start?.seed).toBe(1234);
+
+    ends(server, 'alice').serverEnd.send(OP.START, oldStart);
+    await settle(clock, 200, [a, b]);
+    expect(plays).toBe(1);
+    expect(a.state).toBe('playing');
+    expect(a.start?.seed).toBe(1234);
+  });
 });
