@@ -1,0 +1,41 @@
+{
+ "name": "gauntlet-sahil-god-win",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 300,
+  "rules": "gauntlet",
+  "staffs": [
+   "duel_staff_fighters_might",
+   null
+  ],
+  "ticks": 3545,
+  "inputs": [
+   "qgMAAAEUHbmgnSlH4uMi/tSglGDQtVjKlUAnjZ8vIpbXEAA6cJZPrikn2xkKFfO+Sq7TEX27jADZDtQvoB0nQHPTqusaqAAShHJJpWPSveQBWkIiL9hoWBMj02TbpKjb7A9238WxLcFCeWF5ZyXiSfDts/GavkIstpa/aB5m2dO+xKARW2VeISc9bHx8HdNbJoBmkZqto0G+kCJbE8m7i8DpNFBogkknIRhR6QDSlTHBwT0A3RAfaWEklVH4Ha8gRaiWE83KRTTtp7sv3WQ/yCysjwhygU/73HJUSaINICRMVsVw/AwVj0aOejgaTuT5hJuJCoYIdm/wVwVL+v+FI3A22F9XzBrxpEQ+1YQSS/9k1iBal7FcUNS/0YxsRa5Z1UM2lXkY+u9wFO+jNoGvcysqbZutlmvVoIjsEhs3lSxhwEfnAuVAE8OPc2dv1fEjLEQ8LC+GbebmENFhxERlud7VeRzjfKXAXg3H3wB45UISiTG8GocP9HcZIk5vBk+JZm17Gz3Tr2AzH8orAsepnsRNe8uM2Hb7/j27rVUmfq9P0YlEx92T6zRNwuPcs8Sx+XcD3xAeZcZ7GB2yHNaOHA1f2LVA86YugWSvpk3aFm+uS4A8w4uJgUUjKOjKRO5rq+03y4FeXwsKte2fj2mjL7Zy3SgTItRsiRx//NKE5Ydi0RoOJJgmOKt1dxjpmZj4E3cS+q7onc6AuSh4M8FOyYCMjJ+gsgcXh1HhfRu4sRyefYIGSs/+cJwVGIwFs8ssFVd/8gtmnrEGN2itaZQQsiq8s9kVHwLjblGsk5MCForr6MrinxWWg+KduJFWA4KYQxhgKkkd+zT1dkediqsFUYtAuuKfSzj7eip26kF/uXW2vHAQEkDmq33CB56FATlnD+nAIrWo6CvSJysiRaP92LXeBE6lsoAmHK1KAIAILHxoesOQihUJplZAywHIeKjOGrp3x0e31d4Di/VdAtq9Cvwdft1QBb62ye2FmaQhbZAMiDkuKedmNgXXOip/Z4YsLkjW3L4MUq/4wn7oXWTyuSp4tGdDY9cnCerERAVOmnMfBHcFFyrLylFAXWyvQvJl64UkCOZ5KXWaLYIR0RWo/dD0LkLyN7xrklzSx3w7KkOKtG9dX/JwcooScTkH/n2w5W78H5vTyH4L/S9+xdgTxc+Q+D1EuKBFPQ4r5GqKHoBj3kLGcOojL4KHMuwhknJDlklnex0ljfrbABues+H1BY8oefXw/5BlFEJ4euNnkSUmq4PoW44lEp3CCDWkNBaFEJHfeOaeS1x84w883uSYDCARAV7avs6hS5NFI9zdtmAc1fGkyDmd0WtPKS1VJdxBo0MiErYmF1XQ0lgkoqZ9cBldjvOra1hwBrXDGd9DVn4+lPeiWto45wNHyrZM5JU="
+  ],
+  "bossId": "sahil",
+  "godMode": true,
+  "claimed": {
+   "winnerSeat": 0,
+   "wins": [
+    1,
+    0
+   ],
+   "rounds": 1,
+   "ticks": 3545
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 0,
+  "wins": [
+   1,
+   0
+  ],
+  "rounds": 1,
+  "ticks": 3545,
+  "endHash": "5d6dcd0097c3f2b6",
+  "endReason": "ko",
+  "bossId": "sahil"
+ }
+}

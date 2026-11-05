@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -80,6 +81,10 @@ export default defineConfig(({ mode }) => ({
         },
       },
     },
+  },
+  test: {
+    // Agent worktrees and QA snapshots are copies of the repo: never collect their tests.
+    exclude: ['**/node_modules/**', '**/.claude/**', '**/.qa-build/**', '**/dist/**'],
   },
   server: {
     port: 5173,

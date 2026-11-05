@@ -108,6 +108,8 @@ export class Bot {
     if (this.roll(s.dodge)) f.press |= 1 << 5;
     if (this.roll(s.jump)) f.press |= 1 << 6;
     if (me.ult >= 100 * ONE && this.roll(s.ult)) f.press |= 1 << 4;
+    // Learned reward spells now and then (bits 7..11: carpet, pump, vape, lockon, breath).
+    if (me.learned) for (let i = 0; i < 5; i++) if (me.knows(i) && this.roll(s.blast / 2)) f.press |= 1 << (7 + i);
     return f;
   }
 }
