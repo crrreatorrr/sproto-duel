@@ -45,6 +45,17 @@ export class HubLink {
   constructor(private readonly api: HubSdk = createBrowserSdk()) {}
 
   private rt: HubRealtime | null = null;
+  /**
+   * One id per fight. `beginFight` mints it; otherwise the first `onDuelWin` for a payload
+   * mints it and a repeat of that same payload reuses it. The next different win mints another.
+   */
+  private fightMatchId: string | null = null;
+  /** True after `beginFight` until the next one: every report in between shares `fightMatchId`. */
+  private fightOpen = false;
+  /** Payload of the win that owns `fightMatchId` when the fight was not opened with `beginFight`. */
+  private fightSignature: string | null = null;
+  /** Match id already sent to the hub. A second handler call for that fight does not post again. */
+  private reportedMatchId: string | null = null;
 
   /**
    * The realtime client for online duels (the game-scope session from a portal ticket), or null
@@ -100,18 +111,32 @@ export class HubLink {
   }
 
   /**
+   * Mint the id for the fight that is about to start. A later `onDuelWin` for that fight
+   * reuses it, including when the handler runs again.
+   */
+  beginFight(): string {
+    this.fightMatchId = crypto.randomUUID();
+    this.fightOpen = true;
+    this.fightSignature = null;
+    this.reportedMatchId = null;
+    return this.fightMatchId;
+  }
+
+  /**
    * Report a finished duel. Losses and standalone visits do nothing.
    * This never calls earnTickets. A story-boss gauntlet win posts `sproto.boss_defeated`
    * (the hub pays 20 T once per boss per UTC day and may grant Tinubu's Crown).
    * After that event, the shown balance is refreshed. A Ticket toast appears only when it rose.
-   * The match id is the operation id (`sproto.boss_defeated:<id>`).
-   * On a queued error the SDK has already saved that id and resends it on the next init,
-   * so this does not call again with a new one.
+   * The match id is assigned once per fight (`beginFight`, or the first report of this win)
+   * and the operation id is `sproto.boss_defeated:<id>`. A second call for that fight does not post.
+   * On a queued error the SDK has already saved that id and resends it on the next init.
    */
-  async onDuelWin(win: Omit<DuelWin, 'matchId' | 'ranked'>, notify: Notify = () => {}): Promise<void> {
+  async onDuelWin(win: Omit<DuelWin, 'matchId' | 'ranked'> & { matchId?: string }, notify: Notify = () => {}): Promise<void> {
     if (!this.connected) return;
-    const matchId = crypto.randomUUID();
+    const matchId = this.matchIdFor(win);
     const calls = planDuelWin({ ...win, ranked: this.ranked, matchId });
+    if (calls.length === 0 || this.reportedMatchId === matchId) return;
+    this.reportedMatchId = matchId;
     let title = '';
     let sub = '';
     let crown = false;
@@ -153,6 +178,37 @@ export class HubLink {
       if (!title) title = "Tinubu's Crown";
     }
     if (title) notify(title, sub);
+  }
+
+  /**
+   * The id for this win. A passed `matchId` or an open `beginFight` id is reused for every
+   * call until the next fight. With neither, the first call mints one and a repeat of the
+   * same win (mode, boss, god mode, result, elapsed) reuses it; a different win mints another.
+   */
+  private matchIdFor(win: Omit<DuelWin, 'matchId' | 'ranked'> & { matchId?: string }): string {
+    if (win.matchId) {
+      if (win.matchId !== this.fightMatchId) {
+        this.fightMatchId = win.matchId;
+        this.fightOpen = true;
+        this.fightSignature = HubLink.fightSignature(win);
+        if (this.reportedMatchId !== win.matchId) this.reportedMatchId = null;
+      }
+      return win.matchId;
+    }
+    const signature = HubLink.fightSignature(win);
+    if (this.fightOpen && this.fightMatchId) {
+      this.fightSignature = signature;
+      return this.fightMatchId;
+    }
+    if (this.fightMatchId && this.fightSignature === signature) return this.fightMatchId;
+    this.fightMatchId = crypto.randomUUID();
+    this.fightSignature = signature;
+    this.fightOpen = false;
+    return this.fightMatchId;
+  }
+
+  private static fightSignature(win: Omit<DuelWin, 'matchId' | 'ranked'>): string {
+    return `${win.mode ?? ''}|${win.bossId ?? ''}|${win.godMode}|${win.playerWon}|${win.elapsed}`;
   }
 
   /** Spend Tickets for Verse. The server enforces the rate and the daily cap. */
