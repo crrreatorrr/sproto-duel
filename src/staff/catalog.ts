@@ -8,22 +8,24 @@ import { CONFIG } from '../config';
  * LOD1 is the mesh the socketed wizard was authored with, and together with the empty rig it stays
  * under the 10k triangle budget. The full `staff_<name>.glb` files sit beside it for a later close-up.
  */
-export type StaffId = 'duel_staff_sproto' | 'duel_staff_momentum' | 'duel_staff_moonward' | 'duel_staff_nobu';
+export type StaffId = 'duel_staff_sproto' | 'duel_staff_momentum' | 'duel_staff_moonward' | 'duel_staff_nobu' | 'duel_staff_fighters_might';
 
 export const STAFF_IDS: readonly StaffId[] = [
   'duel_staff_sproto',
   'duel_staff_momentum',
   'duel_staff_moonward',
   'duel_staff_nobu',
+  'duel_staff_fighters_might',
 ];
 
 export const SPROTO_STAFF: StaffId = 'duel_staff_sproto';
 
-const SLUG: Record<StaffId, 'sproto' | 'momentum' | 'moonward' | 'nobu'> = {
+const SLUG: Record<StaffId, 'sproto' | 'momentum' | 'moonward' | 'nobu' | 'fighters_might'> = {
   duel_staff_sproto: 'sproto',
   duel_staff_momentum: 'momentum',
   duel_staff_moonward: 'moonward',
   duel_staff_nobu: 'nobu',
+  duel_staff_fighters_might: 'fighters_might',
 };
 
 export interface StaffPulse {
@@ -104,6 +106,8 @@ export function staffLine(id: StaffId): string {
       return `COOM Bolt · damage ${damage * s.moonward.boltDamageMult}`;
     case 'duel_staff_nobu':
       return `Bark Bolt · knockback ${s.nobu.boltKnockback}`;
+    case 'duel_staff_fighters_might':
+      return 'Fist Bolt';
   }
 }
 

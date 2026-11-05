@@ -21,9 +21,11 @@ import type { DeviceBinding } from './input/IntentSource';
 import { LocalHumanSource } from './player/PlayerController';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
+import { TitleStaffPreview } from './ui/TitleStaffPreview';
+import { titleStaffCycle } from './ui/titleStaffs';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
 import { HubLink } from './hub/link';
-import { equipStaff, staffCard, staffModelPath } from './staff/catalog';
+import { equipStaff, isStaffId, staffCard, staffModelPath } from './staff/catalog';
 import { getLoadout, setSelectedStaff, setSessionRelics } from './staff/loadout';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
@@ -129,6 +131,8 @@ export class App {
     this.lockWanted = v;
   }
   private resultsTimer = 0;
+  /** The title screen's live Wizard Sproto (its own small renderer); freed when a fight starts. */
+  private titlePreview: TitleStaffPreview | null = null;
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
 
@@ -195,8 +199,10 @@ export class App {
       hubStatus: () => this.hub.status(),
       exchangeTickets: (tickets) => this.hub.exchangeTickets(tickets),
       exitHub: () => this.hub.exitHub(),
+      refreshTickets: () => this.hub.refreshBalance(),
       staffRack: () => this.staffRack(),
       selectStaff: (id) => this.selectStaff(id),
+      titleStage: (slot) => this.showTitleStage(slot),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
     this.applySettings(this.settings);
@@ -250,6 +256,22 @@ export class App {
       return;
     }
     this.applyStaff();
+    if (isStaffId(id)) this.titlePreview?.focus(id);
+  }
+
+  /**
+   * Main menu: the live Wizard Sproto cycling the owned staffs (every staff, unowned ones locked,
+   * without a hub session). Built on first use and again after a fight freed it.
+   */
+  private showTitleStage(slot: HTMLElement): void {
+    this.titlePreview ??= TitleStaffPreview.create(this.game.assets);
+    const load = getLoadout();
+    this.titlePreview?.mount(slot, titleStaffCycle(this.hub.connected, load.owned, load.staff));
+  }
+
+  private disposeTitleStage(): void {
+    this.titlePreview?.dispose();
+    this.titlePreview = null;
   }
 
   private bindInput(): void {
@@ -815,6 +837,7 @@ export class App {
 
   private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>, replica = false): void {
     const g = this.game;
+    this.disposeTitleStage();
     const r = rules ?? (boss ? undefined : QUICK);
     const even = r !== undefined && !r.godModeAllowed;
     this.audio.gameplayMuted = false;
