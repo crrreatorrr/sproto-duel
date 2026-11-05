@@ -1,5 +1,6 @@
 import { createHubSdk, HubSdkError, type HubRealtime, type HubSdk, type InitResult, type RealtimeOptions, type RelicId } from '@metaverse/hub-sdk';
 import { HUB_EXIT_SLUG, HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
+import { openGuestRealtime } from './guestSession';
 import { planDuelWin, type DuelWin } from './report';
 import { pageServerKey } from './serverKey';
 
@@ -45,6 +46,8 @@ export class HubLink {
   constructor(private readonly api: HubSdk = createBrowserSdk()) {}
 
   private rt: HubRealtime | null = null;
+  /** Device-auth session for a visit that has no portal ticket. Ranked stays 0. */
+  private guestRt: HubRealtime | null = null;
   /**
    * One id per fight. `beginFight` mints it; otherwise the first `onDuelWin` for a payload
    * mints it and a repeat of that same payload reuses it. The next different win mints another.
@@ -58,15 +61,25 @@ export class HubLink {
   private reportedMatchId: string | null = null;
 
   /**
-   * The realtime client for online duels (the game-scope session from a portal ticket), or null
-   * when this visit isn't hub-connected. A device session cannot replace that ticket: the hub
-   * forces it to hub scope, and the arena rejects it. Created once.
+   * The portal visit's realtime client, or null when this visit has no hub session.
+   * Online Duel for that visit goes through `openOnlineRealtime`, which also covers a guest.
    */
   realtime(make: (sdk: HubSdk, opts: Omit<RealtimeOptions, 'getToken'>) => HubRealtime | null): HubRealtime | null {
     if (!this.connected) return null;
     // `make` is the SDK's realtimeFromSdk, passed in from the lazily loaded online stack.
     this.rt ??= make(this.api, { serverUrl: nakamaUrl() });
     return this.rt;
+  }
+
+  /**
+   * Realtime client for Online Duel. A portal visit keeps its game session and is never swapped
+   * for a device guest. Anyone else, including a guest, gets a device session and
+   * `sproto.standalone_session` (`ranked` 0, no wager). Created once. The socket opens on connect.
+   */
+  openOnlineRealtime(make: (sdk: HubSdk, opts: Omit<RealtimeOptions, 'getToken'>) => HubRealtime | null): HubRealtime | null {
+    if (this.connected) return this.realtime(make);
+    this.guestRt ??= openGuestRealtime({ serverUrl: nakamaUrl(), serverKey: pageServerKey() });
+    return this.guestRt;
   }
 
   /**
@@ -110,10 +123,35 @@ export class HubLink {
     };
   }
 
+  /** In-flight balance read, and when the last one finished (ms, performance clock). */
+  private balanceJob: Promise<number | null> | null = null;
+  private balanceAt = -Infinity;
+
   /**
-   * Mint the id for the fight that is about to start. A later `onDuelWin` for that fight
-   * reuses it, including when the handler runs again.
+   * Read the Ticket balance (the SDK's `getTicketBalance`, read only) for the main menu's chip.
+   * Standalone visits do nothing. At most one read in flight and one per `minGapMs`. Earning or
+   * exchanging updates `balance` on its own. A failed read keeps the last known balance.
    */
+  refreshBalance(minGapMs = 30_000): Promise<number | null> {
+    if (!this.connected) return Promise.resolve(null);
+    if (this.balanceJob) return this.balanceJob;
+    if (this.balance !== null && performance.now() - this.balanceAt < minGapMs) return Promise.resolve(this.balance);
+    this.balanceJob = this.api.getTicketBalance()
+      .then((r) => {
+        if (Number.isFinite(r.balance)) this.balance = r.balance;
+        return this.balance;
+      })
+      .catch(() => this.balance)
+      .finally(() => {
+        this.balanceAt = performance.now();
+        this.balanceJob = null;
+      });
+    return this.balanceJob;
+  }
+
+  /** The last finished match's input log and its match id (hub verification; see docs/SERVER-SIM.md). */
+  lastReplay: { matchId: string; log: object } | null = null;
+
   beginFight(): string {
     this.fightMatchId = crypto.randomUUID();
     this.fightOpen = true;
@@ -130,10 +168,12 @@ export class HubLink {
    * The match id is assigned once per fight (`beginFight`, or the first report of this win)
    * and the operation id is `sproto.boss_defeated:<id>`. A second call for that fight does not post.
    * On a queued error the SDK has already saved that id and resends it on the next init.
+   * A replay log is kept on `lastReplay` under that same match id.
    */
   async onDuelWin(win: Omit<DuelWin, 'matchId' | 'ranked'> & { matchId?: string }, notify: Notify = () => {}): Promise<void> {
     if (!this.connected) return;
     const matchId = this.matchIdFor(win);
+    if (win.replay) this.lastReplay = { matchId, log: win.replay };
     const calls = planDuelWin({ ...win, ranked: this.ranked, matchId });
     if (calls.length === 0 || this.reportedMatchId === matchId) return;
     this.reportedMatchId = matchId;

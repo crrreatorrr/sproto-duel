@@ -476,6 +476,11 @@ export class OnlineSession {
     if (this.state === 'playing') this.send(OP.FORFEIT, {});
   }
 
+  /** Host: the match's input log, chunked for the socket (OP.LOG), for the referee's replay. */
+  sendLog(chunks: readonly string[]): void {
+    for (const c of chunks) this.send(OP.LOG, { c });
+  }
+
   /**
    * Back out. Searching removes the matchmaker ticket. The accept window sends DECLINE.
    * A rematch window sends No. Mid-fight still just leaves, which the server forfeits.

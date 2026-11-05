@@ -1,0 +1,45 @@
+{
+ "name": "quick-learned-spells",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 210,
+  "rules": "quick",
+  "staffs": [
+   "duel_staff_momentum",
+   null
+  ],
+  "ticks": 7813,
+  "inputs": [
+   "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"
+  ],
+  "learned": [
+   "carpet",
+   "pump",
+   "vape",
+   "lockon",
+   "breath"
+  ],
+  "claimed": {
+   "winnerSeat": 1,
+   "wins": [
+    0,
+    2
+   ],
+   "rounds": 2,
+   "ticks": 7813
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 1,
+  "wins": [
+   0,
+   2
+  ],
+  "rounds": 2,
+  "ticks": 7813,
+  "endHash": "fc579f3efed0af05",
+  "endReason": "ko"
+ }
+}

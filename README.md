@@ -16,10 +16,21 @@ npm run dev
 
 Open http://localhost:5173 and pick **Boss Gauntlet**, **Quick Duel** or **Local Versus** (the game captures the mouse).
 
+Right of the main menu, a big live Wizard Sproto (the in-game rig and staff models, on its own small
+canvas) holds up each staff you own in turn, swapping every few seconds with a flash and a pop.
+Without a hub session it cycles every staff and shows the ones you don't own as locked dark
+silhouettes. It is display only, pauses while hidden, and is freed when a fight starts
+(`src/ui/TitleStaffPreview.ts`; the list is `titleStaffCycle` in `src/ui/titleStaffs.ts`).
+
 ```bash
 npm run build      # typecheck + production build into dist/
 npm run gen:audio  # regenerate the synthesized placeholder sounds
 ```
+
+The main menu's top-right chip shows your Ticket balance (read with the hub SDK's
+`getTicketBalance`, at most every 30 s; wins and exchanges update it too). It reads `--` without a
+hub session. It only shows the balance: exchanging is still the **Exchange** button. **Return to
+Hub** leaves at once from the main menu; from the pause screen mid-fight it asks first.
 
 ## Controls
 
@@ -98,21 +109,30 @@ arena. Main menu → **Local Versus** → Player 2 presses A on a controller →
 
 ## Online Duel
 
-On the main menu in every build. The button is enabled after a hub visit (enter Sproto Duel from
-its portal). A visit that did not come from the portal still sees the button, and it stays disabled.
-There is no `VITE_ONLINE` gate. Device login cannot fill in for that visit: the hub forces it to a
-hub-scope session, and an online match only accepts `scope=game` with `game=sproto`.
+On the main menu in every build. Anyone can play, including a guest and a visit that did not come
+from the hub portal. There is no qualifying step, no wager, and no Ticket hold. The stake stays
+**0 Tickets**. There is no `VITE_ONLINE` gate.
 
-- **Quick Match** pairs you with whoever is searching (same protocol version); **Create Room** shows
-  a 6-character code to share; **Join Room** takes one. Esc opens Resume / Forfeit: the fight never
-  pauses. The HUD shows a ping chip.
+A portal visit uses the game session from its ticket. A visit without one signs in with this
+browser's device id (a hub guest) and asks the hub for `sproto.standalone_session` with
+`{app:"sproto-duel"}`. The server mints the session (`scope=game`, `game=sproto`, `ranked=0`).
+The client never chooses scope, game, or ranked, and it never sends a secret.
+
+- **Quick Match** puts you in a queue and pairs you with whoever is searching (same protocol
+  version). When a match is found, both players have **10 seconds** to accept. Decline, leave, or
+  a timeout follows the server: one seat can re-queue, the other returns to the online menu.
+  **Create Room** shows a 6-character code to share; **Join Room** takes one. Private rooms skip
+  the accept window. Esc on the search screen leaves the queue. Esc in a fight opens Resume /
+  Forfeit: the fight never pauses. After a finished match both players can rematch. The HUD shows
+  a ping chip. There is no MMR.
 - Rules: the Versus rules above, never paused. The stake is **0 Tickets**. There is no wager and no
   Ticket hold. The client does not call `earnTickets` for an online win, or for any other win,
-  and it does not show a payout. The hub can still record the match on `sproto_wins`. A verified
-  win, a forfeit, a dispute, a draw and a timeout all pay 0 T, until a server-verified Duel sim
-  exists.
-- **Netcode.** The fight's simulation needs Rapier and three.js, which the hub's Nakama runtime can't
-  run, so one client, the **host** (random each match), runs it and the other is a **replica**.
+  and it does not show a payout. `paid` on the outcome is ignored. The hub can still record the
+  match on `sproto_wins`.
+- **Netcode.** One client, the **host** (random each match), runs the fight's deterministic sim
+  (`src/sim-core`, see [docs/SERVER-SIM.md](docs/SERVER-SIM.md)) and the other is a **replica**.
+  After RESULT (or a forfeit) the host sends the match's input log (`OP.LOG` chunks, opcode 25) so
+  a referee can replay it with `dist/duel-sim.server.js`.
   The guest sends its intent frames (`src/net/intent.ts`, 30 messages/s, recent frames repeated);
   the host plays them through a jitter buffer (`RemoteInputBuffer`, 2 ticks) and streams snapshots
   at 30 Hz (`src/net/state.ts`, about 1 KB) with the fight's events. The guest interpolates both
@@ -130,8 +150,8 @@ hub-scope session, and an online match only accepts `scope=game` with `game=spro
   in-page fake referee with 80 ms one-way latency.
 - **Two-tab local test** (real server): run the hub's Nakama with the `sproto_arena` module (see
   metaverse-hub `docs/games/sproto-arena.md`), build or run the game with
-  `VITE_NAKAMA_URL=http://127.0.0.1:7350`, and enter it from the hub portal in two
-  browser profiles (each needs its own portal ticket). Quick Match in both. The result says 0 Tickets.
+  `VITE_NAKAMA_URL=http://127.0.0.1:7350`, and open it in two browser profiles. A portal visit uses
+  its ticket. A direct visit signs in as a guest. Quick Match in both. The result says 0 Tickets.
 
 ## Golden Tickets
 

@@ -21,9 +21,11 @@ import type { DeviceBinding } from './input/IntentSource';
 import { LocalHumanSource } from './player/PlayerController';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
+import { TitleStaffPreview } from './ui/TitleStaffPreview';
+import { titleStaffCycle } from './ui/titleStaffs';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
 import { HubLink } from './hub/link';
-import { equipStaff, staffCard, staffModelPath } from './staff/catalog';
+import { equipStaff, isStaffId, staffCard, staffModelPath } from './staff/catalog';
 import { getLoadout, setSelectedStaff, setSessionRelics } from './staff/loadout';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
@@ -48,7 +50,11 @@ const ONLINE_REASONS: Record<string, string> = {
   bad_code: 'Room codes are 6 letters and digits.',
   disconnected: 'Lost the connection to the server.',
   match_ended: 'The match ended.',
-  wrong_scope: 'Enter Sproto Duel from the hub portal to play online.',
+  wrong_scope: 'The duel server did not accept this session.',
+  rate_limited: 'Too many Duel sessions. Try again in a few minutes.',
+  auth_failed: 'Could not sign in for Online Duel.',
+  rpc_failed: 'Could not open an Online Duel session.',
+  no_token: 'Could not open an Online Duel session.',
   cancelled: 'Search cancelled.',
   already_queued: 'You are already searching.',
   already_in_match: 'You are already in a match.',
@@ -140,6 +146,8 @@ export class App {
     this.lockWanted = v;
   }
   private resultsTimer = 0;
+  /** The title screen's live Wizard Sproto (its own small renderer); freed when a fight starts. */
+  private titlePreview: TitleStaffPreview | null = null;
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
   /** Hub idempotency id for the fight in progress. One per start, reused if the win handler runs again. */
@@ -184,9 +192,7 @@ export class App {
     this.menus = new Menus(game.ui, this.settings, {
       start: () => this.startMatch(),
       versus: () => this.showVersusJoin(),
-      online: () => (this.onlineAvailable
-        ? { enabled: true, why: 'Best of three · 0 Ticket stake' }
-        : { enabled: false, why: 'Enter from the hub portal to play online' }),
+      online: () => ({ enabled: true, why: 'Best of three · 0 Tickets' }),
       openOnline: () => this.openOnline(),
       gauntlet: () => this.newGauntlet(),
       continueGauntlet: () => this.continueGauntlet(),
@@ -206,8 +212,10 @@ export class App {
       hubStatus: () => this.hub.status(),
       exchangeTickets: (tickets) => this.hub.exchangeTickets(tickets),
       exitHub: () => this.hub.exitHub(),
+      refreshTickets: () => this.hub.refreshBalance(),
       staffRack: () => this.staffRack(),
       selectStaff: (id) => this.selectStaff(id),
+      titleStage: (slot) => this.showTitleStage(slot),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
     this.applySettings(this.settings);
@@ -262,6 +270,22 @@ export class App {
     }
     if (this.onlineSession) this.onlineSession.staffId = id;
     this.applyStaff();
+    if (isStaffId(id)) this.titlePreview?.focus(id);
+  }
+
+  /**
+   * Main menu: the live Wizard Sproto cycling the owned staffs (every staff, unowned ones locked,
+   * without a hub session). Built on first use and again after a fight freed it.
+   */
+  private showTitleStage(slot: HTMLElement): void {
+    this.titlePreview ??= TitleStaffPreview.create(this.game.assets);
+    const load = getLoadout();
+    this.titlePreview?.mount(slot, titleStaffCycle(this.hub.connected, load.owned, load.staff));
+  }
+
+  private disposeTitleStage(): void {
+    this.titlePreview?.dispose();
+    this.titlePreview = null;
   }
 
   private bindInput(): void {
@@ -444,22 +468,17 @@ export class App {
 
   // ------------------------------------------------------------------ Online Duel
 
-  /** Matchmaking for this visit: the hub realtime client, the dev fake (`?netsim`), or null standalone. */
+  /**
+   * Matchmaking for this visit: the dev fake (`?netsim`), the portal game session, or a guest
+   * device session. Guests are included. There is no qualifying step.
+   */
   private onlineLobby(): OnlineLobby | null {
     if (this.devLobby) return (this.onlineLobbyCache ??= this.devLobby());
     if (this.onlineLobbyCache) return this.onlineLobbyCache;
-    if (!this.hub.connected || !this.net) return null;
-    const rt = this.hub.realtime(this.net.realtimeFromSdk);
-    return rt ? (this.onlineLobbyCache = new this.net.HubLobby(rt)) : null;
-  }
-
-  /**
-   * Online Duel can be offered: a hub-connected visit (or the dev fake).
-   * Device login is forced to a hub-scope session, and sproto_arena only accepts
-   * `scope=game` plus `game=sproto`, so a standalone visit stays disabled.
-   */
-  private get onlineAvailable(): boolean {
-    return this.devLobby !== null || this.hub.connected;
+    if (!this.net) return null;
+    const rt = this.hub.openOnlineRealtime(this.net.realtimeFromSdk);
+    if (!rt) return null;
+    return (this.onlineLobbyCache = new this.net.HubLobby(rt));
   }
 
   /** The Online Duel menu over the attract duel. `note`: why the last attempt ended. */
@@ -493,7 +512,7 @@ export class App {
     const net = this.net;
     const lobby = this.onlineLobby();
     if (!lobby) {
-      this.menus.toast('Online Duel', 'Enter from the hub portal to play online');
+      this.openOnline('Could not open Online Duel.');
       return;
     }
     this.endOnline();
@@ -928,8 +947,16 @@ export class App {
       this.menus.toast('God mode is off here', 'Local Versus and online duels are played even');
       return;
     }
+    // On the sim, god mode is part of the match's setup (and its input log): a toggle mid-fight
+    // takes effect from the next fight.
+    const midSim = !!this.game.sim && (this.state === 'playing' || this.state === 'paused') && !this.match.decided;
     this.game.setGodMode(on);
     this.syncLearned();
+    if (midSim) {
+      this.menus.syncGodMode(on);
+      this.menus.toast(on ? 'God Mode On' : 'God Mode Off', 'From the next fight');
+      return;
+    }
     if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.decided) this.godUsed = true;
     this.menus.syncGodMode(on);
     if (this.menus.current === 'boss') this.menus.setBossRewardNote(this.rewardNote());
@@ -966,6 +993,7 @@ export class App {
 
   private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>, replica = false): void {
     const g = this.game;
+    this.disposeTitleStage();
     const r = rules ?? (boss ? undefined : QUICK);
     const reports = (r ?? (boss ? GAUNTLET : QUICK)).reportToHub;
     this.reportMatchId = reports && !replica ? this.hub.beginFight() : null;
@@ -1009,7 +1037,7 @@ export class App {
       this.state = 'paused';
       this.pausedAt = performance.now();
       this.game.input.releaseLock();
-      this.menus.showOnlinePause({ resume: () => this.resume(), forfeit: () => this.onlineSession?.forfeit() });
+      this.menus.showOnlinePause({ resume: () => this.resume(), forfeit: () => (this.onlineCtl ? this.onlineCtl.forfeit() : this.onlineSession?.forfeit()) });
       return;
     }
     this.state = 'paused';
@@ -1108,14 +1136,16 @@ export class App {
     // Local Versus and online report nothing from the client (rules.reportToHub; see planDuelWin).
     if (!this.game.qaMode && this.match.rules.reportToHub) {
       const bossId = this.match.boss?.id ?? null;
+      const sim = this.game.sim;
       void this.hub.onDuelWin(
         {
           mode: this.mode,
           playerWon: winner === this.game.player,
           bossId,
-          godMode: this.godUsed,
+          godMode: this.godUsed || !!(sim && sim.world.setup.godMode),
           elapsed: this.match.elapsed,
           matchId: this.reportMatchId ?? undefined,
+          replay: sim ? sim.log() : undefined,
         },
         (title, sub) => this.menus.toast(title, sub, 'tickets'),
       );

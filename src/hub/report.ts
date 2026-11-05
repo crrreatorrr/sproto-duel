@@ -20,12 +20,17 @@ export interface DuelWin {
   elapsed: number;
   /** Stable for retries of this win, new for the next win. */
   matchId: string;
+  /**
+   * The match's input log (src/sim-core, docs/SERVER-SIM.md) so the hub can replay and verify it.
+   * It rides along in the boss event's data (`replay`); the Tickets earn call takes no data.
+   */
+  replay?: object;
 }
 
 export interface EventCall {
   kind: 'event';
   eventId: string;
-  data: { boss: string; elapsed: number };
+  data: { boss: string; elapsed: number; replay?: object };
   key: string;
 }
 
@@ -57,7 +62,9 @@ export function planDuelWin(win: DuelWin): HubCall[] {
     calls.push({
       kind: 'event',
       eventId: TINUBU_EVENT,
-      data: { boss: win.bossId, elapsed: Math.round(win.elapsed) },
+      data: win.replay
+        ? { boss: win.bossId, elapsed: Math.round(win.elapsed), replay: win.replay }
+        : { boss: win.bossId, elapsed: Math.round(win.elapsed) },
       key: `${TINUBU_EVENT}:${win.matchId}`,
     });
   }

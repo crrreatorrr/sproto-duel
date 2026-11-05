@@ -1,0 +1,47 @@
+{
+ "name": "gauntlet-tinubu-god-win",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 304,
+  "rules": "gauntlet",
+  "staffs": [
+   "duel_staff_fighters_might",
+   null
+  ],
+  "ticks": 3535,
+  "inputs": [
+   "yQQAAAFz/LFFf0POCs5hs0BwIjlFazpcEFzSh9yCW/0g8cyKgOuP5vvDP3i7naeLg1aeZ9iqg5YjyeNS4ABl99N52KU2Q0N7k5fVGWBmAAAAGPOHdFp3RcI2ejgItg9YCagA3JbphT4WKvgOl26TNv+JWeJtFClbDfLXNNqfxPfESo/Xui6FCoeqDgjTAA9XjwMSIiDAAfwXbL41VZ5bYA68oocjcn/ept5LryuYR5YCFqHoABOkUBUAmcSlQncG0n2HJ5IG8v7cVfq+CZ40ZkrukP+LaF9wG8+PDI5VfEODXlSNkKw6U1CL+b7K+xvRUED5qRBqhZwAc9BK2aDnMqNyQ28FaljHZujQJCqElA/p1RybDG7tFbL2DpRXGW4mjVAtY00yLvxbPD6SKn0Xqt2JZc0h+QGi1SW7s77rm8M4403ZwfHxvjkGg4l50KA5rTC/e4wr2SJBcnE2Est1xTL9kRZq1Qc+kf99El4ATxDVfpceucnfTPDmhRrl53qI7aZnuIQmiS6hcVtkyXZH7hKT16bcHPNYqPgQ6NR+EQGfrftO2HO4c+3cuSLH/mAFx8+Ij64CXiBN7n9H4YhkLoNQyPueHiTD0qsZtc42tEClBuN2I0bHLUcCY3/4Qbis26/iZ6Bd3kQdv2+Jk8e/cJ0uUP6pSXWy0748+v7awOZVJfybUhnCZir7WQ1gq/q7GAEYRaX9Sxm+gKsxN8oQrzEBDSDa27T4+FtxiJZqQmQd8b0emDoSCKPnvIj1KG/DbVrFEpZ2XpPXh73kF+JuaaXvCGXZF/zs2GjomkVKMATiw8Kt6BQ1+KaFjEeXKXnCY7F20lXD0gAS9kY/xKfEIQXyRwnJghRKBLfN8a1dz2r9/k2Sq9vYCCU2rHz6doZ8/l7tShqm7O0HMpBiVAdau5u9pgdn0++qHS1D/Bv5JcyuHuOEaZv4ZQxwHKKENLWQkWpn3WqMBqzt9aakfM0/jPBByFpAvqWUv2J0LWC56F0ZiygjxTIVdXrj1/zrj7WyHKDb+YyfmXeJTFDNrkt6He2XVK5KxSmoMLWy84HxnWWooLlJs8ZW/6RqNxWaoQGQKEErb4vpLpYS6M4fLQCo0qLL33dprzj4JhYfkvayNWWsA/pAFeVVWqRi62KVM8uPA81UUxzv/M/KK+NkG6lZUYU2z1z0Sc6Y32TlgZrW39H/8iXmrp5RUdFnsnkrHLCtMNu4YPdYyF7plXSLAR2UI9kl3R1u6dSUJJcjylgAiTISomw4xJHnO9wvp4mh2tUWc5p663jqBjwfdMBEvOnJ8TPIJIgTBIEDeyaJtkFUUfHlTNmPxiepIniEt+SQKNysYQNqL6oTtvT2cvs3/J3i7MyxG1W4pp8eVzVKMKmaUP6+VSeUqVeWn3UsW2JHOrvJtJDDUIAPkik8xy04u835CeLB3vf+RAGSPvH1grfoQcAGQk7wEN+lwrA2SeVeXPteGH+SM57bmGJkfGdNIQsyCPX7bawfkeJDfTs2odDdXHTfgar2d6DfR2cGnp33quDvUkqzTih2G3HuRyujTTghmCXW2nfjgFbmcOQCZP/WJeEPpkqC/9Bb6mxUtFaSUGnDjuuXvInhbfhss2QvZNJtkGC7v8Siuiq+OSBsasbNeOgrN5NUP/iIp+avESxRN6TSN7MUnuUL4v6lESq/wRrpRxkY2AvEHS5uRoDeTQIA"
+  ],
+  "bossId": "tinubu",
+  "learned": [
+   "carpet",
+   "pump",
+   "vape",
+   "lockon"
+  ],
+  "godMode": true,
+  "claimed": {
+   "winnerSeat": 0,
+   "wins": [
+    1,
+    0
+   ],
+   "rounds": 1,
+   "ticks": 3535
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 0,
+  "wins": [
+   1,
+   0
+  ],
+  "rounds": 1,
+  "ticks": 3535,
+  "endHash": "654fc2a6c0e38a54",
+  "endReason": "ko",
+  "bossId": "tinubu"
+ }
+}

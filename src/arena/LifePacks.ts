@@ -215,6 +215,20 @@ export class LifePacks {
   }
 
   /** Remove the pack on the floor without it counting as anything (round reset). */
+  /** Show the sim's pack (SimDriver): appear, stay and vanish where and when the sim says. */
+  applySim(active: boolean, id: number, x: number, z: number, age: number): void {
+    const p = this.pack;
+    if (!active) {
+      if (p.active) this.clearPack();
+      return;
+    }
+    if (!p.active || p.id !== id) {
+      this.spawnAt(x, z);
+      p.id = id;
+    }
+    p.age = age;
+  }
+
   clearPack(): void {
     const p = this.pack;
     p.active = false;

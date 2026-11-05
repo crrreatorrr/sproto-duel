@@ -1,0 +1,44 @@
+{
+ "name": "gauntlet-obama-god-win",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 301,
+  "rules": "gauntlet",
+  "staffs": [
+   "duel_staff_fighters_might",
+   null
+  ],
+  "ticks": 2253,
+  "inputs": [
+   "ngIAAAEYBhLQh7682IDjQ8pGLdppHN3VXKwyHyeTjsrFTvgIMr4B2qZPq2YAA5B+mC8Kw+jAAzCvbABO32K0aX8+tq9HdAJ7qPGBJUwhCeMMZ8hyEh7hltOeaiTkcgy1KVwS5iYN9gqkVHIr/eGadCzuv513IcBKBMX8AmSCgDz77JZChfr6K7OQPSi3cp86eBtPADI3yvzZjsNpC0KQwwnAwDoM9wYdBF6ggwAS59LWEGMwNTM8DQwQPSdGClm6pH8+rJxajxj+iTb0uNhcLoh5rpiPcHN75qNRwUzR/zsqDACMBDL6hqn7AXfcXTYVv139AXr+Xba1SQGoxPKRVNPQn+TX+WqHD1unpDMyhTiYQMCmvpU4Dhbt/CBhxA0I/BRbJ/ev5BmcZ2Zs2lBFFAIPLZmtuNo0TTM4EC00w4SjAtMv7A80BXTOAbgE+OnZ2SAPeAPmRqyX053ohtnqgUXwrJJsVsvNqjbZLi2A6np9a+cJ1FxlsD4G4kEzthPTobv1V+MWfaH8BXWQmnJ8sghNgR8pljS43GoF/lG72ixjfTdiJNZx3+xEyw9ycc8Kz9DYPTD1OfitiR/t21WjmMdA9QbaJm/gMqYMssBASRK/XBkf1n92i1Xpt29G4a0+M/V+aVImv/fQ6766tp2t/wn5xJZyhjNs1kC7nuqoqxPnk2SMNRPajqftk8BsYq04BIR31mo70G89RaYqo+4vj2OANFsBiVuwghlv4N/B6BCwoZqiCyJX8sHqR/t4XaU3sC/0X/8LbJRQSO3N74Y9yCbliiI+XAQosyuANJTIHacw2gfu8UfGmxY7ol5eoPEWTAGxBnu9OYL3stl6tp3a0Xj0yLSH5E2MRdHrUMPgoVV1ZCXWbG7g/QKn1n7mXxcrxqV7sInO8ynxN9GV2ThrMuUAq+0zHqRrRiU0IfLYD0yMzKQhNLMDNiOS7G0OwIepg+eEKpqsWXh0K9kNwKgTS9817IZOq8B4iW9jptNjTSsZW/ZeLp1ZX7u2+Vs6IzCzkCBwBrhsSs2hs5HKuxgGug=="
+  ],
+  "bossId": "obama",
+  "learned": [
+   "carpet"
+  ],
+  "godMode": true,
+  "claimed": {
+   "winnerSeat": 0,
+   "wins": [
+    1,
+    0
+   ],
+   "rounds": 1,
+   "ticks": 2253
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": 0,
+  "wins": [
+   1,
+   0
+  ],
+  "rounds": 1,
+  "ticks": 2253,
+  "endHash": "33db6a4f9e328dd4",
+  "endReason": "ko",
+  "bossId": "obama"
+ }
+}

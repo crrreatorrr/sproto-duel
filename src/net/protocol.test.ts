@@ -8,7 +8,12 @@ import {
 describe('protocol', () => {
   it('uses the hub game id and the frozen opcodes', () => {
     expect(GAME_ID).toBe('sproto');
-    expect(OP).toMatchObject({ HELLO: 1, START: 2, SIGNAL: 3, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14, CANCEL: 15, PEER: 16, PING: 17, FORFEIT: 18, REMATCH: 23 });
+    expect(OP).toMatchObject({
+      HELLO: 1, START: 2, SIGNAL: 3, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14,
+      CANCEL: 15, PEER: 16, PING: 17, FORFEIT: 18, ACCEPT: 19, DECLINE: 20, FOUND: 21, ACCEPT_END: 22,
+      REMATCH: 23, REMATCH_STATE: 24, LOG: 25,
+    });
+    expect(NET_VERSION).toBe('2');
     expect(matchmakerRequest()).toEqual({
       query: `+properties.game:sproto +properties.v:${NET_VERSION}`, minCount: 2, maxCount: 2, stringProperties: { game: 'sproto', v: NET_VERSION },
     });

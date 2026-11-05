@@ -52,9 +52,9 @@ Online Duel is on the main menu. The stake is 0 Tickets (no wager, no Ticket min
    ```bash
    VITE_NAKAMA_URL=https://<domain> VITE_NAKAMA_SERVER_KEY=<server key> VITE_HUB_URL=https://<domain>/hub npm run build
    ```
-2. Two people on **different networks** (for example home Wi-Fi and a phone hotspot), each entering
-   Sproto Duel **from the hub portal** (each needs their own hub account and portal visit). A visit
-   that did not come from the portal still cannot start an online match.
+2. Two people on **different networks** (for example home Wi-Fi and a phone hotspot). A portal
+   visit and a direct visit can both play, including a hub guest. There is no qualifying step.
+   The stake stays 0 Tickets. A direct visit needs the hub RPC `sproto.standalone_session`.
 3. Both: Online Duel → Quick Match. Play a full best of three. Then try Create Room on one machine
    and Join Room with the code on the other.
 4. Check: the ping chip shows a sane number, movement and spells feel responsive for both

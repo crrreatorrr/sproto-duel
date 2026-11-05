@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node scripts/check-prod-debug.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/check-prod-debug.mjs && node scripts/build-server-sim.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "gen:audio": "node scripts/gen-placeholder-audio.mjs",
     "check:assets": "node scripts/check-assets.mjs",
-    "qa:headless": "node scripts/qa-headless.mjs"
+    "qa:headless": "node scripts/qa-headless.mjs",
+    "build:server-sim": "node scripts/build-server-sim.mjs",
+    "check:server-sim": "node scripts/build-server-sim.mjs --check && node scripts/check-server-bundle.mjs",
+    "gen:goldens": "node scripts/gen-goldens.mjs",
+    "test:goja": "cd tools/goja-replay && go run . -runs 1 -bundle ../../dist/duel-sim.server.js -goldens ../../tests/golden",
+    "test:goldens-browser": "node scripts/check-goldens-browser.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
@@ -24,7 +29,11 @@
     "@types/howler": "^2.2.13",
     "@types/node": "^26.6.5",
     "@types/three": "^0.186.0",
+    "acorn": "8.15.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0",
     "typescript": "^7.0.2",
+    "typescript5": "npm:typescript@5.9.3",
     "vite": "^8.3.5",
     "vitest": "^3.2.4"
   }

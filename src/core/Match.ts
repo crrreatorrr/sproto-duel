@@ -6,6 +6,7 @@ import { feel } from './feel';
 import { GAUNTLET, QUICK, type MatchRules } from './rules';
 import type { Game } from './Game';
 import type { Wizard } from '../wizard/Wizard';
+import { isArenaId, type ArenaId } from '../sim-core';
 
 export type Phase = 'menu' | 'intro' | 'fight' | 'roundEnd' | 'matchEnd';
 
@@ -97,9 +98,11 @@ export class Match {
   private capAnnounced = false;
 
   constructor(private readonly game: Game) {
+    game.match = this;
     events.on('ko', (e) => {
-      // An online replica's rounds are the host's (applied from snapshots), never decided here.
-      if (this.phase === 'fight' && !game.qaMode && game.role !== 'replica') this.onKO(e.loser);
+      // An online replica's rounds are the host's (applied from snapshots), never decided here;
+      // on the sim the sim decides them.
+      if (this.phase === 'fight' && !game.qaMode && game.role !== 'replica' && !game.sim) this.onKO(e.loser);
     });
     game.onTick((dt) => this.update(dt));
   }
@@ -196,11 +199,40 @@ export class Match {
     this.round = 1;
     this.wins[0] = this.wins[1] = 0;
     this.roundWinners = [];
+    this.lastWinner = null;
     for (const w of this.game.wizards) {
       w.ult = 0;
       w.resetStats();
     }
+    const g = this.game;
+    g.stopSim();
+    if (g.useSim && !g.qaMode && !g.inSandbox && g.role !== 'replica') {
+      this.startSimMatch(boss, rules);
+      return;
+    }
     this.startRound();
+  }
+
+  /**
+   * Run this match on the deterministic sim (src/sim-core): it owns rounds, the clock and every
+   * outcome; this Match only mirrors its state (SimDriver.apply) and the round events come from it.
+   */
+  private startSimMatch(boss: BossDef | null, rules: Readonly<MatchRules>): void {
+    const g = this.game;
+    const p = g.player;
+    const staffs: (string | null)[] = g.simStaffs ?? [p.staff?.id ?? null, null];
+    const seed = g.simSeed ?? (Math.floor(Math.random() * 0x7fffffff) | 0);
+    const theme = g.arena.theme;
+    g.startSim({
+      seed,
+      rules: rules.kind,
+      arena: (isArenaId(theme) ? theme : 'moonlit') as ArenaId,
+      staffs,
+      bossId: boss ? boss.id : null,
+      learned: rules.rewardSpells ? [...p.learned] : [],
+      godMode: rules.godModeAllowed && CONFIG.debug.godMode && !g.godHeld,
+    });
+    g.simulating = true;
   }
 
   /**
@@ -257,6 +289,16 @@ export class Match {
 
   private update(dt: number): void {
     const g = this.game;
+    // On the sim the flow is its own: SimDriver mirrors phase, clock and wins here every tick.
+    if (g.sim) {
+      g.tickets.enabled = false;
+      g.lifePacks.enabled = false;
+      if (this.phase === 'roundEnd') {
+        const won = this.lastWinner;
+        for (const w of g.wizards) if (w.alive && won && w.side === won.side) w.visual.celebrate = true;
+      }
+      return;
+    }
     g.actionsLocked = this.phase !== 'fight';
     g.tickets.enabled = this.phase === 'fight' && this.rules.tickets;
     g.lifePacks.enabled = this.phase === 'fight' && (this.single || this.rules.lifePacks);

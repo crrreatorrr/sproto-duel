@@ -424,6 +424,34 @@ export class Arena {
     return smoke;
   }
 
+  /** Show the sim's smoke screens (SimDriver): the same ones, as old as the sim's. */
+  applySimSmokes(list: readonly { owner: Wizard; x: number; z: number; radius: number; height: number; age: number; life: number }[]): void {
+    const same = list.length === this.smokeList.length && list.every((n, i) => this.smokeList[i].x === n.x && this.smokeList[i].z === n.z);
+    if (!same) {
+      this.smokeList.length = 0;
+      for (const n of list) this.smokeList.push({ ...n });
+      this.syncCloudMesh();
+    } else list.forEach((n, i) => (this.smokeList[i].age = n.age));
+  }
+
+  /**
+   * The parts of `update` that are only looks (time, braziers, pillar wobble, debris, drifting
+   * clouds): on the sim, cover and moving blocks follow the sim instead (SimDriver).
+   */
+  updatePresentation(dt: number): void {
+    this.time += dt;
+    this.layoutTime += dt;
+    for (let i = 0; i < this.brazierFlames.length; i++) {
+      const f = this.brazierFlames[i];
+      const flicker = 1 + Math.sin(this.time * 17 + i * 3.1) * 0.08 + Math.sin(this.time * 31 + i) * 0.05;
+      f.scale.set(1.0 * flicker, 1.4 * flicker, 1);
+    }
+    for (const p of this.pillars) p.update(dt, this.time);
+    this.debris.update(dt);
+    this.glassDebris?.update(dt);
+    this.driftClouds();
+  }
+
   /** The smoke screen dropped by `owner` that (x, z) stands in, if any. */
   smokeAt(x: number, z: number, owner?: Wizard): Smoke | null {
     for (const s of this.smokeList) if ((!owner || s.owner === owner) && Math.hypot(x - s.x, z - s.z) < s.radius) return s;

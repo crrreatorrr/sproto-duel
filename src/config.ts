@@ -786,6 +786,16 @@ export const CONFIG = {
       boltLabel: 'Bark Bolt',
       pulse: { material: 'staff_nobu_bone_glow_mat', min: 0.8, max: 2, hz: 1, onCast: 3 },
     },
+    fighters_might: {
+      name: "Fighter's Might",
+      /** Fist Bolt yellow (hub effects.ts 0xffd21f). Visual only here; gameplay lives in the hub. */
+      bolt: 0xffd21f,
+      core: 0xfff3a0,
+      trail: 0xff8a1a,
+      accent: 0xff3a3a,
+      boltLabel: 'Fist Bolt',
+      pulse: { material: 'staff_fighters_might_gauntlet_glow_mat', min: 1, max: 2.8, hz: 1.2, onCast: 4 },
+    },
   },
 
   clash: {
