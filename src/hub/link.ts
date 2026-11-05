@@ -104,6 +104,32 @@ export class HubLink {
     };
   }
 
+  /** In-flight balance read, and when the last one finished (ms, performance clock). */
+  private balanceJob: Promise<number | null> | null = null;
+  private balanceAt = -Infinity;
+
+  /**
+   * Read the Ticket balance (the SDK's `getTicketBalance`, read only) for the main menu's chip.
+   * Standalone visits do nothing. At most one read in flight and one per `minGapMs`. Earning or
+   * exchanging updates `balance` on its own. A failed read keeps the last known balance.
+   */
+  refreshBalance(minGapMs = 30_000): Promise<number | null> {
+    if (!this.connected) return Promise.resolve(null);
+    if (this.balanceJob) return this.balanceJob;
+    if (this.balance !== null && performance.now() - this.balanceAt < minGapMs) return Promise.resolve(this.balance);
+    this.balanceJob = this.api.getTicketBalance()
+      .then((r) => {
+        if (Number.isFinite(r.balance)) this.balance = r.balance;
+        return this.balance;
+      })
+      .catch(() => this.balance)
+      .finally(() => {
+        this.balanceAt = performance.now();
+        this.balanceJob = null;
+      });
+    return this.balanceJob;
+  }
+
   /**
    * Report a finished duel. Losses and standalone visits do nothing.
    * God-mode wins still earn Tickets and can grant Tinubu's Crown; they do not post a score.

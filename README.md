@@ -27,6 +27,11 @@ npm run build      # typecheck + production build into dist/
 npm run gen:audio  # regenerate the synthesized placeholder sounds
 ```
 
+The main menu's top-right chip shows your Ticket balance (read with the hub SDK's
+`getTicketBalance`, at most every 30 s; wins and exchanges update it too). It reads `--` without a
+hub session. It only shows the balance: exchanging is still the **Exchange** button. **Return to
+Hub** leaves at once from the main menu; from the pause screen mid-fight it asks first.
+
 ## Controls
 
 | Input | Action |

@@ -199,6 +199,7 @@ export class App {
       hubStatus: () => this.hub.status(),
       exchangeTickets: (tickets) => this.hub.exchangeTickets(tickets),
       exitHub: () => this.hub.exitHub(),
+      refreshTickets: () => this.hub.refreshBalance(),
       staffRack: () => this.staffRack(),
       selectStaff: (id) => this.selectStaff(id),
       titleStage: (slot) => this.showTitleStage(slot),
