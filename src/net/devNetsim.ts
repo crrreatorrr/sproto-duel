@@ -23,6 +23,10 @@ export function netsimLobby(latencyMs: number): OnlineLobby {
     let tick = 0;
     let rounds = 0;
     let lastPhase = '';
+    bot.on('found', () => bot.accept());
+    bot.on('rematch', (m) => {
+      if (m.phase === 'open' || (m.phase === 'offered' && m.seat !== bot.seat)) bot.rematch(true);
+    });
     const timer = setInterval(() => {
       bot.update();
       if (bot.state === 'ended') return clearInterval(timer);
@@ -70,6 +74,8 @@ export function netsimLobby(latencyMs: number): OnlineLobby {
       return r;
     },
     joinRoom: (code) => me.joinRoom(code),
+    joinMatch: (id) => me.joinMatch(id),
+    onlineCount: () => me.onlineCount(),
     cancel: () => me.cancel(),
   };
 }

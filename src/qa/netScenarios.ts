@@ -39,6 +39,8 @@ export function registerNetScenarios(qa: QAHarness, game: Game, app: App): void 
     void guest.quickMatch();
     for (let i = 0; i < 60 && (host.state !== 'playing' || guest.state !== 'playing'); i++) {
       await new Promise((r) => setTimeout(r, 0));
+      if (host.state === 'accepting') host.accept();
+      if (guest.state === 'accepting') guest.accept();
       clock.advance(50);
     }
     c.expect(host.state === 'playing' && guest.state === 'playing' && host.isHost, `sessions ${host.state}/${guest.state}`);
@@ -155,6 +157,8 @@ export function registerNetScenarios(qa: QAHarness, game: Game, app: App): void 
     void guestS.quickMatch();
     for (let i = 0; i < 60 && guestS.state !== 'playing'; i++) {
       await new Promise((r) => setTimeout(r, 0));
+      if (hostS.state === 'accepting') hostS.accept();
+      if (guestS.state === 'accepting') guestS.accept();
       clock.advance(50);
     }
     c.expect(guestS.state === 'playing' && !guestS.isHost && guestS.seat === 1, `guest ${guestS.state} seat ${guestS.seat}`);
