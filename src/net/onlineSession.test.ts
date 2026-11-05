@@ -91,12 +91,24 @@ describe('OnlineSession with FakeArenaServer', () => {
     a.sendResult({ winnerSeat: 0, wins: [2, 0], rounds: 2 });
     b.sendResult({ winnerSeat: 0, wins: [2, 0], rounds: 2 });
     await run(clock, 300, [a, b]);
-    expect(a.state).toBe('ended');
+    // Peer still connected: the 15 s rematch window, not an end.
+    expect(a.state).toBe('rematch');
+    expect(b.state).toBe('rematch');
     expect(a.outcome?.status).toBe('verified');
     expect(b.outcome?.paid).toEqual({ alice: 20 });
     expect(server.payouts).toHaveLength(1);
     // A repeat RESULT after the outcome changes nothing.
     expect(server.matches[0]?.phase ?? 'done').toBe('done');
+    // The server record is not a client mint. Online stake stays 0.
+    const api = fakeApi();
+    const link = new HubLink(api);
+    link.attach(profile(true));
+    const notes: string[] = [];
+    await charge(link, a.outcome!, (title, sub) => notes.push(`${title}|${sub}`));
+    expect(calls(api.earnTickets)).toEqual([]);
+    expect(calls(api.reportEvent)).toEqual([]);
+    expect(calls(api.submitScore)).toEqual([]);
+    expect(notes.filter((n) => /ticket/i.test(n))).toEqual([]);
   });
 
   it('disagreeing results are disputed and pay nothing', async () => {
@@ -131,6 +143,7 @@ describe('OnlineSession with FakeArenaServer', () => {
     expect(peers).toEqual([false]);
     expect(a.outcome?.status).toBe('forfeit');
     expect(a.outcome?.winnerSeat).toBe(0);
+    expect(a.state).toBe('ended');
     expect(server.payouts).toEqual([{ matchId: expect.any(String), userId: 'alice', amount: 20 }]);
   });
 
