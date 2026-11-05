@@ -183,6 +183,8 @@ export interface MenuHandlers {
   staffRack(): { owned: { id: string; name: string; line: string; accent: string; bolt: string }[]; selected: string; ranked: boolean };
   /** Equip a staff. No-op mid-fight. */
   selectStaff(id: string): void;
+  /** The main menu's slot for the title screen's live Wizard Sproto (App fills it). */
+  titleStage?(slot: HTMLElement): void;
 }
 
 const CONTROLS: [string, string][] = [
@@ -412,7 +414,8 @@ export class Menus {
           <button class="ghost" data-act="exit">Return to Hub<small>Sproto Duel portal</small></button>
         </div>
         <p class="tip">Tip: raise your Shield just as a spell arrives to send it back.</p>
-      </div>`, 'main');
+      </div>
+      <div class="title-slot" data-title-slot></div>`, 'main');
     this.on(s, '[data-act="start"]', () => this.h.start());
     this.on(s, '[data-act="versus"]', () => this.h.versus?.());
     this.on(s, '[data-act="online"]', () => this.h.openOnline?.());
@@ -423,6 +426,7 @@ export class Menus {
     this.on(s, '[data-act="exchange"]', () => this.showExchange());
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
     this.bindStaff(s);
+    this.h.titleStage?.(s.querySelector<HTMLElement>('[data-title-slot]')!);
   }
 
   private onlineButtonHtml(): string {
