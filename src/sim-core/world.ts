@@ -521,6 +521,11 @@ export class SimWorld {
     }
     for (const wv of this.spells.waves) h.int(wv.owner.index).int(wv.radius);
     for (const t of this.spells.trails) h.int(t.owner.index).int(t.age);
+    for (const hz of this.powers.hazards) {
+      if (!hz.active) continue;
+      h.int(hz.id).str(hz.kind).int(hz.owner.index).int(hz.at.x).int(hz.at.y).int(hz.at.z).int(hz.radius).int(hz.warn).int(hz.t).int(hz.delay).bool(hz.fired).int(hz.angle);
+    }
+    for (const st of this.stages) h.int(st.stage);
     for (const ob of this.arena.obstacles) h.int(ob.hp).bool(ob.alive).int(ob.x).int(ob.z);
     h.int(this.arena.fireRadius);
     for (const t of this.tickets.list) h.int(t.id).int(t.x).int(t.z).int(t.age);

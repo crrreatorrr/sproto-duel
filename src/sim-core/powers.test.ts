@@ -25,6 +25,8 @@ interface Run {
  */
 function play(bossId: string, kind: Kind, dodge: Dodge, opts: { dist?: number; seed?: number; name?: string } = {}): Run {
   const world = new SimWorld({ seed: opts.seed ?? 7, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId });
+  world.ais.length = 0; // these tests drive the powers themselves
+  for (let i = 1; i < world.wizards.length; i++) for (const d of world.stages[i - 1].boss.powers) world.powers.setCooldown(world.wizards[i], d, 0);
   while (world.actionsLocked) world.step([emptyInput()]);
   world.events.take();
   // Open floor: cover is tested separately.
@@ -138,6 +140,8 @@ describe('boss powers', () => {
 
   it('cover stops the cone', () => {
     const world = new SimWorld({ seed: 3, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId: 'broccoli' });
+  world.ais.length = 0; // these tests drive the powers themselves
+  for (let i = 1; i < world.wizards.length; i++) for (const d of world.stages[i - 1].boss.powers) world.powers.setCooldown(world.wizards[i], d, 0);
     while (world.actionsLocked) world.step([emptyInput()]);
     const ob = world.arena.obstacles[0];
     const boss = world.wizards[1], player = world.wizards[0];
@@ -162,6 +166,8 @@ describe('boss powers', () => {
 
   it('recharges, keeps the gap and is called off when the boss transforms', () => {
     const world = new SimWorld({ seed: 1, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId: 'agent' });
+  world.ais.length = 0; // these tests drive the powers themselves
+  for (let i = 1; i < world.wizards.length; i++) for (const d of world.stages[i - 1].boss.powers) world.powers.setCooldown(world.wizards[i], d, 0);
     while (world.actionsLocked) world.step([emptyInput()]);
     const boss = world.wizards[1], player = world.wizards[0];
     const def = world.boss!.powers[0];
@@ -184,6 +190,8 @@ describe('boss powers', () => {
 
   it('the cone and the sweep make their caster channel, facing the beam', () => {
     const world = new SimWorld({ seed: 2, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId: 'sahil' });
+  world.ais.length = 0; // these tests drive the powers themselves
+  for (let i = 1; i < world.wizards.length; i++) for (const d of world.stages[i - 1].boss.powers) world.powers.setCooldown(world.wizards[i], d, 0);
     while (world.actionsLocked) world.step([emptyInput()]);
     const boss = world.wizards[1], player = world.wizards[0];
     expect(world.powers.channelFacing(boss)).toBe(-1);

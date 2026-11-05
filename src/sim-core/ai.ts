@@ -188,33 +188,33 @@ export class SimAI {
 
   constructor(
     private readonly world: SimWorld,
-    readonly self: SimWizard,
+    readonly me: SimWizard,
     public target: SimWizard,
     profile: AIProfile,
     readonly boss: BossFighter | null,
   ) {
     this.p = convert(profile);
     const ev = world.events;
-    const me = self.index;
+    const meIndex = me.index;
     ev.on('explosion', (e) => {
-      if (e.w === this.target.index && len3(e.x - self.pos.x, e.y - self.pos.y, e.z - self.pos.z) > K.splash) this.tryPunish();
+      if (e.w === this.target.index && len3(e.x - me.pos.x, e.y - me.pos.y, e.z - me.pos.z) > K.splash) this.tryPunish();
     });
     ev.on('stunned', (e) => {
       if (e.w === this.target.index) this.tryPunish();
     });
     ev.on('ultWave', (e) => {
-      if (e.w === this.target.index) this.ultWatch = self.health;
+      if (e.w === this.target.index) this.ultWatch = me.health;
     });
     ev.on('dodgeEvade', (e) => {
-      if (e.w === me && this.ultWatch >= 0) this.tryPunish();
+      if (e.w === meIndex && this.ultWatch >= 0) this.tryPunish();
     });
     ev.on('evaded', (e) => {
-      if (e.w === me && this.ultWatch >= 0) this.tryPunish();
+      if (e.w === meIndex && this.ultWatch >= 0) this.tryPunish();
     });
     ev.on('damage', (e) => {
-      if (e.w === me) this.lastHurtAt = this.time;
+      if (e.w === meIndex) this.lastHurtAt = this.time;
     });
-    const st = world.stages.filter((s) => s.owner === self)[0];
+    const st = world.stages.filter((s) => s.owner === me)[0];
     if (st && boss) {
       st.onStage = (stage) => {
         this.attacks = boss.stages[stage].attacks;
@@ -275,7 +275,7 @@ export class SimAI {
   }
 
   update(dt: number): void {
-    const w = this.self;
+    const w = this.me;
     this.time += dt;
     this.stateTime += dt;
     if (this.punishTimer > 0) this.punishTimer -= dt;
@@ -355,12 +355,12 @@ export class SimAI {
     if (!b) return;
     const pw = this.world.powers;
     for (const d of b.powers) {
-      if (d.from <= this.stage) pw.setCooldown(this.self, d, mul(mul(pw.recharge(d, this.stage), K.firstDelay), this.rand(F_0_8, F_1_4)));
+      if (d.from <= this.stage) pw.setCooldown(this.me, d, mul(mul(pw.recharge(d, this.stage), K.firstDelay), this.rand(F_0_8, F_1_4)));
     }
   }
 
   private thinkPowers(dist: number): void {
-    const b = this.boss, w = this.self, pw = this.world.powers;
+    const b = this.boss, w = this.me, pw = this.world.powers;
     if (!b || b.powers.length === 0 || !pw.open || !w.canAct || pw.busy(w) || this.target.evolving || this.world.spells.volleyFiring(w)) return;
     if (this.state !== 'attack' && this.state !== 'approach') return;
     const sees = this.hasLos && !this.lost;
@@ -382,7 +382,7 @@ export class SimAI {
   }
 
   private evadePowers(): void {
-    const w = this.self, p = this.p, pw = this.world.powers;
+    const w = this.me, p = this.p, pw = this.world.powers;
     if (!w.alive || w.stunned) return;
     let ex = 0, ez = 0;
     let roll = false, rx = 0, rz = 0;
@@ -527,7 +527,7 @@ export class SimAI {
   // ------------------------------------------------------------------ perception
 
   private perceiveThreats(): void {
-    const w = this.self, p = this.p;
+    const w = this.me, p = this.p;
     const cx = w.pos.x, cy = w.pos.y + w.chestY, cz = w.pos.z;
     const bit = 1 << w.index;
     const list = this.world.spells.active;
@@ -604,7 +604,7 @@ export class SimAI {
   }
 
   private runReactions(): void {
-    const w = this.self;
+    const w = this.me;
     for (let i = this.reactions.length - 1; i >= 0; i--) {
       const r = this.reactions[i];
       if (this.time < r.at) continue;
@@ -632,7 +632,7 @@ export class SimAI {
 
   /** Nudge a direction away from the fire ring, and never roll into a lava pool. */
   private biasAway(dir: V3): void {
-    const w = this.self;
+    const w = this.me;
     const r = len2(w.pos.x, w.pos.z);
     const limit = this.world.arena.fireRadius - K.fireMargin - mul(K.dodgeSpeed, F_0_3);
     if (r > limit && r > 0) {
@@ -651,7 +651,7 @@ export class SimAI {
   // ------------------------------------------------------------------ decisions
 
   private chooseState(dist: number): void {
-    const w = this.self, p = this.p;
+    const w = this.me, p = this.p;
     if (this.state === 'evade' && (w.dodging || this.stateTime < sec(0.25))) return;
     if (this.state === 'retreat') {
       const recovered = w.mana > mul(K.maxMana, F_0_6);
@@ -674,7 +674,7 @@ export class SimAI {
   }
 
   private thinkTickets(dt: number): void {
-    const w = this.self;
+    const w = this.me;
     const tickets = this.world.tickets;
     if (this.ticketGoal && (!this.ticketById(this.ticketGoal) || w.stunned || (this.ticketGoalTime += dt) > K.ticketGiveUp)) this.ticketGoal = 0;
     if (this.ticketGoal || tickets.list.length === 0) return;
@@ -705,7 +705,7 @@ export class SimAI {
   }
 
   private underFire(): boolean {
-    const w = this.self;
+    const w = this.me;
     if (this.time - this.lastHurtAt < K.hurtMemory || this.reactions.length > 0 || w.stunned) return true;
     if (this.target.cast) return true;
     const cx = w.pos.x, cy = w.pos.y + w.chestY, cz = w.pos.z;
@@ -732,7 +732,7 @@ export class SimAI {
       const reach = extentToward(ob, away.x, away.z) + F_1_3;
       const sx = ob.x + mul(away.x, reach), sz = ob.z + mul(away.z, reach);
       if (this.world.arena.hazardAt(sx, sz, K.wizR + F_0_5, this.world.shifts.hazards)) continue;
-      const d = len2(sx - this.self.pos.x, sz - this.self.pos.z) + mul(len2(sx - t.pos.x, sz - t.pos.z), F_0_3);
+      const d = len2(sx - this.me.pos.x, sz - this.me.pos.z) + mul(len2(sx - t.pos.x, sz - t.pos.z), F_0_3);
       if (best < 0 || d < best) {
         best = d;
         this.cover.x = sx;
@@ -743,7 +743,7 @@ export class SimAI {
   }
 
   private steer(dt: number, tx: number, tz: number, dist: number): void {
-    const w = this.self, p = this.p;
+    const w = this.me, p = this.p;
     let mx = 0, mz = 0;
     this.strafeTimer -= dt;
     if (this.strafeTimer <= 0) {
@@ -862,7 +862,7 @@ export class SimAI {
 
   /** Double fights: keep apart from the partner and drift round the target until flanking it. */
   private keepFormation(m: V3): void {
-    const w = this.self, t = this.target;
+    const w = this.me, t = this.target;
     for (const a of this.world.wizards) {
       if (a === w || !a.alive || a.side !== w.side || !a.active) continue;
       const dx = w.pos.x - a.pos.x, dz = w.pos.z - a.pos.z;
@@ -889,7 +889,7 @@ export class SimAI {
   }
 
   private aimAndAttack(dt: number, dist: number): void {
-    const w = this.self, t = this.target, p = this.p;
+    const w = this.me, t = this.target, p = this.p;
     this.noiseTimer -= dt;
     if (this.noiseTimer <= 0) {
       this.noiseTimer = this.rand(sec(0.25), sec(0.6));
