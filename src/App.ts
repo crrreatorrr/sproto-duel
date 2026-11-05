@@ -9,7 +9,7 @@ import { events } from './core/events';
 import { bindRumble, connectedPadIndices, GamepadInput, padHolding, rewardLabels, spellLabels } from './core/Gamepad';
 import { bossModelKeys, nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
-import { ONLINE, QUICK, VERSUS, type MatchRules } from './core/rules';
+import { GAUNTLET, ONLINE, QUICK, VERSUS, type MatchRules } from './core/rules';
 import type { OnlineController } from './net/OnlineController';
 import type { OnlineLobby, OnlineSession, SessionState } from './net/OnlineSession';
 import type { OutcomeMsg, StartMsg } from './net/protocol';
@@ -126,6 +126,8 @@ export class App {
   private resultsTimer = 0;
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
+  /** Hub idempotency id for the fight in progress. One per start, reused if the win handler runs again. */
+  private reportMatchId: string | null = null;
 
   constructor(readonly game: Game, campaign = new Campaign(), private readonly hub = HubLink.standalone()) {
     // Relics the existing init already returned. No session: the staff cache stays the fallback.
@@ -802,6 +804,8 @@ export class App {
   private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>, replica = false): void {
     const g = this.game;
     const r = rules ?? (boss ? undefined : QUICK);
+    const reports = (r ?? (boss ? GAUNTLET : QUICK)).reportToHub;
+    this.reportMatchId = reports && !replica ? this.hub.beginFight() : null;
     const even = r !== undefined && !r.godModeAllowed;
     this.audio.gameplayMuted = false;
     g.player.intent.clear();
@@ -942,7 +946,14 @@ export class App {
     if (!this.game.qaMode && this.match.rules.reportToHub) {
       const bossId = this.match.boss?.id ?? null;
       void this.hub.onDuelWin(
-        { mode: this.mode, playerWon: winner === this.game.player, bossId, godMode: this.godUsed, elapsed: this.match.elapsed },
+        {
+          mode: this.mode,
+          playerWon: winner === this.game.player,
+          bossId,
+          godMode: this.godUsed,
+          elapsed: this.match.elapsed,
+          matchId: this.reportMatchId ?? undefined,
+        },
         (title, sub) => this.menus.toast(title, sub, 'tickets'),
       );
     }
