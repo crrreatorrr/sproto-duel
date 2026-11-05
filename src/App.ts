@@ -769,8 +769,16 @@ export class App {
       this.menus.toast('God mode is off here', 'Local Versus and online duels are played even');
       return;
     }
+    // On the sim, god mode is part of the match's setup (and its input log): a toggle mid-fight
+    // takes effect from the next fight.
+    const midSim = !!this.game.sim && (this.state === 'playing' || this.state === 'paused') && !this.match.decided;
     this.game.setGodMode(on);
     this.syncLearned();
+    if (midSim) {
+      this.menus.syncGodMode(on);
+      this.menus.toast(on ? 'God Mode On' : 'God Mode Off', 'From the next fight');
+      return;
+    }
     if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.decided) this.godUsed = true;
     this.menus.syncGodMode(on);
     if (this.menus.current === 'boss') this.menus.setBossRewardNote(this.rewardNote());
@@ -848,7 +856,7 @@ export class App {
       this.state = 'paused';
       this.pausedAt = performance.now();
       this.game.input.releaseLock();
-      this.menus.showOnlinePause({ resume: () => this.resume(), forfeit: () => this.onlineSession?.forfeit() });
+      this.menus.showOnlinePause({ resume: () => this.resume(), forfeit: () => (this.onlineCtl ? this.onlineCtl.forfeit() : this.onlineSession?.forfeit()) });
       return;
     }
     this.state = 'paused';
@@ -946,8 +954,13 @@ export class App {
     // Local Versus and online report nothing from the client (rules.reportToHub; see planDuelWin).
     if (!this.game.qaMode && this.match.rules.reportToHub) {
       const bossId = this.match.boss?.id ?? null;
+      const sim = this.game.sim;
       void this.hub.onDuelWin(
-        { mode: this.mode, playerWon: winner === this.game.player, bossId, godMode: this.godUsed, elapsed: this.match.elapsed },
+        {
+          mode: this.mode, playerWon: winner === this.game.player, bossId,
+          godMode: sim ? !!sim.world.setup.godMode : this.godUsed, elapsed: this.match.elapsed,
+          replay: sim ? sim.log() : undefined,
+        },
         (title, sub) => this.menus.toast(title, sub, 'tickets'),
       );
     }

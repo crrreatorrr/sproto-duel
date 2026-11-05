@@ -303,6 +303,11 @@ export class OnlineSession {
     if (this.state === 'playing') this.send(OP.FORFEIT, {});
   }
 
+  /** Host: the match's input log, chunked for the socket (OP.LOG), for the referee's replay. */
+  sendLog(chunks: readonly string[]): void {
+    for (const c of chunks) this.send(OP.LOG, { c });
+  }
+
   /** Back out: cancels matchmaking, leaves the match (the server treats it as leaving). */
   leave(): void {
     if (this.state === 'searching') this.lobby.cancel();

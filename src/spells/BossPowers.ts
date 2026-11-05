@@ -77,6 +77,38 @@ export class Hazard {
   }
 }
 
+/** A sim hazard in game units (SimDriver), for applySim. */
+export interface SimHazardView {
+  active: boolean;
+  id: number;
+  kind: HazardKind;
+  power: PowerDef;
+  owner: number;
+  target: number;
+  index: number;
+  delay: number;
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  track: number;
+  warn: number;
+  warnTotal: number;
+  t: number;
+  life: number;
+  speed: number;
+  angle: number;
+  start: number;
+  arc: number;
+  dir: number;
+  prev: number;
+  fired: boolean;
+  linger: number;
+  vx: number;
+  vy: number;
+  vz: number;
+}
+
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
 const tmpDir = new THREE.Vector3();
@@ -136,6 +168,50 @@ export class BossPowers {
   /** The gap since anyone's last power has passed (a double fight's bosses take turns). */
   get open(): boolean {
     return this.time - this.lastAt >= P.gap;
+  }
+
+  /**
+   * Show the sim's hazards (SimDriver): one Hazard per sim hazard id, positioned and timed as the
+   * sim has it, so PowerFx draws exactly what the deterministic sim plays. `wiz` maps sim indices.
+   */
+  applySim(list: readonly SimHazardView[], wiz: (i: number) => Wizard | null): void {
+    for (let i = this.hazards.length - 1; i >= 0; i--) {
+      const h = this.hazards[i];
+      if (!list.some((n) => n.active && n.id === h.id)) this.release(i);
+    }
+    for (const n of list) {
+      if (!n.active) continue;
+      let h = this.hazards.find((x) => x.active && x.id === n.id);
+      if (!h) {
+        h = this.free.pop() ?? new Hazard();
+        h.active = true;
+        h.id = n.id;
+        h.done.length = 0;
+        this.hazards.push(h);
+      }
+      h.kind = n.kind;
+      h.power = n.power;
+      h.owner = wiz(n.owner)!;
+      h.target = n.target >= 0 ? wiz(n.target) : null;
+      h.index = n.index;
+      h.delay = n.delay;
+      h.at.set(n.x, n.y, n.z);
+      h.radius = n.radius;
+      h.track = n.track;
+      h.warn = n.warn;
+      h.warnTotal = n.warnTotal;
+      h.t = n.t;
+      h.life = n.life;
+      h.speed = n.speed;
+      h.angle = n.angle;
+      h.start = n.start;
+      h.arc = n.arc;
+      h.dir = n.dir;
+      h.prev = n.prev;
+      h.fired = n.fired;
+      h.linger = n.linger;
+      h.vel.set(n.vx, n.vy, n.vz);
+    }
   }
 
   /** `w` is winding up or channelling a power it stands still for (the cone, the sweep, its rings). */

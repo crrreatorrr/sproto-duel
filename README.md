@@ -109,8 +109,10 @@ It needs a hub visit (enter Sproto Duel from its portal); standalone the button 
   wins per pair of players per UTC day and 10 per player. A forfeit pays the one who stayed only
   after at least one finished round and 15 s. Disputed results, draws and timeouts pay nothing.
   The client never earns Tickets for online play; online wins count on the `sproto_wins` board.
-- **Netcode.** The fight's simulation needs Rapier and three.js, which the hub's Nakama runtime can't
-  run, so one client, the **host** (random each match), runs it and the other is a **replica**.
+- **Netcode.** One client, the **host** (random each match), runs the fight's deterministic sim
+  (`src/sim-core`, see [docs/SERVER-SIM.md](docs/SERVER-SIM.md)) and the other is a **replica**.
+  After RESULT (or a forfeit) the host sends the match's input log (`OP.LOG` chunks) so the server
+  can replay it with `dist/duel-sim.server.js`.
   The guest sends its intent frames (`src/net/intent.ts`, 30 messages/s, recent frames repeated);
   the host plays them through a jitter buffer (`RemoteInputBuffer`, 2 ticks) and streams snapshots
   at 30 Hz (`src/net/state.ts`, about 1 KB) with the fight's events. The guest interpolates both

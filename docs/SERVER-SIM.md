@@ -183,6 +183,61 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
 - **Size**: one seat, about 1.1 KB of log per minute for the scripted bot. A 15-20 minute boss
   fight can reach the 16 KB limit; see the PR notes.
 
+## The game on the sim (A2)
+
+Every match the game plays runs on sim-core: Quick Duel, Local Versus, the Boss Gauntlet and the
+online host. `src/core/SimDriver.ts` does this every fixed tick:
+
+1. Each input seat's intent is quantized into a `SimInput` (`src/core/simInput.ts`) and recorded.
+   Local humans are sampled from the controller's intent and the camera aim point. The online
+   guest is sampled from its intent frames (RemoteSource). The aim is turned into yaw, pitch and
+   distance from the sim wizard's chest before the step, exactly as the sim rebuilds it.
+2. `SimWorld.step`.
+3. The sim's state is written onto the game's objects: wizards, projectiles by id, cover health,
+   crumbling and sliding, golden tickets, Ultimate waves, the fire ring and the match. In boss fights
+   it also writes power hazards, smoke screens, arena shifts, the life pack and the ring cap. The
+   visuals and the HUD read those objects as before.
+4. The sim's events become the game's event bus (audio, HUD, popups, cinematics), plus the effects
+   SpellSystem used to play inline (impacts, explosions, clashes, beams, hit-stop, shake, PERFECT!).
+
+While a driver runs, the game's own gameplay code does not: SpellSystem casting and damage,
+Wizard movement, Match's flow, the AIControllers, BossPowers, RewardSpells, ArenaShifts and
+LifePacks. These classes only present now. Rapier still serves the camera collision and the
+crosshair raycast.
+
+- **Boss transformations:** the sim emits `bossEvolve`, and the game's BossStages plays the look
+  change and BossCinematic its cinematic. While the cinematic freezes the world the game doesn't step
+  the sim, so no ticks are logged for it.
+- **The online host** sets the sim's seed, staffs and seats from `OP_START`. Sim seat N is network
+  seat N, so a host holding seat 1 plays sim seat 1 (it spawns on the +z mark). It sends the log
+  in `OP.LOG` chunks after RESULT and on a forfeit. If the opponent forfeits, the log records that
+  first. The guest is unchanged: a replica of the host's snapshots.
+- **Hub reports:** a Quick Duel or gauntlet win passes the log to `HubLink.onDuelWin`. It rides in
+  the boss event's data (`replay`, today only Tinubu's `sproto.boss_defeated`) and is kept as
+  `HubLink.lastReplay`. **The SDK's `earnTickets` takes no data, so the Tickets earn call can't carry
+  it.** The hub needs a `sproto.boss_defeated` report for every boss, or an RPC that takes the log,
+  before it can pay the per-boss reward on a verified replay.
+- **God mode** is fixed for a whole match on the sim (it is part of the setup and the log). A toggle
+  mid-fight applies from the next fight.
+- **Not on the sim:** the QA sandbox (`__duel.qa` scenarios and soaks) still runs the legacy
+  engine, so those scenarios test the old code paths. Online replicas run no sim at all.
+- `node scripts/check-game-sim-e2e.mjs` plays a Quick Duel and a boss fight in the real game in
+  Chromium and checks the game's own log replays, with the server bundle, to the game's own end
+  hash. It takes a few minutes and is not in CI.
+
+### Feel differences
+
+On top of the physics differences listed below:
+
+- **Facing** follows the camera at once. The visual smoothing is unchanged.
+- **Aim and movement** are quantized: 32 move directions and 4 speeds, aim in 1/1024 turn and
+  log-spaced distance buckets.
+- **Transformations** use the live game's rule in every gauntlet fight: a full bar after the
+  cinematic, and 0.35 s of immunity.
+- **Muzzles:** spells leave from the static muzzle points.
+
+None of this has been playtested by people yet.
+
 ## Golden replays and tests (A4)
 
 `tests/golden/*.json` holds 23 recorded matches: `{ name, log, expect }`. `npm run gen:goldens`

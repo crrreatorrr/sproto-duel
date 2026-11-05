@@ -26,6 +26,13 @@ export const OP = {
   PING: 17,
   FORFEIT: 18,
   REMATCH: 19,
+  /**
+   * Host -> server: one chunk of the match's input log (src/sim-core, docs/SERVER-SIM.md), sent after
+   * RESULT or FORFEIT so the referee can replay the match. Body `{ c: '<id>:<i>:<n>:<part>' }`, each
+   * at most CHUNK_BYTES; reassemble with DuelSim.joinChunks. Additive: a server that does not know
+   * it ignores it.
+   */
+  LOG: 20,
 } as const;
 export type OpCode = (typeof OP)[keyof typeof OP];
 
@@ -43,6 +50,7 @@ export interface OutcomeMsg { status: OutcomeStatus; winnerSeat: 0 | 1 | null; r
 export interface CancelMsg { reason: string; seat?: number }
 export interface PeerMsg { seat: number; present: boolean; graceS: number }
 export interface PingMsg { c: number; s?: number }
+export interface LogMsg { c: string }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 const isSeat = (x: unknown): x is 0 | 1 => x === 0 || x === 1;

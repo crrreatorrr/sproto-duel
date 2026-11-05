@@ -109,6 +109,8 @@ const LOOK_ID = { sand: 0, liquid: 1, magma: 2, electric: 3 } as const;
 
 /** A pool, spring or vent the arena grew. */
 export interface ShiftFeature {
+  /** The sim's feature id (SimDriver), 0 for features placed here. */
+  readonly id?: number;
   readonly kind: Kind;
   readonly x: number;
   readonly z: number;
@@ -376,6 +378,50 @@ export class ArenaShifts {
   }
 
   /** Grow a feature on open floor: clear of wizards, cover, other features, lava and the ring. */
+  /**
+   * Show the sim's features (SimDriver): the same pools, spring and vents, where and as far along
+   * as the deterministic sim placed them. Nothing here decides anything.
+   */
+  applySim(list: readonly { id: number; kind: Kind; x: number; z: number; r: number; age: number; charge: number; timer: number; period: number }[], stage: number): void {
+    const shift = this.sync();
+    if (!shift) return;
+    for (let i = this.features.length - 1; i >= 0; i--) {
+      const f = this.features[i];
+      if (list.some((n) => n.id === f.id)) continue;
+      f.mesh.visible = false;
+      this.features.splice(i, 1);
+    }
+    this.game.arena.shiftHazards.length = 0;
+    for (const n of list) {
+      let f = this.features.find((x) => x.id === n.id);
+      if (!f) {
+        const mesh = this.meshes.find((m) => !this.features.some((x) => x.mesh === m));
+        if (!mesh) continue;
+        const color = n.kind === 'pool' ? shift.pools.color : n.kind === 'spring' ? shift.spring.color : shift.vents.color;
+        const u = mesh.material.uniforms;
+        u.uColor.value.setHex(color);
+        u.uKind.value = KIND_ID[n.kind];
+        u.uLook.value = LOOK_ID[shift.pools.look ?? 'liquid'];
+        u.uSeed.value = (n.id * 7.31) % 50;
+        u.uGrow.value = u.uFill.value = 0;
+        mesh.position.set(n.x, 0.08, n.z);
+        mesh.scale.setScalar(n.r);
+        mesh.visible = true;
+        f = { id: n.id, kind: n.kind, x: n.x, z: n.z, radius: n.r, age: 0, charge: 0, clock: 0, period: n.period, warned: false, mesh, hazard: n.kind === 'spring' ? null : { x: n.x, z: n.z, radius: n.r }, emitAcc: 0 };
+        this.features.push(f);
+        tmpPos.set(n.x, 0.2, n.z);
+        this.game.fx.ring(tmpPos, color, n.r + 0.6, 0.6);
+        this.game.fx.dust(tmpPos, 8, n.r);
+      }
+      f.age = n.age;
+      f.charge = n.charge;
+      f.clock = n.timer;
+      f.period = n.period;
+      if (f.hazard) this.game.arena.shiftHazards.push(f.hazard);
+    }
+    this.stage = stage;
+  }
+
   private place(kind: Kind, radius: number, color: number): ShiftFeature | null {
     const g = this.game, arena = g.arena;
     const ring = S.ringRadius[2] - S.ringMargin - radius;

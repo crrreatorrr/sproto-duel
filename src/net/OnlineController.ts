@@ -20,6 +20,7 @@ import type { Match } from '../core/Match';
 import type { Wizard } from '../wizard/Wizard';
 import { EventPlayer, EventRecorder, NET_EVENT_NAMES, type EventWorld } from './events';
 import { encodeIntent, pressCounters } from './intent';
+import { chunkLog } from '../sim-core';
 import type { OnlineSession } from './OnlineSession';
 import type { StartMsg } from './protocol';
 import { RemoteSource } from './RemoteSource';
@@ -79,6 +80,10 @@ export class OnlineController {
     this.lastPresses = pressCounters();
     this.seats = start.seat === 0 ? [g.player, g.enemy] : [g.enemy, g.player];
     g.fixedTimeScale = true;
+    // The host's sim plays seat 0 and seat 1 by network seat, from the server's seed and staffs.
+    g.simSeats = this.isHost ? this.seats : null;
+    g.simSeed = this.isHost ? start.seed | 0 : null;
+    g.simStaffs = this.isHost ? [start.staffs[0] ?? null, start.staffs[1] ?? null] : null;
     g.enemyController = null;
     g.enemy.intent.clear();
     if (this.isHost) {
@@ -105,6 +110,13 @@ export class OnlineController {
         this.needSnap = true;
       }));
     }
+    // The other player left for good: the host's log records the forfeit before it goes out.
+    this.offs.push(this.session.on('outcome', (o) => {
+      const sim = this.game.sim;
+      if (!this.isHost || !sim || sim.over || o.status !== 'forfeit' || (o.winnerSeat !== 0 && o.winnerSeat !== 1)) return;
+      sim.forfeit(o.winnerSeat === 0 ? 1 : 0);
+      this.sendLog();
+    }));
     this.offs.push(events.on('roundEnd', (e) => this.onRoundEnd(e.winner, e.reason)));
     this.offs.push(events.on('matchEnd', (e) => this.onMatchEnd(e.winner)));
   }
@@ -186,6 +198,25 @@ export class OnlineController {
     this.resultSent = true;
     const s = winner ? this.seats.indexOf(winner) : -1;
     this.session.sendResult({ winnerSeat: s === 0 || s === 1 ? s : null, wins: this.winsBySeat(), rounds: this.rounds });
+    this.sendLog();
+  }
+
+  /** Host: the sim's input log for the referee (OP.LOG chunks). */
+  private logSent = false;
+  sendLog(): void {
+    const sim = this.game.sim;
+    if (!this.isHost || !sim || this.logSent) return;
+    this.logSent = true;
+    this.session.sendLog(chunkLog(JSON.stringify(sim.log()), `m${this.game.simSeed ?? 0}`));
+  }
+
+  /** Our own forfeit (Resume / Forfeit): the log records it before it goes to the referee. */
+  forfeit(): void {
+    const sim = this.game.sim;
+    const mine = this.seats.indexOf(this.game.player);
+    if (this.isHost && sim && mine >= 0) sim.forfeit(mine);
+    this.session.forfeit();
+    this.sendLog();
   }
 
   /** Back to a local game: roles, controllers and hooks undone. */
@@ -200,7 +231,10 @@ export class OnlineController {
     if (this.active) {
       g.role = 'local';
       g.fixedTimeScale = false;
+      g.simSeats = g.simStaffs = null;
+      g.simSeed = null;
     }
+    this.logSent = false;
     this.recorder = null;
     this.player = null;
     this.active = false;

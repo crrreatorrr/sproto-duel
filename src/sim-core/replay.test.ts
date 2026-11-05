@@ -59,3 +59,24 @@ describe('record and replay', () => {
     expect(r.endReason).toBe('forfeit');
   });
 });
+
+describe('logs taken mid-match', () => {
+  it('a log taken mid-match does not corrupt the final one', async () => {
+    const { SimWorld, LogRecorder } = await import('./index');
+    const { BUSY, Bot } = await import('./testing/bot');
+    const world = new SimWorld({ seed: 4, rules: 'quick', arena: 'moonlit', staffs: [null, null] });
+    const rec = new LogRecorder(world);
+    const bot = new Bot(1, 0, BUSY);
+    let t = 0;
+    while (!world.over && t++ < 60 * 300) {
+      const f = bot.input(world);
+      rec.frame(0, f);
+      world.step([f]);
+      rec.after();
+      if (t % 1200 === 0) rec.log();
+    }
+    const r = replay(rec.log(), { anyVersion: true });
+    expect(r.error).toBeUndefined();
+    expect(r.endHash).toBe(world.hash());
+  });
+});
