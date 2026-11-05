@@ -31,7 +31,7 @@ export class SimEvents {
     this.list.push({ type, w, o, x, y, z, n, s, f });
   }
 
-  at(type: string, p: { x: number; y: number; z: number }, w = -1, s = '', n = 0, o = -1, f = false): void {
+  atPos(type: string, p: { x: number; y: number; z: number }, w = -1, s = '', n = 0, o = -1, f = false): void {
     if (!this.enabled) return;
     this.list.push({ type, w, o, x: p.x, y: p.y, z: p.z, n, s, f });
   }

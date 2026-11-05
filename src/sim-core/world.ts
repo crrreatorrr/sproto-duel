@@ -243,6 +243,13 @@ export class SimWorld {
     this.events.push('matchEnd', m.winner, 'forfeit');
   }
 
+  /** Seats that play from input, in log order (CPU seats are driven by the sim's own AI). */
+  inputSeats(): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.wizards.length; i++) if (!this.wizards[i].ai) out.push(i);
+    return out;
+  }
+
   get over(): boolean {
     return this.match.phase === 'matchEnd';
   }
@@ -283,7 +290,7 @@ export class SimWorld {
   private liveBodies(): Body[] {
     const out = this.bodies;
     out.length = 0;
-    for (const w of this.wizards) if (w.active) out.push(w.body({ index: 0, x: 0, y: 0, z: 0, r: 0, h: 0 }));
+    for (const w of this.wizards) if (w.active) out.push(w.body());
     return out;
   }
 

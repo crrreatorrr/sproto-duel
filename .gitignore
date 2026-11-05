@@ -1,5 +1,6 @@
 node_modules/
-dist/
+dist/*
+!dist/duel-sim.server.js
 !vendor/hub-sdk/dist/
 !vendor/hub-sdk/dist/**
 .qa-build/
