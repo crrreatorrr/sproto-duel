@@ -342,13 +342,6 @@ html, body {
 }
 .god-badge.on { opacity: 0.92; visibility: visible; }
 
-/* Main menu modes. */
-.menu-screen.main .menu-panel.main { gap: 10px; max-height: 100cqh; overflow-y: auto; padding: 16px 4px; }
-.mode-block { display: grid; gap: 8px; }
-.mode-block h3 { margin: 4px 0 0; font-size: 15px; letter-spacing: 0.18em; color: var(--ink-dim); }
-/* A second line on a gold button (Quick Duel's blurb, Next Fight's boss, Begin's save note). */
-.menus button.primary small { color: rgba(29, 18, 6, 0.75); font-size: 13px; letter-spacing: 0.04em; text-transform: none; font-weight: 600; }
-
 /* Main menu: the Ticket balance chip, top right (read only; "--" without a hub session). */
 .ticket-chip {
   position: absolute; top: clamp(10px, 3cqh, 24px); right: clamp(10px, 3cqw, 32px); display: flex; align-items: baseline; gap: 8px;
@@ -359,6 +352,13 @@ html, body {
 .ticket-chip b { font: 700 19px/1 var(--hud); letter-spacing: 0.04em; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .ticket-chip.linked { border-color: rgba(255, 210, 122, 0.55); }
 .ticket-chip.linked b { color: var(--gold); }
+
+/* Main menu modes. */
+.menu-screen.main .menu-panel.main { gap: 10px; max-height: 100cqh; overflow-y: auto; padding: 16px 4px; }
+.mode-block { display: grid; gap: 8px; }
+.mode-block h3 { margin: 4px 0 0; font-size: 15px; letter-spacing: 0.18em; color: var(--ink-dim); }
+/* A second line on a gold button (Quick Duel's blurb, Next Fight's boss, Begin's save note). */
+.menus button.primary small { color: rgba(29, 18, 6, 0.75); font-size: 13px; letter-spacing: 0.04em; text-transform: none; font-weight: 600; }
 
 /* Toast (god mode on/off), shown over menus and the HUD. */
 .toast {

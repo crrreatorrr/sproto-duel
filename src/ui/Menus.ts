@@ -388,6 +388,7 @@ export class Menus {
       : '';
     // A heading only labels the Continue / New Gauntlet pair: it never repeats a button's own title.
     const s = this.mount(`
+      <div class="ticket-chip" data-ticket-chip role="status"><span>Tickets</span><b></b></div>
       <div class="menu-panel main">
         <h1 class="title">Sproto<span>Duel</span></h1>
         <p class="tagline">Staffs up. One life against each boss.</p>
@@ -415,9 +416,9 @@ export class Menus {
           <button class="ghost" data-act="exit">Return to Hub<small>Sproto Duel portal</small></button>
         </div>
         <p class="tip">Tip: raise your Shield just as a spell arrives to send it back.</p>
-      </div>
-      <div class="ticket-chip" data-ticket-chip role="status"><span>Tickets</span><b></b></div>`, 'main');
+      </div>`, 'main');
     this.on(s, '[data-act="start"]', () => this.h.start());
+    this.paintTicketChip(s);
     this.on(s, '[data-act="versus"]', () => this.h.versus?.());
     this.on(s, '[data-act="online"]', () => this.h.openOnline?.());
     this.on(s, '[data-act="gauntlet"]', () => this.h.gauntlet());
@@ -427,7 +428,12 @@ export class Menus {
     this.on(s, '[data-act="exchange"]', () => this.showExchange());
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
     this.bindStaff(s);
-    this.paintTicketChip(s);
+  }
+
+  private onlineButtonHtml(): string {
+    const o = this.h.online?.();
+    if (!o) return '';
+    return `<button class="ghost online-btn" data-act="online"${o.enabled ? '' : ' disabled'}>Online Duel<small>${escapeHtml(o.why)}</small></button>`;
   }
 
   /** The always-visible Ticket chip: the balance now, then again once a fresh read lands. */
@@ -445,12 +451,6 @@ export class Menus {
     void this.h.refreshTickets?.().then(() => {
       if (chip.isConnected) paint();
     });
-  }
-
-  private onlineButtonHtml(): string {
-    const o = this.h.online?.();
-    if (!o) return '';
-    return `<button class="ghost online-btn" data-act="online"${o.enabled ? '' : ' disabled'}>Online Duel<small>${escapeHtml(o.why)}</small></button>`;
   }
 
   /**
