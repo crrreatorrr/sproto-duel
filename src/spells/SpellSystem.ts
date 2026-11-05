@@ -162,6 +162,16 @@ export class SpellSystem {
     this.powers.cancel(w);
   }
 
+  /**
+   * One fixed tick of looks only, for a match on the sim (SimDriver): projectile trails and the
+   * blink ribbons. Damage, movement and casting are the sim's.
+   */
+  presentTick(dt: number): void {
+    this.blinkTrails.presentOnly = true;
+    this.blinkTrails.update(dt);
+    for (const p of this.pool.active) p.trail(this.fx);
+  }
+
   /** Render-time sync (interpolation, shader time). */
   sync(alpha: number, time: number, dt: number): void {
     this.pool.sync(alpha, time);

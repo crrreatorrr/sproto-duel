@@ -137,9 +137,14 @@ export class HubLink {
    * On a queued error the SDK has already saved that id and resends it on the next init,
    * so this does not call again with a new one.
    */
+  /** The last finished match's input log and its match id (hub verification; see docs/SERVER-SIM.md). */
+  lastReplay: { matchId: string; log: object } | null = null;
+
   async onDuelWin(win: Omit<DuelWin, 'matchId' | 'ranked'>, notify: Notify = () => {}): Promise<void> {
     if (!this.connected) return;
     const matchId = crypto.randomUUID();
+    // The latest verifiable log, for the hub's replay (a boss event carries it; see report.ts).
+    if (win.replay) this.lastReplay = { matchId, log: win.replay };
     const calls = planDuelWin({ ...win, ranked: this.ranked, matchId });
     let title = '';
     let sub = '';

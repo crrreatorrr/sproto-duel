@@ -21,6 +21,9 @@ import { DamageNumbers, type PopupStyle } from '../ui/DamageNumbers';
 import { Wizard } from '../wizard/Wizard';
 import { WizardVisual } from '../wizard/WizardVisual';
 import { events } from './events';
+import { SimDriver } from './SimDriver';
+import type { SimEvent, SimSetup } from '../sim-core';
+import type { Match } from './Match';
 import { feel } from './feel';
 import { Input } from './Input';
 
@@ -173,6 +176,42 @@ export class Game {
   role: 'local' | 'host' | 'replica' = 'local';
   /** Per fixed tick on a replica, in place of the simulation. */
   readonly replicaHooks: ((dt: number, simTick: number) => void)[] = [];
+  /**
+   * The deterministic sim running the current match (src/sim-core via SimDriver), or null: QA
+   * sandboxes and online replicas run without one. While it is set the sim is the source of truth
+   * and the game's own gameplay code only presents it.
+   */
+  sim: SimDriver | null = null;
+  /** Matches run on the sim (off only for tools that need the legacy engine). */
+  useSim = true;
+  /** The match flow (set by Match's constructor). */
+  match: Match | null = null;
+  /** Online host: the seed and staffs from START, and the wizards by network seat. */
+  simSeed: number | null = null;
+  simStaffs: (string | null)[] | null = null;
+  simSeats: Wizard[] | null = null;
+  /** Gauntlet extras a SimDriver hands over (boss powers, reward spells, shifts, life packs). */
+  presentSimEvent: ((e: SimEvent, pos: THREE.Vector3, w: Wizard | null, o: Wizard | null) => void) | null = null;
+
+  /** Start a match on the sim (Match.startMatch). Seats default to [player, rival, partner]. */
+  startSim(setup: SimSetup): SimDriver {
+    const seats = this.simSeats ?? [this.player, this.enemy, this.partner];
+    this.sim = new SimDriver(this, setup, seats);
+    return this.sim;
+  }
+
+  stopSim(): void {
+    this.sim = null;
+  }
+
+  /** The sim began a round: clear the arena's leftovers and look behind the player, as Match.startRound did. */
+  onSimRoundIntro(): void {
+    this.resetArena();
+    for (const w of this.wizards) w.visual.celebrate = false;
+    this.rig.snap(this.player.pos, this.player.facing);
+    if (this.split) this.rigs[1].snap(this.wizards[this.localSeats[1]].pos, this.wizards[this.localSeats[1]].facing);
+  }
+
   /** Smoothed frame stats for the QA harness / perf overlay. */
   readonly perf = { fps: 0, frameMs: 0, worstMs: 0, frames: 0 };
 
@@ -617,6 +656,13 @@ export class Game {
   tick(dt: number): void {
     this.simTime += dt;
     this.simTick++;
+    if (this.sim && this.role !== 'replica' && !this.qaMode) {
+      // Remote players and scripted seats feed their intents; local humans did in frame().
+      for (const c of this.controllers) if (c && c.kind !== 'local') c.tick?.(dt, this.simTick);
+      this.sim.tick();
+      for (const fn of this.tickHooks) fn(dt);
+      return;
+    }
     if (this.role === 'replica') {
       for (const w of this.wizards) w.intent.tick(dt);
       for (const fn of this.replicaHooks) fn(dt, this.simTick);

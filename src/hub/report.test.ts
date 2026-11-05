@@ -65,3 +65,12 @@ describe('planDuelWin', () => {
     expect(a.map((call) => ('key' in call ? call.key : ''))).toEqual(b.map((call) => ('key' in call ? call.key : '')));
   });
 });
+
+describe('planDuelWin replay logs', () => {
+  it("puts the match's input log in Tinubu's event data", () => {
+    const replay = { schema: 1, ticks: 10 };
+    const calls = planDuelWin({ mode: 'gauntlet', playerWon: true, bossId: 'tinubu', godMode: false, ranked: false, elapsed: 600, matchId: 'm', replay });
+    const ev = calls.find((c) => c.kind === 'event');
+    expect(ev && ev.kind === 'event' && ev.data.replay).toBe(replay);
+  });
+});

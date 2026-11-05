@@ -86,6 +86,9 @@ export class BlinkTrails {
     });
   }
 
+  /** On the sim the trail's damage is the sim's: this only poses and fades the ribbons. */
+  presentOnly = false;
+
   update(dt: number): void {
     for (let i = this.trails.length - 1; i >= 0; i--) {
       const t = this.trails[i];
@@ -96,7 +99,7 @@ export class BlinkTrails {
       }
       t.age += dt;
       this.pose(t);
-      this.hurt(t, dt);
+      if (!this.presentOnly) this.hurt(t, dt);
       if (t.age >= t.life) this.remove(i);
     }
   }

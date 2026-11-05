@@ -65,9 +65,20 @@ export class RangeEncoder {
     }
   }
 
+  /**
+   * The finished byte stream. Flushes a copy, so the encoder keeps going unchanged: a log can be
+   * taken mid-match (and again at the end) without corrupting what follows.
+   */
   finish(): number[] {
-    for (let i = 0; i < 5; i++) this.shiftLow();
-    return this.out;
+    const c = new RangeEncoder();
+    c.low = this.low;
+    c.range = this.range;
+    c.cache = this.cache;
+    c.cacheSize = this.cacheSize;
+    const out = c.out;
+    for (let i = 0; i < this.out.length; i++) out.push(this.out[i]);
+    for (let i = 0; i < 5; i++) c.shiftLow();
+    return out;
   }
 }
 
