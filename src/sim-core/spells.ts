@@ -8,9 +8,12 @@ import { CONFIG } from '../config';
 import { HIT_NONE, HIT_OBSTACLE, HIT_WIZARD, type ArenaQuery, type Body, type Hit, type SimArena, obstacleDistance } from './arena';
 import type { SimEvents } from './events';
 import {
-  DT, ONE, abs, atan2, clamp, fx, isqrt, len2, len3, lerp, max, min, mul, muldiv, sec, setLength3, vt, type V3,
+  DT, ONE, abs, atan2, clamp, cos, deg, fx, sin, isqrt, len2, len3, lerp, max, min, mul, muldiv, sec, setLength3, vt, type V3,
 } from './fixed';
 import type { Rng } from './rng';
+import type { SimRewards } from './rewards';
+import type { SimPowers } from './powers';
+import type { VolleyDef } from '../campaign/levels';
 import {
   A_BLAST, A_BOLT, A_SHIELD, A_STUN, A_ULT, CD_BLAST, CD_BOLT, CD_SHIELD, CD_STUN, type CastKind, type SimWizard,
 } from './wizard';
@@ -82,6 +85,7 @@ const PUMP_DAMAGE = fx(CONFIG.rewardSpells.pump.damageMultiplier);
 /** 7 rad/s homing turn (SpellSystem.steerHoming) per tick, in angle units. */
 const HOMING_TURN = Math.round(((7 / 60) / (2 * Math.PI)) * 65536);
 const BOLT_CAP = 64;
+const VOLLEY_MANA = fx(CONFIG.campaign.volley.manaCost);
 const BLAST_CAP = 12;
 
 export type ProjectileKind = 'bolt' | 'blast';
@@ -141,6 +145,8 @@ export interface SpellWorld {
   readonly arena: SimArena;
   readonly rng: Rng;
   readonly events: SimEvents;
+  readonly rewards: SimRewards;
+  readonly powers: SimPowers;
   /** A wizard was knocked out (the round may end this tick: Match.onKO). */
   handleKo(): void;
 }
@@ -183,9 +189,15 @@ export class SimSpells {
   private blasts = 0;
   private readonly bodies: Body[] = [];
 
+  /** Learned reward spells can be cast (MatchRules.rewardSpells). */
+  rewardSpells = true;
+  /** Burst volleys still firing: caster, def, shots fired, TU to the next. */
+  private readonly volleys: { w: SimWizard; def: VolleyDef; fired: number; timer: number }[] = [];
+
   constructor(private readonly world: SpellWorld) {}
 
   clear(): void {
+    this.volleys.length = 0;
     this.active.length = 0;
     this.waves.length = 0;
     this.trails.length = 0;
@@ -200,6 +212,9 @@ export class SimSpells {
       this.updateCast(w, dt);
       this.handleIntents(w);
     }
+    this.world.rewards.update(dt);
+    this.world.powers.update(dt);
+    this.updateVolleys(dt);
     this.updateProjectiles(dt);
     this.resolveClashes();
     this.updateWaves(dt);
@@ -260,6 +275,13 @@ export class SimSpells {
     if (!w.alive || w.stunned || w.evolving) return;
     if (w.wants(A_SHIELD) && !w.dodging && !w.shielded && !w.riding) {
       if (this.raiseShield(w)) w.consume(A_SHIELD);
+    }
+    // Boss reward spells (only wizards that learned them: the player), unless the rules forbid them.
+    if (this.rewardSpells && (w.learned !== 0 || w.side === 0)) this.world.rewards.handleIntents(w);
+    // On the Magic Carpet: bolts only (drive-by).
+    if (w.riding) {
+      if (!w.dodging && w.cast === null && (w.holdBolt || w.wants(A_BOLT)) && this.castBolt(w)) w.consume(A_BOLT);
+      return;
     }
     if (!w.canAct) return;
     if (w.wants(A_ULT) && this.beginCast(w, 'ultimate')) {
@@ -422,10 +444,70 @@ export class SimSpells {
     p.power = p.basePower = mul(BOLT_POWER, w.clashPowerMultiplier);
     p.life = BOLT_LIFE;
     p.volley = volley;
+    // Lock-On: the bolt curves toward the nearest enemy in front of the caster.
+    if (w.lockedOn) p.seek = this.world.rewards.lockTarget(w);
     w.stats.casts++;
     w.advanceMuzzle();
     this.world.events.atPos('cast', p.pos, w.index, volley ? 'volley' : 'bolt', p.id);
     return p;
+  }
+
+  /**
+   * A boss's signature multi-shot (SpellSystem.castVolley): `count` bolts at `damageScale` x bolt
+   * damage, fanned across `spreadDeg` at once or one every `interval` s. The AI owns the cooldown.
+   */
+  castVolley(w: SimWizard, def: VolleyDef): boolean {
+    if (!w.canAct || this.volleyFiring(w) || def.count < 1) return false;
+    if (!w.spendMana(VOLLEY_MANA)) return false;
+    w.castPulse = ONE;
+    this.world.events.push('volley', w.index, def.name, def.count, -1, w.pos.x, w.pos.y + w.chestY, w.pos.z);
+    if (def.interval <= 0) {
+      for (let i = 0; i < def.count; i++) this.volleyShot(w, def, i);
+      return true;
+    }
+    this.volleyShot(w, def, 0);
+    if (def.count > 1) this.volleys.push({ w, def, fired: 1, timer: sec(def.interval) });
+    return true;
+  }
+
+  volleyFiring(w: SimWizard): boolean {
+    for (let i = 0; i < this.volleys.length; i++) if (this.volleys[i].w === w) return true;
+    return false;
+  }
+
+  /** Call off a caster's burst (a boss leaving the fight). */
+  cancelVolleys(w: SimWizard): void {
+    for (let i = this.volleys.length - 1; i >= 0; i--) if (this.volleys[i].w === w) this.volleys.splice(i, 1);
+  }
+
+  private updateVolleys(dt: number): void {
+    for (let i = 0; i < this.volleys.length; i++) {
+      const v = this.volleys[i];
+      const w = v.w;
+      if (!w.alive || w.stunned || w.evolving) {
+        this.volleys.splice(i--, 1);
+        continue;
+      }
+      v.timer -= dt;
+      while (v.timer <= 0 && v.fired < v.def.count) {
+        this.volleyShot(w, v.def, v.fired++);
+        v.timer += sec(v.def.interval);
+      }
+      if (v.fired >= v.def.count) this.volleys.splice(i--, 1);
+    }
+  }
+
+  /** Shot `i`: aimed like a bolt, then turned across the spread (left to right). */
+  private volleyShot(w: SimWizard, def: VolleyDef, i: number): void {
+    const t = def.count > 1 ? muldiv(i, ONE, def.count - 1) - (ONE >> 1) : 0;
+    const muzzle = w.muzzleIndex('volley');
+    const from = this.muzzleOrigin(w, 'volley', muzzle, BOLT_RADIUS, { x: 0, y: 0, z: 0 });
+    const d = this.aimDirection(w, from, { x: 0, y: 0, z: 0 });
+    // Rotate about +y by -t x spread (three's applyAxisAngle: x' = x c + z s, z' = -x s + z c).
+    const a = -mul(t, deg(def.spreadDeg));
+    const c = cos(a), sn = sin(a);
+    const dir = { x: mul(d.x, c) + mul(d.z, sn), y: d.y, z: -mul(d.x, sn) + mul(d.z, c) };
+    this.launchBolt(w, from, dir, mul(BOLT_DAMAGE, fx(def.damageScale)), true);
   }
 
   private releaseBlast(w: SimWizard): void {
@@ -581,6 +663,7 @@ export class SimSpells {
         continue;
       }
       if (p.homing >= 0) this.steerHoming(p);
+      else if (p.seek >= 0) this.world.rewards.steer(p, dt);
       const mx = vt(p.vel.x, dt), my = vt(p.vel.y, dt), mz = vt(p.vel.z, dt);
       const len = len3(mx, my, mz);
       if (len < 4) continue;

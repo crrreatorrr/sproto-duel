@@ -26,14 +26,26 @@ export class SimEvents {
   /** Off on the server replay: nothing reads them there. */
   enabled = true;
 
+  /**
+   * Sim-side listeners (the AI reacts to explosions, stuns, KOs...): called synchronously for
+   * every event of their type, on the server too. They are part of the simulation.
+   */
+  private readonly listeners: Record<string, ((e: SimEvent) => void)[]> = {};
+
+  on(type: string, fn: (e: SimEvent) => void): void {
+    (this.listeners[type] || (this.listeners[type] = [])).push(fn);
+  }
+
   push(type: string, w = -1, s = '', n = 0, o = -1, x = 0, y = 0, z = 0, f = false): void {
-    if (!this.enabled) return;
-    this.list.push({ type, w, o, x, y, z, n, s, f });
+    const fns = this.listeners[type];
+    if (!this.enabled && !fns) return;
+    const e: SimEvent = { type, w, o, x, y, z, n, s, f };
+    if (this.enabled) this.list.push(e);
+    if (fns) for (let i = 0; i < fns.length; i++) fns[i](e);
   }
 
   atPos(type: string, p: { x: number; y: number; z: number }, w = -1, s = '', n = 0, o = -1, f = false): void {
-    if (!this.enabled) return;
-    this.list.push({ type, w, o, x: p.x, y: p.y, z: p.z, n, s, f });
+    this.push(type, w, s, n, o, p.x, p.y, p.z, f);
   }
 
   take(): SimEvent[] {

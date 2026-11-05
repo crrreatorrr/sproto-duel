@@ -6,7 +6,7 @@
 import { CONFIG } from '../config';
 import { SimArena, isArenaId, type ArenaId, type Body } from './arena';
 import { SimEvents } from './events';
-import { DT, HALF, ONE, fx, len2, max, mul, muldiv, sec } from './fixed';
+import { DT, HALF, ONE, fx, len2, max, mul, muldiv, sec, vt } from './fixed';
 import { Hasher } from './hash';
 import { Rng } from './rng';
 import { simRules, type RulesId, type SimRules } from './rules';
@@ -14,6 +14,16 @@ import { SimSpells } from './spells';
 import { staffStats } from './staffs';
 import { SimTickets } from './tickets';
 import { SimWizard, emptyInput, type MuzzleSet, type SimInput } from './wizard';
+import { muzzleSet } from './muzzles';
+import { SimAI } from './ai';
+import { bossArena, bossDef } from './bosses';
+import { SimLifePacks } from './lifepacks';
+import { SimPowers } from './powers';
+import { REWARDS, SimRewards } from './rewards';
+import { SimShifts } from './shifts';
+import { SimStages } from './stages';
+import type { BossDef } from '../campaign/levels';
+export { muzzleSet };
 
 const A = CONFIG.arena;
 const M = CONFIG.match;
@@ -25,11 +35,16 @@ export interface SimSetup {
   /** Server-issued seed (online OP_START seed). */
   seed: number;
   rules: RulesId;
+  /** Duels: the arena (theme id). A boss fight plays in its boss's arena whatever this says. */
   arena: ArenaId;
   /** Staff item id per seat (null: none). Even rules (versus, online) ignore staff gameplay. */
   staffs: (string | null)[];
-  /** Gauntlet boss id (A5), absent in duels. */
+  /** Gauntlet: the hub story-boss id fought (bosses.ts BOSS_IDS). */
   bossId?: string | null;
+  /** Boss reward spells seat 0 has learned (REWARDS ids); ignored where the rules forbid them. */
+  learned?: string[];
+  /** Seat 0 plays in god mode (CONFIG.debug); ignored under even rules. */
+  godMode?: boolean;
 }
 
 export interface MatchState {
@@ -64,29 +79,18 @@ const WIZ_R = fx(W.radius);
 const INTRO = sec(M.introTime);
 const ROUND_END = sec(M.roundEndTime);
 const LAVA_FEET = fx(0.15);
+const F = CONFIG.campaign.fight;
+const CAP_STAGE = sec(F.stageCap);
+const CAP_SAFETY = sec(F.safetyCap);
+const CAP_CLOSE = sec(F.capCloseTime);
+const CAP_STAGE_R = fx(F.stageCapRadius);
+const CAP_MIN_R = fx(F.capMinRadius);
+const CAP_REOPEN = fx(F.reopenSpeed);
 
 /** The player's look (manifest wizardPlayer muzzle [0.076, 0.916, 0.203] x fitHeight 1.9). */
 export const PLAYER_MUZZLES: MuzzleSet = muzzleSet([[0.076, 0.916, 0.203]], 1.9);
 /** The rival's placeholder staff (src/wizard/muzzles.ts PLACEHOLDER_MUZZLES.wizard, metres). */
 export const RIVAL_MUZZLES: MuzzleSet = muzzleSet([[0.44, 1.8, 0.34]], 1);
-
-/** Muzzle points given as [forward, up, right] fractions of a look `height` m tall. */
-export function muzzleSet(points: [number, number, number][], height: number, use?: Partial<Record<'bolt' | 'volley' | 'blast' | 'stun' | 'ultimate', number[]>>): MuzzleSet {
-  const all: number[] = [];
-  const pts = points.map((p, i) => {
-    all.push(i);
-    return { x: fx(-p[2] * height), y: fx(p[1] * height), z: fx(p[0] * height) };
-  });
-  const bolt = use && use.bolt ? use.bolt : all;
-  return {
-    points: pts,
-    bolt,
-    volley: use && use.volley ? use.volley : bolt,
-    blast: use && use.blast ? use.blast : bolt,
-    stun: use && use.stun ? use.stun : bolt,
-    ultimate: use && use.ultimate ? use.ultimate : bolt,
-  };
-}
 
 export class SimWorld {
   readonly setup: SimSetup;
@@ -98,6 +102,17 @@ export class SimWorld {
   readonly wizards: SimWizard[] = [];
   readonly spells: SimSpells;
   readonly tickets: SimTickets;
+  readonly powers: SimPowers;
+  readonly rewards: SimRewards;
+  readonly shifts: SimShifts;
+  readonly lifePacks: SimLifePacks;
+  /** The boss fought (gauntlet), its stages per boss wizard, and the CPU brains. */
+  readonly boss: BossDef | null;
+  readonly stages: SimStages[] = [];
+  readonly ais: SimAI[] = [];
+  /** Gauntlet fight clock (GauntletClock). */
+  readonly clock = { elapsed: 0, stageElapsed: 0, radius: 0, progress: 0 };
+  private capAnnounced = false;
   readonly match: MatchState = {
     phase: 'intro', round: 1, wins: [0, 0], timer: 0, phaseTime: 0, lastWinner: -1, roundWinners: [], lastReason: '', winner: -1, forfeit: -1, elapsed: 0,
   };
@@ -110,21 +125,72 @@ export class SimWorld {
   private readonly idle = emptyInput();
 
   constructor(setup: SimSetup) {
-    if (!isArenaId(setup.arena)) throw new Error('unknown arena ' + String(setup.arena));
     this.setup = setup;
     this.rules = simRules(setup.rules);
+    const boss = this.rules.single ? bossDef(setup.bossId || '') : null;
+    if (this.rules.single && !boss) throw new Error('unknown boss ' + String(setup.bossId));
+    this.boss = boss;
+    const arena = boss ? bossArena(boss.id) : setup.arena;
+    if (!isArenaId(arena)) throw new Error('unknown arena ' + String(arena));
     this.rng = new Rng(setup.seed | 0);
-    this.arena = new SimArena(setup.arena);
-    for (let i = 0; i < 2; i++) {
+    this.arena = new SimArena(arena);
+    const count = boss && boss.partner ? 3 : 2;
+    for (let i = 0; i < count; i++) {
       const w = new SimWizard(i, i === 0 ? 0 : 1, this.events);
       w.staff = this.rules.even ? null : staffStats(setup.staffs[i]);
       w.muzzles = i === 0 ? PLAYER_MUZZLES : RIVAL_MUZZLES;
       w.onBlink = (b) => this.spells.spawnTrail(b);
+      // Quick Duel and boss fights: everyone but seat 0 is the sim's own CPU.
+      w.ai = i > 0 && !this.rules.even;
       this.wizards.push(w);
     }
+    const p = this.wizards[0];
+    if (this.rules.rewardSpells && setup.learned) {
+      for (let i = 0; i < REWARDS.length; i++) if (setup.learned.indexOf(REWARDS[i]) >= 0) p.learned |= 1 << i;
+    }
+    if (setup.godMode && !this.rules.even) {
+      const D = CONFIG.debug;
+      p.immune = p.infiniteMana = p.noCooldowns = true;
+      p.damageMultiplier = fx(D.godPowerMultiplier);
+      p.clashPowerMultiplier = fx(D.godClashMultiplier);
+    }
     this.spells = new SimSpells(this);
+    this.spells.rewardSpells = this.rules.rewardSpells;
     this.tickets = new SimTickets(this.arena, this.wizards, this.rng, this.events);
+    this.powers = new SimPowers(this);
+    this.rewards = new SimRewards(this);
+    this.shifts = new SimShifts(this);
+    this.lifePacks = new SimLifePacks(this);
+    if (boss) {
+      const fighters = boss.partner ? [boss, boss.partner] : [boss];
+      for (let i = 0; i < fighters.length; i++) {
+        const w = this.wizards[i + 1];
+        w.speedMultiplier = fx(fighters[i].speed ?? 1);
+        const st = new SimStages(this, fighters[i], w, p);
+        this.stages.push(st);
+        const ai = new SimAI(this, w, p, fighters[i].ai, fighters[i]);
+        this.ais.push(ai);
+      }
+    } else if (!this.rules.even) {
+      this.ais.push(new SimAI(this, this.wizards[1], p, CONFIG.ai.difficulty.normal, null));
+    }
+    this.lifePacks.reset();
     this.startMatch();
+  }
+
+  /** A boss stage was set: the arena shifts follow the furthest stage any boss has reached. */
+  onBossStage(): void {
+    if (!this.shifts) return;
+    let far = 0;
+    for (const st of this.stages) if (st.stage > far) far = st.stage;
+    if (far > this.shifts.stage) this.shifts.applyStage(far);
+  }
+
+  /** Every boss's stage plus one per boss knocked out (Game.fightProgress). */
+  fightProgress(): number {
+    let n = 0;
+    for (const st of this.stages) n += st.stage + (st.owner.alive ? 0 : 1);
+    return n;
   }
 
   // ---------------------------------------------------------------- match flow
@@ -144,10 +210,20 @@ export class SimWorld {
 
   private startRound(): void {
     this.spells.clear();
+    this.powers.clear();
+    this.rewards.clear();
     this.tickets.clear();
+    this.lifePacks.clearPack();
     this.arena.reset();
+    this.shifts.clear();
+    for (const st of this.stages) st.reset();
     for (const w of this.wizards) w.resetForRound(M.ultCarriesOver);
     this.spawnWizards();
+    for (const ai of this.ais) ai.reset();
+    this.clock.elapsed = this.clock.stageElapsed = 0;
+    this.clock.radius = FIRE_RADIUS;
+    this.clock.progress = 0;
+    this.capAnnounced = false;
     const T = CONFIG.tickets;
     const iv = this.rules.single ? T.bossSpawnInterval : T.spawnInterval;
     this.tickets.interval = [sec(iv[0]), sec(iv[1])];
@@ -162,9 +238,11 @@ export class SimWorld {
     this.events.push('roundIntro', -1, '', m.round);
   }
 
+  /** The player and the rival face each other; a double fight's bosses stand side by side. */
   spawnSpot(w: SimWizard): [number, number, number] {
     if (w.side === 0) return [0, -SPAWN_HALF, 0];
-    return [0, SPAWN_HALF, HALF];
+    const half = this.wizards.length > 2 ? fx(CONFIG.campaign.duo.spawnSpacing / 2) : 0;
+    return [w.index === 2 ? -half : half, SPAWN_HALF, HALF];
   }
 
   private spawnWizards(): void {
@@ -276,14 +354,22 @@ export class SimWorld {
         ws[i].clearIntent();
       }
     } else {
-      for (let i = 0; i < ws.length; i++) ws[i].applyInput(inputs[i] || this.idle);
+      for (const ai of this.ais) ai.update(DT);
+      for (let i = 0; i < ws.length; i++) {
+        if (ws[i].ai) ws[i].latch(null);
+        else ws[i].applyInput(inputs[i] || this.idle);
+      }
     }
     for (const w of ws) if (w.active) w.updateTimers(DT);
+    for (const st of this.stages) st.update();
     this.spells.update(DT);
+    // Before movement: quicksand slows this tick's steps.
+    this.shifts.update(DT);
     for (const w of ws) if (w.active) w.updateMovement(DT, this.arena, ws);
     this.arena.update(DT, this.liveBodies());
     this.updateFire(DT);
     this.tickets.update(DT);
+    this.lifePacks.update(DT);
     this.updateMatch(DT);
   }
 
@@ -302,7 +388,13 @@ export class SimWorld {
       const r = len2(w.pos.x, w.pos.z);
       const ring = r + WIZ_R > radius;
       const lava = !ring && w.pos.y <= LAVA_FEET && this.arena.hazardAt(w.pos.x, w.pos.z, 0, []) !== null;
-      if (ring) {
+      if (w.fireproof && ring) {
+        const rr = r || ONE;
+        const ix = -muldiv(w.pos.x, ONE, rr), iz = -muldiv(w.pos.z, ONE, rr);
+        const inward = mul(w.knock.x, ix) + mul(w.knock.z, iz);
+        if (inward < FIRE_PUSH) w.addKnockback(ix, iz, FIRE_PUSH - inward);
+      }
+      if (ring && !w.fireproof) {
         const rr = r || ONE;
         const ix = -muldiv(w.pos.x, ONE, rr), iz = -muldiv(w.pos.z, ONE, rr);
         const inward = mul(w.knock.x, ix) + mul(w.knock.z, iz);
@@ -332,6 +424,7 @@ export class SimWorld {
     const m = this.match;
     this.actionsLocked = m.phase !== 'fight';
     this.tickets.enabled = m.phase === 'fight' && this.rules.tickets;
+    this.lifePacks.enabled = m.phase === 'fight' && (this.rules.single || this.rules.lifePacks);
     switch (m.phase) {
       case 'intro': {
         m.phaseTime -= dt;
@@ -348,6 +441,16 @@ export class SimWorld {
         break;
       }
       case 'fight': {
+        if (this.rules.single) {
+          m.elapsed += dt;
+          this.arena.fireRadius = Math.min(this.updateClock(dt), this.arena.ringCap);
+          const capped = this.clock.elapsed > CAP_SAFETY || this.clock.stageElapsed > CAP_STAGE;
+          if (capped !== this.capAnnounced) {
+            this.capAnnounced = capped;
+            if (capped) this.events.push('fightCap');
+          }
+          break;
+        }
         m.elapsed += dt;
         m.timer = max(0, m.timer - dt);
         if (m.timer < SUDDEN_AT) {
@@ -368,6 +471,24 @@ export class SimWorld {
       default:
         break;
     }
+  }
+
+  /** The gauntlet clock and its safety caps (GauntletClock.update): the fire ring radius. */
+  private updateClock(dt: number): number {
+    const c = this.clock;
+    c.elapsed += dt;
+    const progress = this.fightProgress();
+    if (progress !== c.progress) {
+      c.progress = progress;
+      c.stageElapsed = 0;
+    }
+    c.stageElapsed += dt;
+    const close = (over: number, to: number) => FIRE_RADIUS + muldiv(to - FIRE_RADIUS, Math.min(over, CAP_CLOSE), CAP_CLOSE);
+    let target = FIRE_RADIUS;
+    if (c.stageElapsed > CAP_STAGE) target = close(c.stageElapsed - CAP_STAGE, CAP_STAGE_R);
+    if (c.elapsed > CAP_SAFETY) target = Math.min(target, close(c.elapsed - CAP_SAFETY, CAP_MIN_R));
+    c.radius = target < c.radius ? target : Math.min(target, c.radius + vt(CAP_REOPEN, dt));
+    return c.radius;
   }
 
   /** The KO hook: SimSpells.dealDamage emits 'ko'; the world ends the round in the same tick. */

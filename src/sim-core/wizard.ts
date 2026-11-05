@@ -162,6 +162,31 @@ const FROZEN_DECAY = 11880;
 const FLOOR_EPS = fx(1e-3);
 const STD_HEIGHT = fx(W.height);
 const CHEST = fx(1.2);
+const RS = CONFIG.rewardSpells;
+const CARPET_TIME = sec(RS.carpet.duration);
+const CARPET_SPEED = fx(RS.carpet.speedMultiplier);
+const CARPET_BOOST = fx(RS.carpet.boost);
+const CARPET_BOOST_TIME = sec(RS.carpet.boostTime);
+const CARPET_ACCEL = fx(RS.carpet.acceleration);
+const CARPET_DECEL = fx(RS.carpet.deceleration);
+const CARPET_LEAP = fx(RS.carpet.leap);
+const CARPET_HOVER = fx(RS.carpet.hover);
+const CARPET_CLIMB = fx(RS.carpet.climb);
+const CARPET_RISE = fx(RS.carpet.rise);
+const CARPET_SINK = fx(RS.carpet.sink);
+/** Look-ahead (s) as a Q16 fraction of a second: reach = radius + speed x look. */
+const CARPET_LOOK = fx(RS.carpet.lookAhead);
+const BREATH_MOVE = fx(RS.breath.moveMultiplier);
+const FL = CONFIG.campaign.flight;
+const FLY_CLIMB = fx(FL.climb);
+const FLY_RISE = fx(FL.rise);
+const FLY_SINK = fx(FL.sink);
+const FLY_LOOK = fx(FL.lookAhead);
+const FLY_BOB = fx(FL.bob);
+/** Bob rate in angle units per second. */
+const FLY_BOB_RATE = Math.round((FL.bobRate / (2 * Math.PI)) * 65536);
+/** Where along the look-ahead to check for low cover (Wizard LOOK_STEPS). */
+const LOOK_STEPS = [fx(0.3), fx(0.6), ONE];
 const PUMP_ULT = fx(CONFIG.rewardSpells.pump.ultChargeMultiplier);
 const K_0_02 = fx(0.02);
 const K_0_1 = fx(0.1);
@@ -266,12 +291,22 @@ export class SimWizard {
   onBlink: ((w: SimWizard) => void) | null = null;
   /** A boss with another stage left keeps standing at 0 HP (BossStages). */
   koGuard: (() => boolean) | null = null;
-  /** Reward-spell timers (carpet etc.) come in with the gauntlet; zero in duels. */
+  /** Boss reward spells this wizard may cast: bit i = REWARDS[i] (only the player ever has any). */
+  learned = 0;
+  /** Reward spell cooldowns (TU) by REWARDS index, started on cast. */
+  readonly rcd = [0, 0, 0, 0, 0];
+  /** Seconds (TU) left riding the Magic Carpet, of Pump It, of Lock-On, channelling Hellfire Breath. */
   carpetTime = 0;
   pumpTime = 0;
   lockTime = 0;
   breathTime = 0;
+  /** Burning from Hellfire Breath: TU left, who lit it (index, -1 none), TU to the next tick. */
+  scorchTime = 0;
+  scorchBy = -1;
+  scorchTimer = 0;
+  /** Hover height of a flying boss stage (0 walks), and the bob clock (TU). */
   flyHeight = 0;
+  flyClock = 0;
 
   constructor(
     readonly index: number,
@@ -305,6 +340,15 @@ export class SimWizard {
   }
   get breathing(): boolean {
     return this.breathTime > 0;
+  }
+  get lockedOn(): boolean {
+    return this.lockTime > 0;
+  }
+  get scorched(): boolean {
+    return this.scorchTime > 0;
+  }
+  knows(spell: number): boolean {
+    return (this.learned & (1 << spell)) !== 0;
   }
   get flying(): boolean {
     return this.flyHeight > 0 && this.alive && !this.stunned;
@@ -486,9 +530,27 @@ export class SimWizard {
     this.sinceAttack = 1e9;
     this.burning = false;
     this.sprintExhausted = false;
-    this.carpetTime = this.pumpTime = this.lockTime = this.breathTime = 0;
+    for (let i = 0; i < this.rcd.length; i++) this.rcd[i] = 0;
+    this.endRewardEffects();
     this.alive = true;
     this.clearIntent();
+  }
+
+  /** Every reward spell effect off at once (round reset, KO, parked). */
+  endRewardEffects(): void {
+    this.carpetTime = this.pumpTime = this.lockTime = this.breathTime = this.scorchTime = this.scorchTimer = 0;
+    this.scorchBy = -1;
+  }
+
+  /** Step off the Magic Carpet now (time up, pressed again, stunned): fall from the hover height. */
+  endRide(): void {
+    this.carpetTime = 0;
+    if (this.pos.y > FLOOR_EPS) {
+      this.grounded = false;
+      this.vy = 0;
+      this.coyote = 0;
+    }
+    this.events.push('rewardEnd', this.index, 'carpet');
   }
 
   resetStats(): void {
@@ -527,7 +589,7 @@ export class SimWizard {
       this.alive = false;
       this.cast = null;
       this.shieldTime = 0;
-      this.carpetTime = this.pumpTime = this.lockTime = this.breathTime = 0;
+      this.endRewardEffects();
     }
     return dealt;
   }
@@ -546,7 +608,7 @@ export class SimWizard {
     if (this.evolving || this.immune) return;
     this.stunTime = max(this.stunTime, t);
     this.cast = null;
-    this.carpetTime = 0;
+    if (this.riding) this.endRide();
     this.breathTime = 0;
     this.vel.x = mul(this.vel.x, K_0_2);
     this.vel.z = mul(this.vel.z, K_0_2);
@@ -585,7 +647,11 @@ export class SimWizard {
       this.cd[CD_BLAST] = this.cd[CD_SHIELD] = this.cd[CD_STUN] = 0;
       this.addUlt(ULT_MAX);
     }
-    if (this.carpetTime > 0) this.carpetTime = max(0, this.carpetTime - dt);
+    for (let i = 0; i < this.rcd.length; i++) if (this.rcd[i] > 0) this.rcd[i] = this.noCooldowns ? 0 : max(0, this.rcd[i] - dt);
+    if (this.carpetTime > 0) {
+      this.carpetTime = max(0, this.carpetTime - dt);
+      if (this.carpetTime === 0) this.endRide();
+    }
     if (this.pumpTime > 0) this.pumpTime = max(0, this.pumpTime - dt);
     if (this.lockTime > 0) this.lockTime = max(0, this.lockTime - dt);
     if (this.breathTime > 0) this.breathTime = max(0, this.breathTime - dt);
@@ -643,6 +709,16 @@ export class SimWizard {
       }
     }
 
+    // Jump off the Magic Carpet: a leap higher than a jump, keeping the carpet's speed.
+    if (this.wants(A_JUMP) && this.riding && this.alive && !frozen) {
+      this.consume(A_JUMP);
+      this.endRide();
+      this.vy = mul(JUMP_V, CARPET_LEAP);
+      this.grounded = false;
+      this.coyote = 0;
+      this.jumps++;
+      this.events.push('jump', this.index);
+    }
     if (this.wants(A_JUMP) && this.canJump && !this.blinking) {
       this.consume(A_JUMP);
       this.vy = JUMP_V;
@@ -671,6 +747,11 @@ export class SimWizard {
       const speed = mul(DODGE_SPEED, ONE - mul(K_0_55, mul(t, t)));
       this.vel.x = mul(this.dodgeDir.x, speed);
       this.vel.z = mul(this.dodgeDir.z, speed);
+    } else if (this.riding) {
+      // Magic Carpet: much faster, snappy, no sprint (and no mana drain), a burst at takeoff.
+      const boost = ONE + mul(CARPET_BOOST, clamp(muldiv(this.carpetTime - (CARPET_TIME - CARPET_BOOST_TIME), ONE, CARPET_BOOST_TIME), 0, ONE));
+      const speed = mul(mul(MOVE, CARPET_SPEED), boost);
+      approach(this.vel, mul(this.moveX, speed), mul(this.moveZ, speed), vt(moving ? CARPET_ACCEL : CARPET_DECEL, dt));
     } else {
       let speed = mul(MOVE, this.speedMultiplier);
       if (this.sprintExhausted && this.mana >= SPRINT_RECOVER) this.sprintExhausted = false;
@@ -683,6 +764,10 @@ export class SimWizard {
       }
       if (this.cast) speed = mul(speed, CAST_MOVE);
       speed = mul(speed, this.groundSlow);
+      if (this.breathing) {
+        speed = mul(MOVE, BREATH_MOVE);
+        this.sprinting = false;
+      }
       const tx = mul(this.moveX, speed), tz = mul(this.moveZ, speed);
       let rate = mul(moving ? ACCEL : DECEL, this.speedMultiplier);
       if (!this.grounded) rate = mul(rate, moving ? AIR_CONTROL : AIR_BRAKE);
@@ -695,7 +780,16 @@ export class SimWizard {
     const mz = vt(this.vel.z + this.knock.z, dt);
 
     let dy = 0;
-    if (!this.grounded) {
+    const riding = this.riding && this.alive && !frozen;
+    const flying = !riding && this.flying && !this.evolving;
+    if (riding) {
+      dy = this.hoverStep(dt, arena, CARPET_HOVER, CARPET_CLIMB, CARPET_RISE, CARPET_SINK, CARPET_LOOK, false);
+      this.vy = 0;
+    } else if (flying) {
+      this.flyClock += dt;
+      dy = this.hoverStep(dt, arena, this.flyHeight + mul(sin(muldiv(this.flyClock, FLY_BOB_RATE, 6000)), FLY_BOB), FLY_CLIMB, FLY_RISE, FLY_SINK, FLY_LOOK, true);
+      this.vy = 0;
+    } else if (!this.grounded) {
       // Exact constant-gravity step: vy dt - g dt^2 / 2.
       dy = vt(this.vy, dt) - Math.floor(vt(vt(GRAVITY, dt), dt) / 2);
       this.vy = max(-MAX_FALL, this.vy - vt(GRAVITY, dt));
@@ -704,7 +798,31 @@ export class SimWizard {
     }
     if (this.pos.y + dy < 0) dy = -this.pos.y;
 
-    this.moveCharacter(mx, dy, mz, arena, others, dt);
+    this.moveCharacter(mx, dy, mz, arena, others, dt, riding || flying);
+  }
+
+  /**
+   * Vertical step for one hovering tick (the carpet, a flying boss stage): toward `hover` above the
+   * highest surface under the wizard, or under the point ahead when that is low cover (at most
+   * `climb` above what is underneath), so it swoops over rug piles and car hoods. Wizard.rideStep /
+   * flyStep; `floorIfTall`: the flyer treats unclimbable cover below as the floor.
+   */
+  private hoverStep(dt: number, arena: SimArena, hover: number, climb: number, rise: number, sink: number, look: number, floorIfTall: boolean): number {
+    const r = mul(this.radius, K_0_9);
+    const under = arena.surfaceBelow(this.pos.x, this.pos.z, r, this.pos.y + K_0_02);
+    let base = under >= 0 ? under : floorIfTall ? 0 : this.pos.y;
+    const speed = len2(this.vel.x, this.vel.z);
+    if (speed > ONE) {
+      const reach = this.radius + mul(speed, look);
+      const floor = base;
+      for (let i = 0; i < LOOK_STEPS.length; i++) {
+        const k = mul(reach, LOOK_STEPS[i]);
+        const ahead = arena.surfaceBelow(this.pos.x + muldiv(this.vel.x, k, speed), this.pos.z + muldiv(this.vel.z, k, speed), r, floor + climb);
+        if (ahead >= 0) base = max(base, ahead);
+      }
+    }
+    const d = base + hover - this.pos.y;
+    return clamp(d, -vt(sink, dt), vt(rise, dt));
   }
 
   /** What the last move ended on (Physics.support). */
@@ -715,7 +833,7 @@ export class SimWizard {
    * Slide by (mx, dy, mz) against cover, the wall and the other wizards, then settle the footing
    * (landing, walking off ledges, coyote time, heads).
    */
-  private moveCharacter(mx: number, dy: number, mz: number, arena: SimArena, others: readonly SimWizard[], dt: number): void {
+  private moveCharacter(mx: number, dy: number, mz: number, arena: SimArena, others: readonly SimWizard[], dt: number, hovering: boolean): void {
     const p = this.pos;
     const startY = p.y;
     // Horizontal: substeps of at most 0.15 m, pushed out of anything solid after each.
@@ -750,6 +868,13 @@ export class SimWizard {
       if (roof >= 0) movedY = max(0, roof - (p.y + this.height));
     }
     p.y = max(0, startY + movedY);
+    if (hovering) {
+      // The carpet (or the air) is the footing: the jump and landing logic stays out.
+      this.grounded = true;
+      this.coyote = 0;
+      this.groundY = p.y;
+      return;
+    }
     this.updateFooting(dt, dy, movedY, arena);
   }
 
