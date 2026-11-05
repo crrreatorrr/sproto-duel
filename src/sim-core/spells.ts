@@ -5,7 +5,7 @@
  * single damage rule).
  */
 import { CONFIG } from '../config';
-import { HIT_NONE, HIT_OBSTACLE, HIT_WIZARD, type ArenaQuery, type Body, type Hit, type SimArena, obstacleDistance } from './arena';
+import { HIT_NONE, HIT_OBSTACLE, HIT_WALL, HIT_WIZARD, type ArenaQuery, type Body, type Hit, type SimArena, obstacleDistance } from './arena';
 import type { SimEvents } from './events';
 import {
   DT, ONE, abs, atan2, clamp, cos, deg, fx, sin, isqrt, len2, len3, lerp, max, min, mul, muldiv, sec, setLength3, vt, type V3,
@@ -120,6 +120,7 @@ export interface SimProjectile {
 }
 
 export interface UltWave {
+  id: number;
   owner: SimWizard;
   x: number;
   z: number;
@@ -645,7 +646,7 @@ export class SimSpells {
     w.ultAnnounced = false;
     w.castPulse = ONE;
     w.stats.casts++;
-    this.waves.push({ owner: w, x: w.pos.x, z: w.pos.z, radius: K_0_6, hitWizards: [], hitObstacles: [] });
+    this.waves.push({ id: this.nextId++, owner: w, x: w.pos.x, z: w.pos.z, radius: K_0_6, hitWizards: [], hitObstacles: [] });
     this.world.events.push('cast', w.index, 'ultimate', 0, -1, w.pos.x, 0, w.pos.z);
     this.world.events.push('ultWave', w.index, '', 0, -1, w.pos.x, 0, w.pos.z);
   }
@@ -813,7 +814,7 @@ export class SimSpells {
     const ev = this.world.events;
     if (p.kind === 'blast') {
       this.explode(p.pos, p.owner, p.damage, null, kind === HIT_WIZARD ? this.world.wizards[index] : null);
-      ev.atPos('impact', p.pos, p.owner.index, 'blast', p.id, kind === HIT_WIZARD ? index : -1);
+      ev.atPos('impact', p.pos, p.owner.index, 'blast', p.id, surface(kind, index));
       this.release(p);
       return;
     }
@@ -823,9 +824,9 @@ export class SimSpells {
       ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, index, p.reflected);
     } else if (kind === HIT_OBSTACLE) {
       this.damageObstacle(index, p.damage, p.pos);
-      ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, -1);
+      ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, SURFACE_PILLAR);
     } else {
-      ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, -1);
+      ev.atPos('impact', p.pos, p.owner.index, 'bolt', p.id, surface(kind, index));
     }
     this.release(p);
   }
@@ -1021,6 +1022,12 @@ export class SimSpells {
     }
     return dealt;
   }
+}
+
+/** An 'impact' event's `o`: the wizard hit, or a surface code. */
+export const SURFACE_PILLAR = -2, SURFACE_WALL = -3, SURFACE_FLOOR = -4;
+function surface(kind: number, index: number): number {
+  return kind === HIT_WIZARD ? index : kind === HIT_OBSTACLE ? SURFACE_PILLAR : kind === HIT_WALL ? SURFACE_WALL : SURFACE_FLOOR;
 }
 
 function copy(o: V3, a: V3): void {
