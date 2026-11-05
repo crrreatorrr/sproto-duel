@@ -23,7 +23,7 @@ Sproto `0020`), because the hub refuses to apply an id below the highest one alr
    docker compose --project-directory /opt/metaverse/deploy --env-file /opt/metaverse/deploy/.env \
      -f /opt/metaverse/deploy/compose.yml logs nakama | grep -E '0020_sproto_pvp|sproto_arena|Registered'
    ```
-3. Merge the sproto-duel PR, build and deploy the game (Online Duel stays hidden for now):
+3. Merge the sproto-duel PR, build and deploy the game (Online Duel is on the main menu, stake 0 T):
    ```bash
    cd sproto-duel && npm ci
    VITE_NAKAMA_URL=https://<domain> VITE_NAKAMA_SERVER_KEY=<server key> VITE_HUB_URL=https://<domain>/hub npm run build
@@ -43,25 +43,27 @@ Sproto `0020`), because the hub refuses to apply an id below the highest one alr
 4. Check the frame rate on a laptop GPU. If it stutters, try Settings → Bloom off and Shadows off,
    then tell an agent which one fixed it (the split-screen defaults live in `CONFIG.versus`).
 
-## 3. Two-machine online playtest (before switching Online Duel on)
+## 3. Two-machine online playtest
 
-1. Build a test copy with Online Duel shown and deploy it next to the live one (or locally with
+Online Duel is on the main menu. The stake is 0 Tickets (no wager, no Ticket mint from the client).
+
+1. Build a test copy and deploy it next to the live one (or locally with
    `npm run dev -- --host` on one machine):
    ```bash
-   VITE_ONLINE=1 VITE_NAKAMA_URL=https://<domain> VITE_NAKAMA_SERVER_KEY=<server key> VITE_HUB_URL=https://<domain>/hub npm run build
+   VITE_NAKAMA_URL=https://<domain> VITE_NAKAMA_SERVER_KEY=<server key> VITE_HUB_URL=https://<domain>/hub npm run build
    ```
-2. Two people on **different networks** (for example home Wi-Fi and a phone hotspot), each entering
-   Sproto Duel **from the hub portal** (each needs their own hub account and portal visit).
+2. Two people on **different networks** (for example home Wi-Fi and a phone hotspot). A portal
+   visit and a direct visit can both play, including a hub guest. There is no qualifying step.
+   The stake stays 0 Tickets. A direct visit needs the hub RPC `sproto.standalone_session`.
 3. Both: Online Duel → Quick Match. Play a full best of three. Then try Create Room on one machine
    and Join Room with the code on the other.
 4. Check: the ping chip shows a sane number, movement and spells feel responsive for both
    players (the one who is not hosting sees everything about 100 ms late, by design in v1), the
-   winner gets "+20 Tickets" after "Confirming…", and pulling one player's network cable for
+   result says "0 Tickets" after "Confirming…", and pulling one player's network cable for
    under 10 s resumes the match while longer gives the other player a forfeit win.
 5. Tuning, if it feels off: `CONFIG.net.interpDelayMs` (100; lower = snappier but jerkier for the
    guest) and `CONFIG.net.inputDelayTicks` (2; higher = smoother for the host's view of the guest).
-6. When it plays well, ship it: build the production copy with `VITE_ONLINE=1` (step 1's command)
-   and deploy it as in section 1.3, or ask an agent to make `VITE_ONLINE` default to on.
+6. When it plays well, ship the production build from step 1 and deploy it as in section 1.3.
 
 ## 4. Not needed now
 

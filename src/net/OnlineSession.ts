@@ -1,31 +1,35 @@
 /**
  * One online 1v1, from the menu to the outcome: idle → connecting → searching | hosting-room |
- * joining-room → starting → playing → ended. Owns the match transport, the seat and host role,
+ * joining-room → accepting (quick match) → starting → playing → rematch → ended. Owns the match transport, the seat and host role,
  * the host's RemoteInputBuffer and the guest's SnapshotBuffer, PING/RTT, the opponent's presence
  * and the RESULT → OUTCOME handshake. Pure (no DOM, no Game): App wires it to the game.
  */
 import { packFrames, unpackFrames, type IntentFrame } from './intent';
 import {
-  asCancel, asInput, asOutcome, asPeer, asPing, asStart, NET_VERSION, normalizeRoomCode, OP, parseJson,
-  type OutcomeMsg, type PeerMsg, type ResultMsg, type RoundMsg, type StartMsg,
+  asAcceptEnd, asCancel, asFound, asInput, asOutcome, asPeer, asPing, asRematchState, asStart, NET_VERSION, normalizeRoomCode, OP, parseJson,
+  type AcceptEndMsg, type FoundMsg, type OnlineCount, type OutcomeMsg, type PeerMsg, type RematchStateMsg, type ResultMsg, type RoundMsg, type StartMsg,
 } from './protocol';
 import { RemoteInputBuffer } from './RemoteInputBuffer';
 import { SnapshotBuffer } from './SnapshotBuffer';
 import { decodeSnapshot, SnapshotVersionError, type EncodedSnapshot, type Snapshot } from './state';
 import type { NetTransport, Scheduler, Unsubscribe } from './transport';
 
-export type SessionState = 'idle' | 'connecting' | 'searching' | 'hosting-room' | 'joining-room' | 'starting' | 'playing' | 'ended';
+export type SessionState = 'idle' | 'connecting' | 'searching' | 'hosting-room' | 'joining-room' | 'accepting' | 'starting' | 'playing' | 'rematch' | 'ended';
 
 /** Matchmaking and rooms: the hub realtime client (HubLobby) or FakeArenaServer's lobby. */
 export interface OnlineLobby {
   readonly selfId: string | null;
   connect(): Promise<void>;
-  /** Resolves once matched and joined. */
+  /** Resolves once matched and joined. Quick matches then wait for ACCEPT. */
   quickMatch(): Promise<NetTransport>;
   createRoom(): Promise<{ code: string; transport: NetTransport }>;
   /** Rejects with 'room_not_found' / 'version_mismatch'. */
   joinRoom(code: string): Promise<NetTransport>;
-  /** Give up a pending quickMatch. */
+  /** Join a match id the server already created (a rematch). */
+  joinMatch(matchId: string): Promise<NetTransport>;
+  /** `sproto.online_count`. The caller polls at most every 10 s. */
+  onlineCount(): Promise<OnlineCount>;
+  /** Give up a pending quickMatch (Nakama MatchmakerRemove). */
   cancel(): void;
 }
 
@@ -57,6 +61,11 @@ export interface SessionEvents {
   outcome: OutcomeMsg;
   cancel: string;
   rejoin: undefined;
+  /** Quick-match accept window, including later updates as seats accept. */
+  found: FoundMsg;
+  /** Accept window closed. `next` is this seat's own step. */
+  acceptEnd: AcceptEndMsg;
+  rematch: RematchStateMsg;
 }
 
 export class OnlineSession {
@@ -68,6 +77,14 @@ export class OnlineSession {
   roomCode: string | null = null;
   /** Round-trip time (ms) from the last PING, -1 before one. */
   rttMs = -1;
+  /** Quick-match accept window. Null outside one. */
+  found: FoundMsg | null = null;
+  /** This seat already sent ACCEPT. */
+  youAccepted = false;
+  /** This seat already sent REMATCH yes. */
+  rematchYes = false;
+  /** Rematch window after the outcome. Null until the server opens one. */
+  rematchState: RematchStateMsg | null = null;
   /** The opponent is connected (PEER), and the seconds they have left to come back. */
   peerPresent = true;
   peerGraceS = 0;
@@ -80,6 +97,16 @@ export class OnlineSession {
   private subs: Unsubscribe[] = [];
   private startDeadline = Infinity;
   private nextPing = 0;
+  /** Quick match (accept window) or a direct join (room / rematch, HELLO then START). */
+  private joinKind: 'quick' | 'direct' = 'direct';
+  /** Set while a rematch close is already being handled, so leave does not send a second No. */
+  private rematchClosing = false;
+  /** Match id we are already joining from REMATCH_STATE started. */
+  private rematchMatchId = '';
+  /** No REMATCH_STATE this long after the outcome: the window is not coming. */
+  private rematchOpenDeadline = Infinity;
+  /** Local copy of the server's rematch clock, plus a short grace before we give up. */
+  private rematchClockEnd = Infinity;
   private readonly sentFrames: IntentFrame[] = [];
   private unsent = 0;
   private readonly listeners: { [K in keyof SessionEvents]?: ((v: SessionEvents[K]) => void)[] } = {};
@@ -121,12 +148,17 @@ export class OnlineSession {
     return this.state !== 'idle' && this.state !== 'ended';
   }
 
+  /** Cosmetic staff for the next HELLO or ACCEPT. The results screen can change it before a rematch. */
+  set staffId(id: string) {
+    this.opts.staff = id;
+  }
+
   async quickMatch(): Promise<void> {
-    await this.begin('searching', async () => this.lobby.quickMatch());
+    await this.begin('searching', 'quick', async () => this.lobby.quickMatch());
   }
 
   async createRoom(): Promise<string | null> {
-    await this.begin('hosting-room', async () => {
+    await this.begin('hosting-room', 'direct', async () => {
       const r = await this.lobby.createRoom();
       this.roomCode = r.code;
       return r.transport;
@@ -141,12 +173,13 @@ export class OnlineSession {
       return;
     }
     this.roomCode = code;
-    await this.begin('joining-room', async () => this.lobby.joinRoom(code));
+    await this.begin('joining-room', 'direct', async () => this.lobby.joinRoom(code));
   }
 
-  private async begin(waiting: SessionState, open: () => Promise<NetTransport>): Promise<void> {
+  private async begin(waiting: SessionState, kind: 'quick' | 'direct', open: () => Promise<NetTransport>): Promise<void> {
     if (this.active) return;
     this.reset();
+    this.joinKind = kind;
     this.setState('connecting');
     try {
       await this.lobby.connect();
@@ -154,6 +187,8 @@ export class OnlineSession {
       this.setState(waiting);
       const t = await open();
       if (this.state !== waiting) {
+        // Cancelled while the matchmaker was pairing. Leaving an accept-phase match is a decline.
+        if (kind === 'quick') t.send(OP.DECLINE, '{}');
         t.close();
         return;
       }
@@ -167,6 +202,14 @@ export class OnlineSession {
     this.start = this.outcome = null;
     this.endReason = this.roomCode = null;
     this.rttMs = -1;
+    this.found = null;
+    this.youAccepted = false;
+    this.rematchYes = false;
+    this.rematchState = null;
+    this.rematchClosing = false;
+    this.rematchMatchId = '';
+    this.rematchOpenDeadline = Infinity;
+    this.rematchClockEnd = Infinity;
     this.peerPresent = true;
     this.peerGraceS = 0;
     this.sentFrames.length = 0;
@@ -175,7 +218,24 @@ export class OnlineSession {
     this.snapshots.clear();
   }
 
-  /** Joined a match: say HELLO and wait for START. */
+  /** Drop the fight buffers but keep the session (a rematch joins a new match id). */
+  private clearFight(): void {
+    this.start = this.outcome = null;
+    this.endReason = null;
+    this.found = null;
+    this.youAccepted = false;
+    this.rematchYes = false;
+    this.rematchState = null;
+    this.peerPresent = true;
+    this.peerGraceS = 0;
+    this.sentFrames.length = 0;
+    this.unsent = 0;
+    this.badSnapshots = 0;
+    this.remoteInput.reset();
+    this.snapshots.clear();
+  }
+
+  /** Joined a match. Quick matches wait for FOUND / ACCEPT. Rooms and rematches say HELLO. */
   private attach(t: NetTransport): void {
     this.transport = t;
     this.subs.push(
@@ -186,9 +246,18 @@ export class OnlineSession {
         if (this.active) this.end(reason === 'ended' ? 'match_ended' : 'disconnected');
       }),
     );
-    if (this.state !== 'hosting-room') this.setState('starting');
+    if (this.joinKind === 'quick') this.setState('accepting');
+    else if (this.state !== 'hosting-room') this.setState('starting');
     this.startDeadline = this.opts.scheduler.now() + (this.opts.startTimeoutMs ?? 30_000);
     this.send(OP.HELLO, { v: this.opts.version ?? NET_VERSION, staff: this.opts.staff });
+  }
+
+  private detachTransport(): void {
+    for (const u of this.subs) u();
+    this.subs = [];
+    const t = this.transport;
+    this.transport = null;
+    t?.close();
   }
 
   private send(op: number, body: unknown): void {
@@ -201,6 +270,10 @@ export class OnlineSession {
       case OP.START: {
         const s = asStart(parseJson(data));
         if (!s) return;
+        // START begins the match we are still waiting on: the accept window, a room, or the
+        // new match joined after REMATCH_STATE started. A replay on a match that already
+        // started (including one sitting in the rematch window) is not another fight.
+        if (this.state !== 'accepting' && this.state !== 'starting' && this.state !== 'hosting-room' && this.state !== 'joining-room') return;
         const first = this.start === null;
         this.start = s;
         this.startDeadline = Infinity;
@@ -245,7 +318,15 @@ export class OnlineSession {
         if (!o) return;
         this.outcome = o;
         this.emit('outcome', o);
-        this.end(o.status);
+        // A shutdown, or a peer already gone, does not open a rematch window.
+        if (o.status === 'server_shutdown' || !this.peerPresent) {
+          this.end(o.status);
+          return;
+        }
+        this.endReason = o.status;
+        this.rematchOpenDeadline = now + 3_000;
+        this.rematchClockEnd = Infinity;
+        this.setState('rematch');
         return;
       }
       case OP.CANCEL: {
@@ -253,18 +334,110 @@ export class OnlineSession {
         this.end(c?.reason ?? 'cancelled');
         return;
       }
+      case OP.FOUND: {
+        if (this.state !== 'accepting') return;
+        const f = asFound(parseJson(data));
+        if (!f) return;
+        this.found = f;
+        this.emit('found', f);
+        return;
+      }
+      case OP.ACCEPT_END: {
+        const m = asAcceptEnd(parseJson(data));
+        if (!m) return;
+        this.endReason = m.status;
+        this.end(m.status, m);
+        return;
+      }
+      case OP.REMATCH_STATE: {
+        const m = asRematchState(parseJson(data));
+        if (!m) return;
+        this.rematchState = m;
+        this.rematchOpenDeadline = Infinity;
+        if (m.phase === 'open' || m.phase === 'offered') this.rematchClockEnd = now + m.waitS * 1000 + 1_500;
+        if (m.phase === 'started') {
+          this.rematchClockEnd = Infinity;
+          void this.followRematch(m.matchId);
+        } else if (m.phase === 'closed') {
+          this.rematchClosing = true;
+          this.rematchClockEnd = Infinity;
+        }
+        this.emit('rematch', m);
+        if (m.phase === 'closed') this.end(m.reason);
+        return;
+      }
       default:
         return;
     }
   }
 
-  /** Call every frame: PINGs, and the START timeout. */
+  /** Accept the quick-match window. Private rooms never call this. */
+  accept(): void {
+    if (this.state !== 'accepting' || this.youAccepted) return;
+    this.youAccepted = true;
+    this.send(OP.ACCEPT, { v: this.opts.version ?? NET_VERSION, staff: this.opts.staff });
+    if (this.found) {
+      const accepted: [boolean, boolean] = [...this.found.accepted];
+      accepted[this.found.seat] = true;
+      this.found = { ...this.found, accepted };
+      this.emit('found', this.found);
+    }
+  }
+
+  /** Decline the quick-match window. The server answers with ACCEPT_END. */
+  decline(): void {
+    if (this.state !== 'accepting') return;
+    this.send(OP.DECLINE, {});
+  }
+
+  /** Yes or no to the rematch window. */
+  rematch(yes: boolean): void {
+    if (this.state !== 'rematch' || this.rematchClosing) return;
+    this.send(OP.REMATCH, { yes });
+    if (yes) this.rematchYes = true;
+    else this.rematchClosing = true;
+  }
+
+  /** REMATCH_STATE started: leave the old match and HELLO into the new one. No accept window. */
+  private async followRematch(matchId: string): Promise<void> {
+    if (this.rematchMatchId) return;
+    this.rematchMatchId = matchId;
+    this.joinKind = 'direct';
+    this.detachTransport();
+    this.clearFight();
+    this.setState('starting');
+    try {
+      const t = await this.lobby.joinMatch(matchId);
+      if (this.state !== 'starting' || this.rematchMatchId !== matchId) {
+        t.close();
+        return;
+      }
+      this.attach(t);
+    } catch (err) {
+      if (this.active) this.end(errorCode(err));
+    }
+  }
+
+  /** Call every frame: PINGs, the START timeout, and a local fallback if the rematch clock never closes. */
   update(nowMs = this.opts.scheduler.now()): void {
-    if (this.state === 'starting' && nowMs > this.startDeadline) {
+    if ((this.state === 'starting' || this.state === 'accepting') && nowMs > this.startDeadline) {
       this.end('start_timeout');
       return;
     }
-    if ((this.state === 'playing' || this.state === 'starting') && nowMs >= this.nextPing) {
+    if (this.state === 'rematch' && !this.rematchClosing) {
+      if (nowMs > this.rematchOpenDeadline || nowMs > this.rematchClockEnd) {
+        this.rematchClosing = true;
+        const reason = this.rematchState ? 'rematch_timeout' : (this.outcome?.status ?? 'rematch_timeout');
+        const closed: RematchStateMsg = { phase: 'closed', reason: 'rematch_timeout', next: 'lobby', waitS: 0 };
+        if (!this.rematchState || this.rematchState.phase === 'open' || this.rematchState.phase === 'offered') {
+          this.rematchState = closed;
+          this.emit('rematch', closed);
+        }
+        this.end(reason);
+        return;
+      }
+    }
+    if ((this.state === 'playing' || this.state === 'starting' || this.state === 'accepting' || this.state === 'rematch') && nowMs >= this.nextPing) {
       this.nextPing = nowMs + (this.opts.pingEveryMs ?? 1000);
       this.send(OP.PING, { c: nowMs });
     }
@@ -308,22 +481,24 @@ export class OnlineSession {
     for (const c of chunks) this.send(OP.LOG, { c });
   }
 
-  /** Back out: cancels matchmaking, leaves the match (the server treats it as leaving). */
+  /**
+   * Back out. Searching removes the matchmaker ticket. The accept window sends DECLINE.
+   * A rematch window sends No. Mid-fight still just leaves, which the server forfeits.
+   */
   leave(): void {
     if (this.state === 'searching') this.lobby.cancel();
+    if (this.state === 'accepting') this.send(OP.DECLINE, {});
+    if (this.state === 'rematch' && !this.rematchClosing) this.send(OP.REMATCH, { yes: false });
     if (this.active) this.end('left');
   }
 
-  private end(reason: string): void {
+  private end(reason: string, acceptEnd?: AcceptEndMsg): void {
     if (this.state === 'ended') return;
     this.endReason = reason;
-    for (const u of this.subs) u();
-    this.subs = [];
-    const t = this.transport;
-    this.transport = null;
-    t?.close();
+    this.detachTransport();
     this.setState('ended');
-    if (!this.outcome) this.emit('cancel', reason);
+    if (acceptEnd) this.emit('acceptEnd', acceptEnd);
+    else if (!this.outcome) this.emit('cancel', reason);
   }
 }
 

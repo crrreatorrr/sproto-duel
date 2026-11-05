@@ -229,6 +229,8 @@ html, body {
 .tagline { margin: 0 0 10px; font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
 .tip { margin: 6px 0 0; font-size: 14px; color: var(--ink-dim); }
 .row { display: flex; gap: 10px; }
+/* Author `display` rules would otherwise beat the user-agent [hidden] style. */
+.menus [hidden] { display: none !important; }
 .row > button { flex: 1; }
 .menus button {
   font: 700 17px/1 var(--hud); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink);
@@ -237,6 +239,7 @@ html, body {
 }
 .menus button:hover { background: rgba(60, 46, 110, 0.9); box-shadow: 0 0 16px rgba(140, 120, 255, 0.35); }
 .menus button:active { transform: translateY(1px); }
+.menus button:disabled { opacity: 0.45; cursor: default; }
 .menus button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .menus button.primary { font-size: 20px; padding: 16px; background: linear-gradient(180deg, #f5c96a, #c9892c); color: #1d1206; border-color: #ffe2a3; }
 .menus button.primary:hover { box-shadow: 0 0 22px rgba(255, 200, 100, 0.6); background: linear-gradient(180deg, #ffd884, #d99736); }
@@ -946,7 +949,24 @@ html, body {
 /* Online Duel menus and HUD. */
 .online .join-row { display: flex; gap: 8px; align-items: stretch; }
 .online .room-code { flex: 1; min-width: 0; font: inherit; font-size: 1.15em; letter-spacing: 0.25em; text-transform: uppercase; text-align: center; padding: 8px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(0, 0, 0, 0.35); color: inherit; }
-.online-status .room-code-big { font-size: 2.4em; letter-spacing: 0.3em; font-weight: 700; margin: 12px 0; }
+#ui .menus button.room-code-big { font-size: 2.2em; letter-spacing: 0.28em; font-weight: 700; margin: 8px 0; padding: 8px 12px; background: transparent; }
+.online-status .room-actions { margin-top: -4px; }
+.online-status .search-time { margin: 0; font: 700 40px/1 var(--hud); font-variant-numeric: tabular-nums; letter-spacing: 0.06em; }
+.online-status .latency, .match-found .latency { font-variant-numeric: tabular-nums; }
+.accept-head { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.accept-seats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.accept-seats li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.12); }
+.accept-seats li.yes { border-color: #7fe0a0; }
+.accept-seats small { color: var(--ink-dim); letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
+.count-ring { position: relative; width: 44px; height: 44px; display: inline-grid; place-items: center; flex: none; }
+.count-ring svg { position: absolute; inset: 0; width: 44px; height: 44px; transform: rotate(-90deg); }
+.count-ring circle { fill: none; stroke-width: 3; }
+.count-ring .track { stroke: rgba(255, 255, 255, 0.18); }
+.count-ring .arc { stroke: var(--gold); stroke-linecap: round; }
+.count-ring b { position: relative; font: 700 14px var(--hud); font-variant-numeric: tabular-nums; }
+.rematch-bar { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; }
+.rematch-bar .row { grid-column: 1 / -1; }
+.rematch-copy b { font-family: var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
 .ping-chip { position: absolute; top: 8px; right: 10px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.45); color: #cfe; display: none; }
 .ping-chip.on { display: block; }
 .ping-chip.bad { color: #ffb38a; }

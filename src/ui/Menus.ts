@@ -137,6 +137,33 @@ export interface GauntletStatus {
   clears: number;
 }
 
+/** Quick-match search screen. `rttMs` is -1 until a sample exists. */
+export interface SearchView {
+  elapsedS: number;
+  online: number | null;
+  queued: number | null;
+  note: string;
+  rttMs: number;
+}
+
+/** Match-found accept window. `leftS` counts down from `totalS`. */
+export interface FoundView {
+  names: [string, string];
+  accepted: [boolean, boolean];
+  seat: 0 | 1;
+  leftS: number;
+  totalS: number;
+  rttMs: number;
+}
+
+/** Rematch prompt on the results screen. */
+export interface RematchView {
+  leftS: number;
+  totalS: number;
+  offeredBy: 'you' | 'them' | null;
+  youOffered: boolean;
+}
+
 /** Local Versus join screen state (App polls the pads and repaints it). */
 export interface VersusJoinView {
   /** What P1 plays with, e.g. "Keyboard + mouse" or "Keyboard + mouse + Controller 1". */
@@ -152,7 +179,7 @@ export interface MenuHandlers {
   start(): void;
   /** Local Versus: open the join screen. */
   versus?(): void;
-  /** Online Duel: shown only when built with it (VITE_ONLINE=1); `why` explains a disabled button. */
+  /** Online Duel on the main menu. Null hides the button. `why` is the second line; a disabled button still shows. */
   online?(): { enabled: boolean; why: string } | null;
   openOnline?(): void;
   /** Boss Gauntlet from fight 1. */
@@ -890,8 +917,9 @@ export class Menus {
     const s = this.mount(`
       <div class="menu-panel online">
         <h2>Online Duel</h2>
-        <p class="note">One best-of-three against another player. Even fight: starter staff stats, no reward spells or god mode. A win pays 20 Tickets once the server confirms it.</p>
+        <p class="note">One best-of-three against another player. Even fight: starter staff stats, no reward spells or god mode. No Ticket stake and no wager: 0 T.</p>
         ${note ? `<p class="note online-note" role="status">${escapeHtml(note)}</p>` : ''}
+        <p class="note online-counts" role="status"></p>
         <button class="primary" data-act="quick" data-autofocus>Quick Match<small>Play whoever is searching</small></button>
         <button data-act="create">Create Room<small>Get a code to share</small></button>
         <div class="row join-row">
@@ -910,19 +938,158 @@ export class Menus {
     this.on(s, '[data-act="back"]', () => h.back());
   }
 
-  /** Waiting for an opponent (searching, a room code to share, joining). Cancel backs out. */
+  /** Waiting for an opponent (a room code to share, joining, connecting). Cancel backs out. */
   showOnlineStatus(title: string, sub: string, h: { cancel(): void }, code: string | null = null): void {
     const s = this.mount(`
       <div class="menu-panel online-status">
         <h2>${escapeHtml(title)}</h2>
-        ${code ? `<p class="room-code-big" aria-label="Room code">${escapeHtml(code)}</p><button data-act="copy">Copy Code</button>` : ''}
+        ${code ? `<button type="button" class="room-code-big" data-act="copy" aria-label="Copy room code">${escapeHtml(code)}</button>
+        <div class="row room-actions"><button type="button" data-act="copy">Copy</button><button type="button" data-act="share">Share</button></div>` : ''}
         <p class="note online-sub" role="status">${escapeHtml(sub)}</p>
         <button class="ghost" data-act="cancel" data-back data-autofocus>Cancel</button>
       </div>`, 'online-status');
     this.on(s, '[data-act="cancel"]', () => h.cancel());
-    this.on(s, '[data-act="copy"]', () => {
-      void navigator.clipboard?.writeText(code ?? '').then(() => this.toast('Copied', code ?? ''), () => {});
+    this.on(s, '[data-act="copy"]', () => { void this.copyCode(code ?? ''); });
+    this.on(s, '[data-act="share"]', () => { void this.shareCode(code ?? ''); });
+  }
+
+  /** Quick-match search: elapsed time, who's online, ping, and Cancel (removes the ticket). */
+  showSearching(view: SearchView, h: { cancel(): void }): void {
+    const s = this.mount(`
+      <div class="menu-panel online-status" data-search>
+        <h2>Searching</h2>
+        <p class="search-time" data-elapsed>0:00</p>
+        <p class="note online-counts" role="status"></p>
+        <p class="note online-note" data-note role="status"></p>
+        <p class="note latency" data-ping>Ping …</p>
+        <p class="note">0 Tickets. No wager.</p>
+        <button class="ghost" data-act="cancel" data-back data-autofocus>Cancel</button>
+      </div>`, 'online-status');
+    this.on(s, '[data-act="cancel"]', () => h.cancel());
+    this.setSearching(view);
+  }
+
+  /** Patch the searching screen. No-op if that screen is not up. */
+  setSearching(view: SearchView): void {
+    const root = this.screen?.querySelector('[data-search]');
+    if (!root) return;
+    this.setText(root, '[data-elapsed]', clock(view.elapsedS));
+    this.setText(root, '.online-counts', countsLine(view.online, view.queued));
+    this.setText(root, '[data-note]', view.note);
+    const note = root.querySelector<HTMLElement>('[data-note]');
+    if (note) note.hidden = !view.note;
+    this.setText(root, '[data-ping]', pingLine(view.rttMs));
+  }
+
+  /** Quick-match accept window. Decline is also Back. */
+  showMatchFound(view: FoundView, h: { accept(): void; decline(): void }): void {
+    const s = this.mount(`
+      <div class="menu-panel match-found">
+        <h2>Match Found</h2>
+        <div class="accept-head">${ringHtml()}<p class="note">Both must accept</p></div>
+        <ul class="accept-seats">
+          <li data-seat="0"><b></b><small></small></li>
+          <li data-seat="1"><b></b><small></small></li>
+        </ul>
+        <p class="note">0 Tickets. No wager.</p>
+        <p class="note latency" data-ping></p>
+        <button class="primary" data-act="accept" data-autofocus>Accept</button>
+        <button class="ghost" data-act="decline" data-back>Decline</button>
+      </div>`, 'match-found');
+    this.on(s, '[data-act="accept"]', () => {
+      h.accept();
+      const btn = s.querySelector<HTMLButtonElement>('[data-act="accept"]');
+      if (btn) btn.disabled = true;
     });
+    this.on(s, '[data-act="decline"]', () => {
+      h.decline();
+      s.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    });
+    this.setMatchFound(view);
+  }
+
+  setMatchFound(view: FoundView): void {
+    const root = this.screen?.querySelector('.match-found');
+    if (!root) return;
+    paintRing(root, view.leftS, view.totalS);
+    for (const seat of [0, 1] as const) {
+      const li = root.querySelector<HTMLElement>(`[data-seat="${seat}"]`);
+      if (!li) continue;
+      li.classList.toggle('yes', view.accepted[seat]);
+      const raw = view.names[seat] || (seat === view.seat ? 'You' : 'Opponent');
+      const who = seat === view.seat && !/^you$/i.test(raw) ? `${raw} (you)` : raw;
+      this.setText(li, 'b', who);
+      this.setText(li, 'small', view.accepted[seat] ? 'Accepted' : 'Waiting');
+    }
+    this.setText(root, '[data-ping]', pingLine(view.rttMs));
+  }
+
+  /**
+   * Rematch prompt on the results screen. Yes / No replace the results buttons while it is open.
+   * Returns false when the results screen is not up.
+   */
+  showRematch(view: RematchView, h: { yes(): void; no(): void }): void {
+    const panel = this.screen?.querySelector('.menu-panel.results');
+    if (!panel) return;
+    let bar = panel.querySelector<HTMLElement>('[data-rematch]');
+    if (!bar) {
+      panel.querySelector('.menu-actions')?.setAttribute('hidden', '');
+      bar = document.createElement('div');
+      bar.className = 'rematch-bar';
+      bar.setAttribute('data-rematch', '');
+      bar.innerHTML = `${ringHtml()}<div class="rematch-copy"><b>Rematch?</b><p class="note" data-rematch-note></p></div>
+        <div class="row"><button class="primary" data-act="rematch-yes">Yes</button><button class="ghost" data-act="rematch-no" data-back>No</button></div>`;
+      panel.appendChild(bar);
+      this.on(bar, '[data-act="rematch-yes"]', () => h.yes());
+      this.on(bar, '[data-act="rematch-no"]', () => h.no());
+    }
+    this.setRematch(view);
+  }
+
+  setRematch(view: RematchView): void {
+    const bar = this.screen?.querySelector<HTMLElement>('[data-rematch]');
+    if (!bar) return;
+    paintRing(bar, view.leftS, view.totalS);
+    const note = view.offeredBy === 'you' ? 'You offered. Waiting.' : view.offeredBy === 'them' ? 'Opponent wants a rematch.' : '0 Tickets. No wager.';
+    this.setText(bar, '[data-rematch-note]', note);
+    const yes = bar.querySelector<HTMLButtonElement>('[data-act="rematch-yes"]');
+    if (yes) yes.disabled = view.youOffered;
+  }
+
+  /** Who's online, on the online menu. No-op on other screens. */
+  setOnlineCounts(online: number | null, queued: number | null): void {
+    const el = this.screen?.querySelector('.menu-panel.online > .online-counts');
+    if (!el) return;
+    el.textContent = countsLine(online, queued);
+  }
+
+  private setText(root: ParentNode, sel: string, text: string): void {
+    const el = root.querySelector(sel);
+    if (el && el.textContent !== text) el.textContent = text;
+  }
+
+  private async copyCode(code: string): Promise<void> {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      this.toast('Copied', code);
+    } catch {
+      this.toast('Copy failed', code);
+    }
+  }
+
+  private async shareCode(code: string): Promise<void> {
+    if (!code) return;
+    const text = `Sproto Duel room ${code}`;
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: 'Sproto Duel', text });
+        return;
+      } catch {
+        // The sheet was cancelled, or share is unavailable. Copy instead.
+      }
+    }
+    await this.copyCode(code);
   }
 
   /** In an online match, Esc / Start: the fight never pauses; you can only resume or forfeit. */
@@ -952,4 +1119,37 @@ export class Menus {
 
 function escapeHtml(t: string): string {
   return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+const RING_R = 16;
+const RING_C = 2 * Math.PI * RING_R;
+
+function ringHtml(): string {
+  return `<span class="count-ring"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="${RING_R}"/><circle class="arc" cx="20" cy="20" r="${RING_R}"/></svg><b>0</b></span>`;
+}
+
+/** Move the countdown ring. No CSS animation: the dash is the time left. */
+function paintRing(root: ParentNode, left: number, total: number): void {
+  const ring = root.querySelector<HTMLElement>('.count-ring');
+  if (!ring) return;
+  const p = total <= 0 ? 0 : Math.max(0, Math.min(1, left / total));
+  const arc = ring.querySelector<SVGCircleElement>('.arc');
+  if (arc) arc.setAttribute('stroke-dasharray', `${(p * RING_C).toFixed(2)} ${RING_C.toFixed(2)}`);
+  const label = String(Math.max(0, Math.ceil(left)));
+  const b = ring.querySelector('b');
+  if (b && b.textContent !== label) b.textContent = label;
+}
+
+function clock(seconds: number): string {
+  const n = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
+}
+
+function countsLine(online: number | null, queued: number | null): string {
+  if (online === null || queued === null) return 'Checking who is online…';
+  return `${online} online · ${queued} queued`;
+}
+
+function pingLine(ms: number): string {
+  return ms < 0 ? 'Ping …' : `${Math.round(ms)} ms`;
 }

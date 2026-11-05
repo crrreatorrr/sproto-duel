@@ -1,5 +1,6 @@
 import { createHubSdk, HubSdkError, type HubRealtime, type HubSdk, type InitResult, type RealtimeOptions, type RelicId } from '@metaverse/hub-sdk';
 import { HUB_EXIT_SLUG, HUB_GAME_ID, TICKETS_PER_VERSE } from './config';
+import { openGuestRealtime } from './guestSession';
 import { planDuelWin, type DuelWin } from './report';
 import { pageServerKey } from './serverKey';
 
@@ -45,10 +46,23 @@ export class HubLink {
   constructor(private readonly api: HubSdk = createBrowserSdk()) {}
 
   private rt: HubRealtime | null = null;
+  /** Device-auth session for a visit that has no portal ticket. Ranked stays 0. */
+  private guestRt: HubRealtime | null = null;
+  /**
+   * One id per fight. `beginFight` mints it; otherwise the first `onDuelWin` for a payload
+   * mints it and a repeat of that same payload reuses it. The next different win mints another.
+   */
+  private fightMatchId: string | null = null;
+  /** True after `beginFight` until the next one: every report in between shares `fightMatchId`. */
+  private fightOpen = false;
+  /** Payload of the win that owns `fightMatchId` when the fight was not opened with `beginFight`. */
+  private fightSignature: string | null = null;
+  /** Match id already sent to the hub. A second handler call for that fight does not post again. */
+  private reportedMatchId: string | null = null;
 
   /**
-   * The realtime client for online duels (the game-scope session from init), or null when this
-   * visit isn't hub-connected (then Online Duel stays disabled). Created once.
+   * The portal visit's realtime client, or null when this visit has no hub session.
+   * Online Duel for that visit goes through `openOnlineRealtime`, which also covers a guest.
    */
   realtime(make: (sdk: HubSdk, opts: Omit<RealtimeOptions, 'getToken'>) => HubRealtime | null): HubRealtime | null {
     if (!this.connected) return null;
@@ -58,22 +72,27 @@ export class HubLink {
   }
 
   /**
-   * An online match's result, from the server referee (sproto_arena). The client never earns for
-   * it: the server paid `paid[selfId]` (or nothing). Shows it and refreshes the balance.
+   * Realtime client for Online Duel. A portal visit keeps its game session and is never swapped
+   * for a device guest. Anyone else, including a guest, gets a device session and
+   * `sproto.standalone_session` (`ranked` 0, no wager). Created once. The socket opens on connect.
    */
-  async onOnlineOutcome(outcome: { status: string; paid: Record<string, number>; balances?: Record<string, number> }, selfId: string | null, notify: Notify = () => {}): Promise<void> {
-    if (!this.connected || !selfId) return;
-    const paid = outcome.paid[selfId] ?? 0;
-    const known = outcome.balances?.[selfId];
-    if (typeof known === 'number') this.balance = known;
-    else if (paid > 0) {
-      try {
-        this.balance = (await this.api.getTicketBalance()).balance;
-      } catch {
-        /* the balance shows after the next exchange or win */
-      }
-    }
-    if (paid > 0) notify(`+${paid} Tickets`, this.balance === null ? 'Online win' : `Balance ${this.balance}`);
+  openOnlineRealtime(make: (sdk: HubSdk, opts: Omit<RealtimeOptions, 'getToken'>) => HubRealtime | null): HubRealtime | null {
+    if (this.connected) return this.realtime(make);
+    this.guestRt ??= openGuestRealtime({ serverUrl: nakamaUrl(), serverKey: pageServerKey() });
+    return this.guestRt;
+  }
+
+  /**
+   * An online match ended. The stake is 0 Tickets until a server-verified Duel sim exists.
+   * This does not call earnTickets, getTicketBalance, exchange, or any other Ticket mint,
+   * and it does not toast a payout. `paid` on the outcome is ignored.
+   */
+  async onOnlineOutcome(
+    _outcome: { status: string; paid: Record<string, number>; balances?: Record<string, number> },
+    _selfId: string | null,
+    _notify: Notify = () => {},
+  ): Promise<void> {
+    /* no Ticket stake, no wager hold */
   }
 
   static standalone(): HubLink {
@@ -130,34 +149,44 @@ export class HubLink {
     return this.balanceJob;
   }
 
-  /**
-   * Report a finished duel. Losses and standalone visits do nothing.
-   * God-mode wins still earn Tickets and can grant Tinubu's Crown; they do not post a score.
-   * The match id is the operation id (`sproto:win:<id>`, `sproto.boss_defeated:<id>`).
-   * On a queued error the SDK has already saved that id and resends it on the next init,
-   * so this does not call again with a new one.
-   */
   /** The last finished match's input log and its match id (hub verification; see docs/SERVER-SIM.md). */
   lastReplay: { matchId: string; log: object } | null = null;
 
-  async onDuelWin(win: Omit<DuelWin, 'matchId' | 'ranked'>, notify: Notify = () => {}): Promise<void> {
+  beginFight(): string {
+    this.fightMatchId = crypto.randomUUID();
+    this.fightOpen = true;
+    this.fightSignature = null;
+    this.reportedMatchId = null;
+    return this.fightMatchId;
+  }
+
+  /**
+   * Report a finished duel. Losses and standalone visits do nothing.
+   * This never calls earnTickets. A story-boss gauntlet win posts `sproto.boss_defeated`
+   * (the hub pays 20 T once per boss per UTC day and may grant Tinubu's Crown).
+   * After that event, the shown balance is refreshed. A Ticket toast appears only when it rose.
+   * The match id is assigned once per fight (`beginFight`, or the first report of this win)
+   * and the operation id is `sproto.boss_defeated:<id>`. A second call for that fight does not post.
+   * On a queued error the SDK has already saved that id and resends it on the next init.
+   * A replay log is kept on `lastReplay` under that same match id.
+   */
+  async onDuelWin(win: Omit<DuelWin, 'matchId' | 'ranked'> & { matchId?: string }, notify: Notify = () => {}): Promise<void> {
     if (!this.connected) return;
-    const matchId = crypto.randomUUID();
-    // The latest verifiable log, for the hub's replay (a boss event carries it; see report.ts).
+    const matchId = this.matchIdFor(win);
     if (win.replay) this.lastReplay = { matchId, log: win.replay };
     const calls = planDuelWin({ ...win, ranked: this.ranked, matchId });
+    if (calls.length === 0 || this.reportedMatchId === matchId) return;
+    this.reportedMatchId = matchId;
     let title = '';
     let sub = '';
+    let crown = false;
+    let eventPosted = false;
     for (const call of calls) {
       try {
-        if (call.kind === 'earn') {
-          const earned = await this.api.earnTickets(call.amount, call.reason, call.key);
-          this.balance = earned.balance;
-          title = earned.capped ? 'Tickets capped' : `+${call.amount} Tickets`;
-          sub = earned.capped ? `Daily cap reached · Balance ${earned.balance}` : `Balance ${earned.balance}`;
-        } else if (call.kind === 'event') {
+        if (call.kind === 'event') {
           const reported = await this.api.reportEvent(call.eventId, call.data, call.key);
-          if (reported.granted === 'tinubu_crown') sub = sub ? `${sub} · Tinubu's Crown` : "Tinubu's Crown";
+          eventPosted = true;
+          if (reported.granted === 'tinubu_crown') crown = true;
         } else {
           await this.api.submitScore(call.boardId, call.value, call.meta);
         }
@@ -171,7 +200,55 @@ export class HubLink {
         sub = sub ? `${sub} · ${message}` : message;
       }
     }
+    if (eventPosted) {
+      const before = this.balance;
+      try {
+        const next = (await this.api.getTicketBalance()).balance;
+        if (typeof before === 'number' && next > before) {
+          title = `+${next - before} Tickets`;
+          sub = sub ? `Balance ${next} · ${sub}` : `Balance ${next}`;
+        }
+        this.balance = next;
+      } catch {
+        /* no Ticket toast unless the shown balance actually rose */
+      }
+    }
+    if (crown) {
+      sub = sub ? `${sub} · Tinubu's Crown` : "Tinubu's Crown";
+      if (!title) title = "Tinubu's Crown";
+    }
     if (title) notify(title, sub);
+  }
+
+  /**
+   * The id for this win. A passed `matchId` or an open `beginFight` id is reused for every
+   * call until the next fight. With neither, the first call mints one and a repeat of the
+   * same win (mode, boss, god mode, result, elapsed) reuses it; a different win mints another.
+   */
+  private matchIdFor(win: Omit<DuelWin, 'matchId' | 'ranked'> & { matchId?: string }): string {
+    if (win.matchId) {
+      if (win.matchId !== this.fightMatchId) {
+        this.fightMatchId = win.matchId;
+        this.fightOpen = true;
+        this.fightSignature = HubLink.fightSignature(win);
+        if (this.reportedMatchId !== win.matchId) this.reportedMatchId = null;
+      }
+      return win.matchId;
+    }
+    const signature = HubLink.fightSignature(win);
+    if (this.fightOpen && this.fightMatchId) {
+      this.fightSignature = signature;
+      return this.fightMatchId;
+    }
+    if (this.fightMatchId && this.fightSignature === signature) return this.fightMatchId;
+    this.fightMatchId = crypto.randomUUID();
+    this.fightSignature = signature;
+    this.fightOpen = false;
+    return this.fightMatchId;
+  }
+
+  private static fightSignature(win: Omit<DuelWin, 'matchId' | 'ranked'>): string {
+    return `${win.mode ?? ''}|${win.bossId ?? ''}|${win.godMode}|${win.playerWon}|${win.elapsed}`;
   }
 
   /** Spend Tickets for Verse. The server enforces the rate and the daily cap. */

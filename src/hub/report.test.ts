@@ -17,20 +17,18 @@ describe('planDuelWin', () => {
     expect(TICKETS_PER_WIN).toBe(20);
   });
 
-  it('reports nothing for Local Versus or online, win or not', () => {
+  it('reports nothing for Local Versus, online, or an unranked Quick Duel', () => {
     expect(planDuelWin(win({ mode: 'versus', ranked: true }))).toEqual([]);
     expect(planDuelWin(win({ mode: 'online', ranked: true, bossId: 'tinubu' }))).toEqual([]);
-    expect(planDuelWin(win({ mode: 'quick' }))).toHaveLength(1);
+    expect(planDuelWin(win({ mode: 'quick' }))).toEqual([]);
   });
 
   it('reports nothing for a loss', () => {
     expect(planDuelWin(win({ playerWon: false, bossId: 'tinubu', ranked: true }))).toEqual([]);
   });
 
-  it('earns 20 Tickets for a Quick Duel win and skips the board when unranked', () => {
-    expect(planDuelWin(win())).toEqual([
-      { kind: 'earn', amount: 20, reason: 'duel_win', key: 'sproto:win:match-1' },
-    ]);
+  it('posts nothing for an unranked Quick Duel and skips the board', () => {
+    expect(planDuelWin(win({ mode: 'quick' }))).toEqual([]);
   });
 
   it('posts one win on the ranked board', () => {
@@ -43,10 +41,10 @@ describe('planDuelWin', () => {
     });
   });
 
-  it('keeps Tickets and the Tinubu event in god mode, and skips the score', () => {
+  it('posts the Tinubu event in god mode and skips the score', () => {
     const calls = planDuelWin(win({ bossId: 'tinubu', godMode: true, ranked: true, elapsed: 90.6 }));
-    expect(calls.map((call) => call.kind)).toEqual(['earn', 'event']);
-    expect(calls[1]).toEqual({
+    expect(calls.map((call) => call.kind)).toEqual(['event']);
+    expect(calls[0]).toEqual({
       kind: 'event',
       eventId: TINUBU_EVENT,
       data: { boss: 'tinubu', elapsed: 91 },
@@ -56,7 +54,7 @@ describe('planDuelWin', () => {
 
   it('reports Tinubu with a ranked score when the fight was clean', () => {
     const kinds = planDuelWin(win({ bossId: 'tinubu', ranked: true })).map((call) => call.kind);
-    expect(kinds).toEqual(['earn', 'event', 'score']);
+    expect(kinds).toEqual(['event', 'score']);
   });
 
   it('uses the same idempotency keys for the same match id', () => {

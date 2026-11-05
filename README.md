@@ -109,21 +109,30 @@ arena. Main menu → **Local Versus** → Player 2 presses A on a controller →
 
 ## Online Duel
 
-Behind `VITE_ONLINE=1` until the two-machine playtest passes (or `?online` in `npm run dev`).
-It needs a hub visit (enter Sproto Duel from its portal); standalone the button explains that.
+On the main menu in every build. Anyone can play, including a guest and a visit that did not come
+from the hub portal. There is no qualifying step, no wager, and no Ticket hold. The stake stays
+**0 Tickets**. There is no `VITE_ONLINE` gate.
 
-- **Quick Match** pairs you with whoever is searching (same protocol version); **Create Room** shows
-  a 6-character code to share; **Join Room** takes one. Esc opens Resume / Forfeit: the fight never
-  pauses. The HUD shows a ping chip.
-- Rules: the Versus rules above, never paused. A win pays **20 Tickets** only when the server
-  referee confirms it: both players' results agree and fit the rounds it recorded. At most 5 paid
-  wins per pair of players per UTC day and 10 per player. A forfeit pays the one who stayed only
-  after at least one finished round and 15 s. Disputed results, draws and timeouts pay nothing.
-  The client never earns Tickets for online play; online wins count on the `sproto_wins` board.
+A portal visit uses the game session from its ticket. A visit without one signs in with this
+browser's device id (a hub guest) and asks the hub for `sproto.standalone_session` with
+`{app:"sproto-duel"}`. The server mints the session (`scope=game`, `game=sproto`, `ranked=0`).
+The client never chooses scope, game, or ranked, and it never sends a secret.
+
+- **Quick Match** puts you in a queue and pairs you with whoever is searching (same protocol
+  version). When a match is found, both players have **10 seconds** to accept. Decline, leave, or
+  a timeout follows the server: one seat can re-queue, the other returns to the online menu.
+  **Create Room** shows a 6-character code to share; **Join Room** takes one. Private rooms skip
+  the accept window. Esc on the search screen leaves the queue. Esc in a fight opens Resume /
+  Forfeit: the fight never pauses. After a finished match both players can rematch. The HUD shows
+  a ping chip. There is no MMR.
+- Rules: the Versus rules above, never paused. The stake is **0 Tickets**. There is no wager and no
+  Ticket hold. The client does not call `earnTickets` for an online win, or for any other win,
+  and it does not show a payout. `paid` on the outcome is ignored. The hub can still record the
+  match on `sproto_wins`.
 - **Netcode.** One client, the **host** (random each match), runs the fight's deterministic sim
   (`src/sim-core`, see [docs/SERVER-SIM.md](docs/SERVER-SIM.md)) and the other is a **replica**.
-  After RESULT (or a forfeit) the host sends the match's input log (`OP.LOG` chunks) so the server
-  can replay it with `dist/duel-sim.server.js`.
+  After RESULT (or a forfeit) the host sends the match's input log (`OP.LOG` chunks, opcode 25) so
+  a referee can replay it with `dist/duel-sim.server.js`.
   The guest sends its intent frames (`src/net/intent.ts`, 30 messages/s, recent frames repeated);
   the host plays them through a jitter buffer (`RemoteInputBuffer`, 2 ticks) and streams snapshots
   at 30 Hz (`src/net/state.ts`, about 1 KB) with the fight's events. The guest interpolates both
@@ -132,16 +141,17 @@ It needs a hub visit (enter Sproto Duel from its portal); standalone the button 
   v1 has no guest prediction: your own wizard on the guest also comes from the host (fine at up to
   about 80 ms; spells have visible travel time).
 - **Honest limits.** "Both results agree" catches a modified guest and quick-quit farming, not a
-  modified host. That exposure is capped: the host is random (a cheater hosts about half the time),
-  5 paid wins per pair per day, 10 (200 Tickets) per player per day, and the hub's 1000/day cap.
+  modified host. The host is random (a cheater hosts about half the time). There is no Ticket
+  payout to farm while the stake is 0. Play stays on the existing Nakama relay. This build does
+  not add a TURN server.
 - Tuning: `CONFIG.net` (`inputDelayTicks`, `interpDelayMs`, `extrapolateMaxMs`, `snapEveryTicks`, ...).
   Opcodes and `NET_VERSION` are in `src/net/protocol.ts` and must match the server's.
 - Dev without a server: `npm run dev` and open `/?netsim=80`. You host against a scripted guest over an
   in-page fake referee with 80 ms one-way latency.
 - **Two-tab local test** (real server): run the hub's Nakama with the `sproto_arena` module (see
   metaverse-hub `docs/games/sproto-arena.md`), build or run the game with
-  `VITE_ONLINE=1 VITE_NAKAMA_URL=http://127.0.0.1:7350`, and enter it from the hub portal in two
-  browser profiles (each needs its own portal ticket). Quick Match in both.
+  `VITE_NAKAMA_URL=http://127.0.0.1:7350`, and open it in two browser profiles. A portal visit uses
+  its ticket. A direct visit signs in as a guest. Quick Match in both. The result says 0 Tickets.
 
 ## Golden Tickets
 
@@ -170,6 +180,11 @@ after it is a clear step up; Tinubu is close to impossible. This ladder is the g
 difficulty setting (Quick Duel is one fixed rival, best of three). A card introduces each fight;
 win to unlock the next, lose and you retry the same one. Progress is saved in the browser, so
 **Continue** on the main menu resumes at the next fight. Beating Tinubu clears the gauntlet.
+A gauntlet win against Sahil, Bitcoin Obama, Broccoli Head, Glowie, or Tinubu posts
+`sproto.boss_defeated` with `boss` set to `sahil`, `obama`, `broccoli`, `agent`, or `tinubu`.
+The hub pays 20 Tickets once per player per boss per UTC day. The Midget is not a separate boss.
+Quick Duel pays nothing. The client does not call `earnTickets`.
+
 **New Gauntlet** only replaces a saved run once you press **Begin** on fight 1's card (the button
 says so); backing out to the main menu keeps Continue.
 

@@ -9,11 +9,14 @@ import {
   asResult, asRound, normalizeStaff, NET_VERSION, OP, parseJson, roomCode,
   type OutcomeMsg, type ResultMsg, type RoundMsg,
 } from './protocol';
+import type { OnlineCount } from './protocol';
 import type { OnlineLobby } from './OnlineSession';
 import { loopbackPair, type LinkOptions, type LoopbackTransport, type NetPeer, type NetTransport, type Scheduler } from './transport';
 
 export const ARENA = {
   TICK_RATE: 30,
+  ACCEPT_S: 10,
+  REMATCH_S: 15,
   JOIN_TIMEOUT_S: 30,
   RECONNECT_S: 10,
   STALL_S: 10,
@@ -30,6 +33,8 @@ interface Player {
   /** Server side of this player's link (null while disconnected). */
   link: LoopbackTransport | null;
   hello: boolean;
+  /** Quick-match accept window. Private rooms and rematches leave this false. */
+  accepted: boolean;
   staff: string;
   leftTick: number | null;
 }
@@ -37,7 +42,9 @@ interface Player {
 export class FakeArenaMatch {
   readonly id: string;
   players: Player[] = [];
-  phase: 'joining' | 'playing' | 'done' = 'joining';
+  phase: 'joining' | 'accept' | 'playing' | 'done';
+  /** Private rooms and rematches skip the accept window. */
+  readonly skipAccept: boolean;
   hostSeat: 0 | 1;
   tick = 0;
   startedTick = -1;
@@ -49,6 +56,13 @@ export class FakeArenaMatch {
   firstResultTick = -1;
   outcome: OutcomeMsg | null = null;
   doneTick = -1;
+  /** Why an accept window ended, so a late join can be told. */
+  endReason = '';
+  rematchOpen = false;
+  rematchOffer = -1;
+  rematchSince = -1;
+  rematchClosed = -1;
+  rematchMatchId = '';
   /** Relayed message counts (tests). */
   readonly relayed = { input: 0, snapshot: 0, dropped: 0 };
 
@@ -57,9 +71,14 @@ export class FakeArenaMatch {
     readonly code: string,
     readonly isPrivate: boolean,
     hostSeat: 0 | 1,
+    skipAccept = isPrivate,
+    preset: NetPeer[] = [],
   ) {
     this.id = `fake-${server.nextId++}`;
     this.hostSeat = hostSeat;
+    this.skipAccept = skipAccept;
+    this.phase = skipAccept ? 'joining' : 'accept';
+    for (const user of preset) this.players.push({ user, link: null, hello: false, accepted: false, staff: 'duel_staff_sproto', leftTick: null });
   }
 
   seatOf(userId: string): number {
@@ -71,8 +90,8 @@ export class FakeArenaMatch {
     if (this.phase === 'done') return null;
     let seat = this.seatOf(user.userId);
     if (seat < 0) {
-      if (this.players.length >= 2 || (this.phase !== 'joining')) return null;
-      this.players.push({ user, link: null, hello: false, staff: 'duel_staff_sproto', leftTick: null });
+      if (this.players.length >= 2 || this.phase !== 'joining') return null;
+      this.players.push({ user, link: null, hello: false, accepted: false, staff: 'duel_staff_sproto', leftTick: null });
       seat = this.players.length - 1;
     }
     const p = this.players[seat];
@@ -88,6 +107,10 @@ export class FakeArenaMatch {
       this.sendTo(1 - seat, OP.PEER, { seat, present: true, graceS: 0 });
       this.sendStart(seat);
     }
+    if (this.phase === 'accept') {
+      this.sendFound(0);
+      this.sendFound(1);
+    }
     return client;
   }
 
@@ -95,11 +118,16 @@ export class FakeArenaMatch {
     const p = this.players[seat];
     p.link = null;
     p.leftTick = this.tick;
+    if (this.phase === 'accept') {
+      this.endAccept('declined', seat);
+      return;
+    }
     if (this.phase === 'joining') {
       this.cancel('opponent_left');
       return;
     }
     if (this.phase === 'playing') this.sendTo(1 - seat, OP.PEER, { seat, present: false, graceS: ARENA.RECONNECT_S });
+    else if (this.phase === 'done' && this.rematchOpen && this.rematchClosed < 0) this.closeRematch('declined');
   }
 
   private sendTo(seat: number, op: number, body: unknown): void {
@@ -116,8 +144,83 @@ export class FakeArenaMatch {
     this.sendTo(seat, OP.START, { seat, hostSeat: this.hostSeat, names, staffs, rules: 'online1', seed: 1234 });
   }
 
-  private onMessage(seat: number, op: number, data: string): void {
+  private sendFound(seat: number): void {
+    const names = [0, 1].map((i) => this.players[i]?.user.username ?? '');
+    const accepted = [0, 1].map((i) => !!this.players[i]?.accepted);
+    this.sendTo(seat, OP.FOUND, { acceptS: ARENA.ACCEPT_S, seat, accepted, names });
+  }
+
+  /** Accept window ended. Nothing is paid. `next` is that seat's own step. */
+  private endAccept(status: 'declined' | 'accept_timeout', bySeat: number | null): void {
     if (this.phase === 'done') return;
+    this.phase = 'done';
+    this.doneTick = this.tick;
+    this.endReason = status;
+    for (let seat = 0; seat < this.players.length; seat++) {
+      let next: 'queue' | 'lobby' = 'lobby';
+      if (status === 'declined') next = seat === bySeat ? 'lobby' : 'queue';
+      else if (this.players[seat].accepted) next = 'queue';
+      this.sendTo(seat, OP.ACCEPT_END, { status, bySeat, next });
+    }
+  }
+
+  private bothHere(): boolean {
+    return this.players.length >= 2 && !!this.players[0].link && !!this.players[1].link;
+  }
+
+  private openRematch(): void {
+    this.rematchOpen = true;
+    this.rematchOffer = -1;
+    this.rematchSince = this.tick;
+    this.rematchClosed = -1;
+    this.rematchMatchId = '';
+    this.broadcast(OP.REMATCH_STATE, { phase: 'open', waitS: ARENA.REMATCH_S });
+  }
+
+  private closeRematch(reason: 'declined' | 'rematch_timeout' | 'started'): void {
+    if (this.rematchClosed >= 0) return;
+    this.rematchClosed = this.tick;
+    if (reason !== 'started') this.broadcast(OP.REMATCH_STATE, { phase: 'closed', reason, next: 'lobby', waitS: 0 });
+  }
+
+  private startRematch(): void {
+    if (!this.rematchMatchId) {
+      const created = this.server.createRematch(this.players.map((p) => p.user));
+      this.rematchMatchId = created.id;
+    }
+    this.broadcast(OP.REMATCH_STATE, { phase: 'started', matchId: this.rematchMatchId, waitS: 0 });
+    this.closeRematch('started');
+  }
+
+  private onRematchYes(seat: number): void {
+    if (this.rematchMatchId) {
+      this.broadcast(OP.REMATCH_STATE, { phase: 'started', matchId: this.rematchMatchId, waitS: 0 });
+      return;
+    }
+    if (this.rematchOffer < 0) {
+      this.rematchOffer = seat;
+      this.rematchSince = this.tick;
+      this.broadcast(OP.REMATCH_STATE, { phase: 'offered', seat, waitS: ARENA.REMATCH_S });
+      return;
+    }
+    if (this.rematchOffer === seat) return;
+    this.startRematch();
+  }
+
+  private onMessage(seat: number, op: number, data: string): void {
+    if (this.phase === 'done') {
+      if (!this.rematchOpen || this.rematchClosed >= 0) return;
+      if (op === OP.PING) {
+        const m = parseJson(data) as { c?: unknown } | null;
+        if (m && typeof m.c === 'number') this.sendTo(seat, OP.PING, { c: m.c, s: this.tick });
+      } else if (op === OP.REMATCH) {
+        const m = parseJson(data) as { yes?: unknown } | null;
+        if (!m || typeof m.yes !== 'boolean') return;
+        if (m.yes) this.onRematchYes(seat);
+        else this.closeRematch('declined');
+      }
+      return;
+    }
     switch (op) {
       case OP.HELLO: {
         const m = parseJson(data) as { v?: unknown; staff?: unknown } | null;
@@ -170,6 +273,28 @@ export class FakeArenaMatch {
       case OP.FORFEIT:
         if (this.phase === 'playing') this.finish('forfeit', (1 - seat) as 0 | 1, 'forfeit');
         return;
+      case OP.ACCEPT: {
+        if (this.phase !== 'accept') return;
+        const m = parseJson(data) as { v?: unknown; staff?: unknown } | null;
+        if (!m) return;
+        if (!this.players[seat].hello) {
+          if (m.v !== NET_VERSION) {
+            this.cancel('version_mismatch', seat);
+            return;
+          }
+          this.players[seat].hello = true;
+          this.players[seat].staff = normalizeStaff(m.staff);
+        } else if (m.staff !== undefined) {
+          this.players[seat].staff = normalizeStaff(m.staff);
+        }
+        this.players[seat].accepted = true;
+        this.sendFound(0);
+        this.sendFound(1);
+        return;
+      }
+      case OP.DECLINE:
+        if (this.phase === 'accept') this.endAccept('declined', seat as 0 | 1);
+        return;
       default:
         return;
     }
@@ -204,6 +329,7 @@ export class FakeArenaMatch {
     this.broadcast(OP.OUTCOME, this.outcome);
     this.phase = 'done';
     this.doneTick = this.tick;
+    if (status !== 'server_shutdown' && this.bothHere()) this.openRematch();
   }
 
   private cancel(reason: string, seat?: number): void {
@@ -217,20 +343,28 @@ export class FakeArenaMatch {
     this.tick++;
     const T = ARENA.TICK_RATE;
     if (this.phase === 'done') {
-      if (this.tick - this.doneTick >= ARENA.LINGER_S * T) {
+      if (this.rematchOpen && this.rematchClosed < 0) {
+        if (this.rematchSince >= 0 && this.tick - this.rematchSince > ARENA.REMATCH_S * T) this.closeRematch('rematch_timeout');
+        return true;
+      }
+      const anchor = this.rematchClosed >= 0 ? this.rematchClosed : this.doneTick;
+      if (this.tick - anchor >= ARENA.LINGER_S * T) {
         for (const p of this.players) p.link?.close('ended');
         return false;
       }
       return true;
     }
-    if (this.phase === 'joining') {
-      if (this.players.length === 2 && this.players.every((p) => p.link && p.hello)) {
+    if (this.phase === 'joining' || this.phase === 'accept') {
+      const ready = this.players.length === 2 && this.players.every((p) => p.link && p.hello && (this.phase !== 'accept' || p.accepted));
+      if (ready) {
         this.phase = 'playing';
         this.startedTick = this.lastInputTick = this.lastSnapTick = this.tick;
         this.sendStart(0);
         this.sendStart(1);
+      } else if (this.phase === 'accept') {
+        if (this.tick > ARENA.ACCEPT_S * T) this.endAccept('accept_timeout', null);
       } else if (this.tick > (this.isPrivate && this.players.length < 2 ? 300 : ARENA.JOIN_TIMEOUT_S) * T) {
-        this.cancel('join_timeout');
+        this.cancel(this.players.length < 2 ? 'room_expired' : 'join_timeout');
       }
       return true;
     }
@@ -275,11 +409,16 @@ export class FakeArenaServer {
     return this.flip;
   }
 
-  private create(code: string, isPrivate: boolean): FakeArenaMatch {
-    const m = new FakeArenaMatch(this, code, isPrivate, this.hostSeat());
+  private create(code: string, isPrivate: boolean, skipAccept = isPrivate, preset: NetPeer[] = []): FakeArenaMatch {
+    const m = new FakeArenaMatch(this, code, isPrivate, this.hostSeat(), skipAccept, preset);
     this.matches.push(m);
     this.run();
     return m;
+  }
+
+  /** A rematch: same two players, same seat order, no accept window, new host and id. */
+  createRematch(players: NetPeer[]): FakeArenaMatch {
+    return this.create('', false, true, players);
   }
 
   private run(): void {
@@ -306,7 +445,7 @@ export class FakeArenaServer {
           server.queue.push({ user, resolve });
           if (server.queue.length >= 2) {
             const [a, b] = server.queue.splice(0, 2);
-            const m = server.create('', false);
+            const m = server.create('', false, false, [a.user, b.user]);
             a.resolve(m.connect(a.user, server.link)!);
             b.resolve(m.connect(b.user, server.link)!);
           }
@@ -320,6 +459,19 @@ export class FakeArenaServer {
         const m = server.matches.find((x) => x.isPrivate && x.code === code && x.phase === 'joining' && x.players.length < 2);
         if (!m) throw new Error('room_not_found');
         return m.connect(user, server.link)!;
+      },
+      async joinMatch(matchId: string) {
+        const m = server.matches.find((x) => x.id === matchId);
+        const t = m?.connect(user, server.link);
+        if (!t) throw new Error(m?.endReason || 'match_over');
+        return t;
+      },
+      async onlineCount(): Promise<OnlineCount> {
+        let online = 0;
+        for (const match of server.matches) online += match.players.filter((p) => p.link).length;
+        const delay = (server.link.latencyMs ?? 0) * 2;
+        if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+        return { online, queued: server.queue.length, ageMs: 0 };
       },
       cancel() {
         server.queue = server.queue.filter((q) => q.resolve !== waiting);
