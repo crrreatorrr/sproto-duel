@@ -102,11 +102,6 @@ export class App {
   private versusDevices: [DeviceBinding, DeviceBinding] | null = null;
   /** Local Versus join screen: the pad that joined as P2, and whether A was let go since. */
   private join: { p2: number | null; released: boolean } | null = null;
-  /**
-   * Online Duel is in this build: VITE_ONLINE=1 (off by default until the two-machine playtest),
-   * or `?online` / `?netsim=<ms>` in `npm run dev`.
-   */
-  readonly onlineBuilt: boolean;
   /** The current online match (or search), its game wiring, and the server's verdict. */
   onlineSession: OnlineSession | null = null;
   onlineCtl: OnlineController | null = null;
@@ -133,8 +128,6 @@ export class App {
   private pausedAt = 0;
 
   constructor(readonly game: Game, campaign = new Campaign(), private readonly hub = HubLink.standalone()) {
-    const q = new URLSearchParams(location.search);
-    this.onlineBuilt = import.meta.env.VITE_ONLINE === '1' || (import.meta.env.DEV && (q.has('online') || q.has('netsim')));
     // Relics the existing init already returned. No session: the staff cache stays the fallback.
     setSessionRelics(hub.connected ? hub.relics : null);
     this.campaign = campaign;
@@ -173,8 +166,8 @@ export class App {
     this.menus = new Menus(game.ui, this.settings, {
       start: () => this.startMatch(),
       versus: () => this.showVersusJoin(),
-      online: () => (!this.onlineBuilt ? null : this.onlineAvailable
-        ? { enabled: true, why: 'Quick match or a private room' }
+      online: () => (this.onlineAvailable
+        ? { enabled: true, why: 'Best of three · 0 Ticket stake' }
         : { enabled: false, why: 'Enter from the hub portal to play online' }),
       openOnline: () => this.openOnline(),
       gauntlet: () => this.newGauntlet(),
@@ -527,11 +520,11 @@ export class App {
     this.beginMatch(null, ONLINE, !s.isHost);
   }
 
-  /** The server's verdict: shown on the results (now, if the match ended early), Tickets refreshed. */
+  /** The server's verdict, shown on the results. Online stakes are 0 Tickets; the client does not mint. */
   private onOutcome(s: OnlineSession, o: OutcomeMsg): void {
     if (s !== this.onlineSession) return;
     this.onlineOutcome = o;
-    void this.hub.onOnlineOutcome(o, this.onlineLobby()?.selfId ?? null, (title, sub) => this.menus.toast(title, sub, 'tickets'));
+    void this.hub.onOnlineOutcome(o, this.onlineLobby()?.selfId ?? null);
     this.onlineCtl?.stop();
     if (this.state === 'results') this.menus.setResultNote(this.outcomeText());
     // A match that ended early (forfeit, opponent gone, stall): results now. A finished one keeps
@@ -552,31 +545,28 @@ export class App {
     this.openOnline(ONLINE_REASONS[reason] ?? `Connection ended (${reason})`);
   }
 
+  /** Results line. The stake is always 0 Tickets; `paid` on the outcome is not shown and not minted. */
   private outcomeText(): string {
     const o = this.onlineOutcome;
     const s = this.onlineSession;
-    if (!o) return s && s.state === 'ended' ? 'The server sent no result: no Tickets' : 'Confirming with the server…';
-    const me = s?.seat ?? 0;
-    const won = o.winnerSeat === me;
-    const paid = Object.values(o.paid).reduce((a, b) => a + b, 0);
-    const self = this.onlineLobby()?.selfId;
-    const myPay = (self && o.paid[self]) || 0;
+    const stake = '0 Tickets';
+    if (!o) return s && s.state === 'ended' ? `The server sent no result · ${stake}` : `Confirming with the server… · ${stake}`;
+    const won = o.winnerSeat === (s?.seat ?? 0);
     switch (o.status) {
       case 'verified':
-        return won ? (myPay ? `Confirmed · +${myPay} Tickets` : 'Confirmed · no Tickets (daily limit reached)') : 'Confirmed';
+        return `Confirmed · ${stake}`;
       case 'forfeit':
-        if (!won) return 'Forfeited';
-        return paid ? `Opponent left, you win · +${myPay || paid} Tickets` : 'Opponent left, you win (too early for Tickets)';
+        return won ? `Opponent left, you win · ${stake}` : `Forfeited · ${stake}`;
       case 'disputed':
-        return 'Disputed: the two results did not match · no Tickets';
+        return `Disputed: the two results did not match · ${stake}`;
       case 'draw':
-        return 'Draw · no Tickets';
+        return `Draw · ${stake}`;
       case 'timeout':
-        return 'Ran out of time · no Tickets';
+        return `Ran out of time · ${stake}`;
       case 'both_left':
-        return 'Both players left';
+        return `Both players left · ${stake}`;
       default:
-        return 'The server ended the match · no Tickets';
+        return `The server ended the match · ${stake}`;
     }
   }
 

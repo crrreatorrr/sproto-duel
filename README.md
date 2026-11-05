@@ -98,17 +98,18 @@ arena. Main menu → **Local Versus** → Player 2 presses A on a controller →
 
 ## Online Duel
 
-Behind `VITE_ONLINE=1` until the two-machine playtest passes (or `?online` in `npm run dev`).
-It needs a hub visit (enter Sproto Duel from its portal); standalone the button explains that.
+On the main menu in every build. It needs a hub visit (enter Sproto Duel from its portal). A visit
+that did not come from the portal still sees the button; it stays disabled and says to enter from
+the portal. There is no `VITE_ONLINE` gate.
 
 - **Quick Match** pairs you with whoever is searching (same protocol version); **Create Room** shows
   a 6-character code to share; **Join Room** takes one. Esc opens Resume / Forfeit: the fight never
   pauses. The HUD shows a ping chip.
-- Rules: the Versus rules above, never paused. A win pays **20 Tickets** only when the server
-  referee confirms it: both players' results agree and fit the rounds it recorded. At most 5 paid
-  wins per pair of players per UTC day and 10 per player. A forfeit pays the one who stayed only
-  after at least one finished round and 15 s. Disputed results, draws and timeouts pay nothing.
-  The client never earns Tickets for online play; online wins count on the `sproto_wins` board.
+- Rules: the Versus rules above, never paused. The stake is **0 Tickets**. There is no wager and no
+  Ticket hold. The client does not call `earnTickets` (or any other Ticket mint) for an online win,
+  and it does not show a payout. The hub can still record the match on `sproto_wins`. A verified
+  win, a forfeit, a dispute, a draw and a timeout all pay 0 T, until a server-verified Duel sim
+  exists.
 - **Netcode.** The fight's simulation needs Rapier and three.js, which the hub's Nakama runtime can't
   run, so one client, the **host** (random each match), runs it and the other is a **replica**.
   The guest sends its intent frames (`src/net/intent.ts`, 30 messages/s, recent frames repeated);
@@ -119,16 +120,17 @@ It needs a hub visit (enter Sproto Duel from its portal); standalone the button 
   v1 has no guest prediction: your own wizard on the guest also comes from the host (fine at up to
   about 80 ms; spells have visible travel time).
 - **Honest limits.** "Both results agree" catches a modified guest and quick-quit farming, not a
-  modified host. That exposure is capped: the host is random (a cheater hosts about half the time),
-  5 paid wins per pair per day, 10 (200 Tickets) per player per day, and the hub's 1000/day cap.
+  modified host. The host is random (a cheater hosts about half the time). There is no Ticket
+  payout to farm while the stake is 0. Play stays on the existing Nakama relay. This build does
+  not add a TURN server.
 - Tuning: `CONFIG.net` (`inputDelayTicks`, `interpDelayMs`, `extrapolateMaxMs`, `snapEveryTicks`, ...).
   Opcodes and `NET_VERSION` are in `src/net/protocol.ts` and must match the server's.
 - Dev without a server: `npm run dev` and open `/?netsim=80`. You host against a scripted guest over an
   in-page fake referee with 80 ms one-way latency.
 - **Two-tab local test** (real server): run the hub's Nakama with the `sproto_arena` module (see
   metaverse-hub `docs/games/sproto-arena.md`), build or run the game with
-  `VITE_ONLINE=1 VITE_NAKAMA_URL=http://127.0.0.1:7350`, and enter it from the hub portal in two
-  browser profiles (each needs its own portal ticket). Quick Match in both.
+  `VITE_NAKAMA_URL=http://127.0.0.1:7350`, and enter it from the hub portal in two
+  browser profiles (each needs its own portal ticket). Quick Match in both. The result says 0 Tickets.
 
 ## Golden Tickets
 

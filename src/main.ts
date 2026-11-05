@@ -25,6 +25,8 @@ async function boot() {
     if (netsim !== null) {
       const { netsimLobby } = await import('./net/devNetsim');
       app.devLobby = () => netsimLobby(Math.max(0, Number(netsim) || 80));
+      // The title screen was drawn before this lobby existed. Repaint so Online is playable.
+      if (app.state === 'menu' && app.menus.current === 'main') app.toMenu();
     }
     // QA scenarios dress bosses synchronously: every model is in before the harness appears.
     await game.assets.prefetchBosses();

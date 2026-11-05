@@ -58,22 +58,16 @@ export class HubLink {
   }
 
   /**
-   * An online match's result, from the server referee (sproto_arena). The client never earns for
-   * it: the server paid `paid[selfId]` (or nothing). Shows it and refreshes the balance.
+   * An online match ended. The stake is 0 Tickets until a server-verified Duel sim exists.
+   * This does not call earnTickets, getTicketBalance, exchange, or any other Ticket mint,
+   * and it does not toast a payout. `paid` on the outcome is ignored.
    */
-  async onOnlineOutcome(outcome: { status: string; paid: Record<string, number>; balances?: Record<string, number> }, selfId: string | null, notify: Notify = () => {}): Promise<void> {
-    if (!this.connected || !selfId) return;
-    const paid = outcome.paid[selfId] ?? 0;
-    const known = outcome.balances?.[selfId];
-    if (typeof known === 'number') this.balance = known;
-    else if (paid > 0) {
-      try {
-        this.balance = (await this.api.getTicketBalance()).balance;
-      } catch {
-        /* the balance shows after the next exchange or win */
-      }
-    }
-    if (paid > 0) notify(`+${paid} Tickets`, this.balance === null ? 'Online win' : `Balance ${this.balance}`);
+  async onOnlineOutcome(
+    _outcome: { status: string; paid: Record<string, number>; balances?: Record<string, number> },
+    _selfId: string | null,
+    _notify: Notify = () => {},
+  ): Promise<void> {
+    /* no Ticket stake, no wager hold */
   }
 
   static standalone(): HubLink {

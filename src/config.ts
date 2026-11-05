@@ -1334,7 +1334,7 @@ export const CONFIG = {
    * The server is authoritative for the rate, the balance and the daily Verse cap.
    */
   hub: {
-    /** Flat Tickets for each duel win. No difficulty scaling. */
+    /** Flat Tickets for a Quick Duel or Boss Gauntlet win. Online stake is 0 and does not use this. */
     ticketsPerWin: 20,
     /** Tickets spent for one Verse. */
     ticketsPerVerse: 10,

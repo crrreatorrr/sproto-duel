@@ -151,7 +151,7 @@ export interface MenuHandlers {
   start(): void;
   /** Local Versus: open the join screen. */
   versus?(): void;
-  /** Online Duel: shown only when built with it (VITE_ONLINE=1); `why` explains a disabled button. */
+  /** Online Duel on the main menu. Null hides the button. `why` is the second line; a disabled button still shows. */
   online?(): { enabled: boolean; why: string } | null;
   openOnline?(): void;
   /** Boss Gauntlet from fight 1. */
@@ -846,7 +846,7 @@ export class Menus {
     const s = this.mount(`
       <div class="menu-panel online">
         <h2>Online Duel</h2>
-        <p class="note">One best-of-three against another player. Even fight: starter staff stats, no reward spells or god mode. A win pays 20 Tickets once the server confirms it.</p>
+        <p class="note">One best-of-three against another player. Even fight: starter staff stats, no reward spells or god mode. No Ticket stake and no wager: 0 T.</p>
         ${note ? `<p class="note online-note" role="status">${escapeHtml(note)}</p>` : ''}
         <button class="primary" data-act="quick" data-autofocus>Quick Match<small>Play whoever is searching</small></button>
         <button data-act="create">Create Room<small>Get a code to share</small></button>

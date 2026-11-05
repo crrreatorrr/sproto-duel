@@ -9,7 +9,7 @@ export const HUB_GAME_ID = 'sproto';
 /** Portal slug in the hub return hash (`#from=sproto-duel`). */
 export const HUB_EXIT_SLUG = 'sproto-duel';
 
-/** Flat Tickets for each duel win. The only amount the game reports. */
+/** Flat Tickets for a Quick Duel or Boss Gauntlet win. Online matches do not use this (stake is 0). */
 export const TICKETS_PER_WIN = CONFIG.hub.ticketsPerWin;
 export const TICKETS_PER_VERSE = CONFIG.hub.ticketsPerVerse;
 export const VERSE_DAILY_CAP = CONFIG.hub.verseDailyCap;

@@ -39,7 +39,7 @@ export const VERSUS: Readonly<MatchRules> = Object.freeze({
   rewardSpells: false, tickets: true, godModeAllowed: false, pause: true, reportToHub: false,
 });
 
-/** Online 1v1: Versus rules, never paused; the server referee pays wins, never the client. */
+/** Online 1v1: Versus rules, never paused. Stake is 0 Tickets; the client never mints for a win. */
 export const ONLINE: Readonly<MatchRules> = Object.freeze({ ...VERSUS, kind: 'online', pause: false });
 
 export function rulesFor(kind: MatchRules['kind']): Readonly<MatchRules> {

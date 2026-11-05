@@ -3,7 +3,7 @@ import { TINUBU_BOSS_ID, TINUBU_EVENT, TICKETS_PER_WIN, WIN_REASON, WINS_BOARD }
 export interface DuelWin {
   /**
    * What was played. Local Versus and online report nothing from the client: Versus could be
-   * farmed on one screen, and online wins are paid by the server referee (sproto_arena).
+   * farmed on one screen, and an online win mints no Tickets (stake is 0).
    */
   mode?: 'quick' | 'gauntlet' | 'versus' | 'online';
   playerWon: boolean;
@@ -44,7 +44,7 @@ export type HubCall = EarnCall | EventCall | ScoreCall;
 
 /**
  * What a finished duel reports to the hub.
- * A loss reports nothing, and neither does Local Versus or an online match (see `mode`). A win earns a flat Ticket amount. Beating Tinubu also reports the
+ * A loss reports nothing, and neither does Local Versus or an online match (see `mode`). A Quick Duel or gauntlet win earns a flat Ticket amount. Beating Tinubu also reports the
  * Relic event. God-mode and unranked wins skip the leaderboard.
  */
 export function planDuelWin(win: DuelWin): HubCall[] {
