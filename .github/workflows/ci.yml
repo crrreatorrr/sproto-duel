@@ -45,7 +45,7 @@ jobs:
       - name: Check assets
         run: npm run check:assets
 
-      # package.json build already typechecks, bundles, and runs scripts/check-prod-debug.mjs.
+      # package.json build bundles the game, runs scripts/check-prod-debug.mjs and builds the server sim.
       - name: Build
         run: npm run build
 
