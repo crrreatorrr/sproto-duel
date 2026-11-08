@@ -26,6 +26,7 @@ import type { SimEvent, SimSetup } from '../sim-core';
 import type { Match } from './Match';
 import { feel } from './feel';
 import { Input } from './Input';
+import { createFrameLoop } from './crash';
 
 /** Anything that drives a wizard from inside the fixed tick (AI, training dummy). */
 export interface TickController {
@@ -611,13 +612,17 @@ export class Game {
     return !!this.presenter?.live;
   }
 
-  private readonly frame = (now: number) => {
-    requestAnimationFrame(this.frame);
+  /**
+   * The rAF loop. It always reschedules, even when a frame throws; a throw ends that frame (no
+   * further fixed steps run in it). After a few failing frames in a row the crash guard pauses the
+   * game and shows the "Something broke" panel (core/crash.ts).
+   */
+  private readonly frame = createFrameLoop((now: number) => {
     // Clamp both ways: long stalls (tab switch) and clocks going backwards must never explode smoothing.
     const realDt = Math.max(0, Math.min(0.1, (now - this.lastTime) / 1000));
     this.lastTime = now;
     this.advance(realDt);
-  };
+  });
 
   /** One rendered frame: input, simulation steps, render. The rAF loop calls it; QA may too (no new loop). */
   advance(realDt: number): void {
