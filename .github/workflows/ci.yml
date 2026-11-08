@@ -1,4 +1,4 @@
-# No package.json engines field and no .nvmrc; Node 20 is the LTS line to use.
+# Node 22 matches package.json "engines".
 name: CI
 
 on:
@@ -27,14 +27,23 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
+      # Typechecks src and, with tsconfig.test.json, the colocated *.test.ts files (the build's
+      # tsc step skips tests).
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Test
         run: npm test
+
+      # Every GLB under public/assets must stay within its triangle budget (ASSETS.md).
+      - name: Check assets
+        run: npm run check:assets
 
       # package.json build already typechecks, bundles, and runs scripts/check-prod-debug.mjs.
       - name: Build
@@ -53,7 +62,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
