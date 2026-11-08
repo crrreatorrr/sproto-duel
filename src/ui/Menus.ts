@@ -1122,7 +1122,7 @@ export class Menus {
  * reasons and room codes from the server or hub, labels passed in by App) goes through this before
  * it is interpolated into innerHTML; all games share one origin with the hub session.
  */
-export function escapeHtml(t: string): string {
+function escapeHtml(t: string): string {
   return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
