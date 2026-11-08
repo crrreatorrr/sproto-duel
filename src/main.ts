@@ -40,5 +40,9 @@ async function boot() {
 
 boot().catch((err) => {
   console.error(err);
-  document.body.insertAdjacentHTML('beforeend', `<pre class="fatal">${String(err?.stack ?? err)}</pre>`);
+  // As text: an error message can carry a server response.
+  const pre = document.createElement('pre');
+  pre.className = 'fatal';
+  pre.textContent = String(err?.stack ?? err);
+  document.body.appendChild(pre);
 });

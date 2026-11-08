@@ -326,11 +326,11 @@ export class Menus {
     const view = this.h.staffRack();
     const picks = view.owned.map((s) => {
       const on = s.id === view.selected;
-      return `<button type="button" class="staff-pick${on ? ' equipped' : ''}" data-staff="${s.id}" style="--accent:${s.accent};--bolt:${s.bolt}" aria-pressed="${on}"${on && autofocus ? ' data-autofocus' : ''}>
-        <i class="staff-orb" aria-hidden="true"></i><span class="staff-copy"><b>${s.name}</b><small>${s.line}</small></span></button>`;
+      return `<button type="button" class="staff-pick${on ? ' equipped' : ''}" data-staff="${escapeHtml(s.id)}" style="--accent:${s.accent};--bolt:${s.bolt}" aria-pressed="${on}"${on && autofocus ? ' data-autofocus' : ''}>
+        <i class="staff-orb" aria-hidden="true"></i><span class="staff-copy"><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.line)}</small></span></button>`;
     }).join('');
     const note = view.ranked ? '<p class="staff-ranked">Ranked: staff look only, starter stats</p>' : '';
-    return `<div class="staff-rack" data-staff-rack><span class="staff-kicker">${kicker}</span>${picks}</div>${note}`;
+    return `<div class="staff-rack" data-staff-rack><span class="staff-kicker">${escapeHtml(kicker)}</span>${picks}</div>${note}`;
   }
 
   private bindStaff(root: ParentNode): void {
@@ -703,15 +703,15 @@ export class Menus {
   showPause(subtitle = '', stages: StageInfo[] = [], restartLabel = 'Restart Match'): void {
     const line = (st: StageInfo) => {
       const pips = Array.from({ length: STAGE_COUNT }, (_, i) => `<i class="${i < st.index ? 'done' : i === st.index ? 'on' : ''}"></i>`).join('');
-      const who = st.who ? `${st.who}: ` : '';
-      return `<p class="pause-stage${st.down ? ' down' : ''}"><span class="stage-pips">${pips}</span>${who}Stage ${st.index + 1} of ${STAGE_COUNT} · ${st.name}${st.down ? ' (down)' : ''}</p>`;
+      const who = st.who ? `${escapeHtml(st.who)}: ` : '';
+      return `<p class="pause-stage${st.down ? ' down' : ''}"><span class="stage-pips">${pips}</span>${who}Stage ${st.index + 1} of ${STAGE_COUNT} · ${escapeHtml(st.name)}${st.down ? ' (down)' : ''}</p>`;
     };
     const s = this.mount(`
       <div class="menu-panel pause">
         <h2>Paused</h2>
-        ${subtitle ? `<p class="note pause-sub">${subtitle}</p>` : ''}
+        ${subtitle ? `<p class="note pause-sub">${escapeHtml(subtitle)}</p>` : ''}
         ${stages.map(line).join('')}
-        <p class="note staff-lock">Staff: ${this.staffName()} · change it before the next fight</p>
+        <p class="note staff-lock">Staff: ${escapeHtml(this.staffName())} · change it before the next fight</p>
         <button class="primary" data-act="resume">Resume</button>
         <button data-act="restart">${restartLabel}</button>
         <button data-act="howto">How to Play</button>
@@ -831,9 +831,9 @@ export class Menus {
       <span class="reward-text"><small>${head}</small><b>${info.name}</b><i>${info.short}</i></span></div>`;
   }
 
-  /** A button's inner HTML: its label and, if any, a second line. */
+  /** A button's inner HTML: its label and, if any, a second line (both plain text, escaped). */
   private label(a: { label: string; sub?: string }): string {
-    return a.sub ? `${a.label}<small>${a.sub}</small>` : a.label;
+    return a.sub ? `${escapeHtml(a.label)}<small>${escapeHtml(a.sub)}</small>` : escapeHtml(a.label);
   }
 
   /**
@@ -888,16 +888,16 @@ export class Menus {
     const primary = r.primary ?? { label: 'Rematch', action: () => this.h.restart() };
     const s = this.mount(`
       <div class="menu-panel results ${r.victory ? 'victory' : 'defeat'}${r.boss ? ' boss-results' : ''}" style="${r.boss ? bossStyleVars(r.boss) : ''}">
-        ${r.boss ? `<div class="results-boss">${bossPortraitHtml(r.boss, 'small')}<p class="boss-fight">${r.eyebrow ?? ''}</p></div>` : r.eyebrow ? `<p class="boss-fight">${r.eyebrow}</p>` : ''}
-        ${r.tag ? `<p class="result-tag">${r.tag}</p>` : ''}
-        <h1 class="result-title">${r.title}</h1>
-        ${r.learned ? `<p class="result-learned">✦ New spell learned: <b>${r.learned}</b></p>` : ''}
-        <p class="tagline">${r.subtitle}</p>
+        ${r.boss ? `<div class="results-boss">${bossPortraitHtml(r.boss, 'small')}<p class="boss-fight">${escapeHtml(r.eyebrow ?? '')}</p></div>` : r.eyebrow ? `<p class="boss-fight">${escapeHtml(r.eyebrow)}</p>` : ''}
+        ${r.tag ? `<p class="result-tag">${escapeHtml(r.tag)}</p>` : ''}
+        <h1 class="result-title">${escapeHtml(r.title)}</h1>
+        ${r.learned ? `<p class="result-learned">✦ New spell learned: <b>${escapeHtml(r.learned)}</b></p>` : ''}
+        <p class="tagline">${escapeHtml(r.subtitle)}</p>
         ${r.facts
-          ? `<dl class="fight-facts">${r.facts.map((f) => `<div><dt>${f.label}</dt><dd>${f.value}</dd></div>`).join('')}</dl>`
+          ? `<dl class="fight-facts">${r.facts.map((f) => `<div><dt>${escapeHtml(f.label)}</dt><dd>${escapeHtml(f.value)}</dd></div>`).join('')}</dl>`
           : `<div class="round-strip">${r.rounds.map((x, i) => `<i class="${x}" title="Round ${i + 1}">${i + 1}</i>`).join('')}</div>`}
         <div class="stats">
-          <span class="you">${r.names[0]}</span><b></b><span class="them">${r.names[1]}</span>
+          <span class="you">${escapeHtml(r.names[0])}</span><b></b><span class="them">${escapeHtml(r.names[1])}</span>
           ${row('Damage dealt', Math.round(r.player.damageDealt), Math.round(r.enemy.damageDealt))}
           ${row('Accuracy', acc(r.player), acc(r.enemy))}
           ${row('Perfect reflects', r.player.perfects, r.enemy.perfects)}
@@ -1117,7 +1117,12 @@ export class Menus {
   }
 }
 
-function escapeHtml(t: string): string {
+/**
+ * Escape plain text for an HTML template. Every string that is not a literal in this file (names,
+ * reasons and room codes from the server or hub, labels passed in by App) goes through this before
+ * it is interpolated into innerHTML; all games share one origin with the hub session.
+ */
+export function escapeHtml(t: string): string {
   return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
