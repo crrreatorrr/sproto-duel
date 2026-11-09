@@ -7,8 +7,6 @@ const M = CONFIG.gamepad.menu;
 type Dir = 'up' | 'down' | 'left' | 'right';
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
-/** What B presses: Back on sub-screens, Resume on the pause screen, or anything marked `data-back`. */
-const BACK = '[data-back], [data-act="back"], [data-act="resume"]';
 /** What a new screen focuses first. */
 const DEFAULT = '[data-autofocus], [autofocus], button.primary';
 /** Text fields a pad can type into: `data-pad-chars` is the alphabet, `data-pad-max` the length. */
@@ -46,13 +44,37 @@ export class DirRepeat<D extends string = Dir> {
   }
 }
 
+/** What has keyboard focus in a menu, as far as the menu keys care. */
+export type MenuFocus = 'none' | 'button' | 'text' | 'range';
+export type MenuKey = Dir | 'confirm';
+
 /**
- * Gamepad navigation for whatever `.menu-screen` is mounted under `root`. Generic on purpose: it
+ * A key in a menu (CONFIG.controls.menu), pure: arrows and W / S move, Enter / Space press. With
+ * nothing focused, any of them just focuses the screen's first control. A slider keeps its own
+ * left / right; a text field keeps every key but up / down (W and S are letters there, Enter is
+ * its own submit). Esc is App's: back, or resume on the pause menu.
+ */
+export function menuKey(code: string, focus: MenuFocus): MenuKey | null {
+  const K = CONFIG.controls.menu;
+  if (focus === 'text') return code === 'ArrowUp' ? 'up' : code === 'ArrowDown' ? 'down' : null;
+  const dir: Dir | null = K.up.includes(code) ? 'up' : K.down.includes(code) ? 'down' : K.left.includes(code) ? 'left' : K.right.includes(code) ? 'right' : null;
+  if (dir) return focus === 'range' && (dir === 'left' || dir === 'right') ? null : dir;
+  if (K.confirm.includes(code)) return focus === 'range' ? null : 'confirm';
+  return null;
+}
+
+/** What B / Esc press: Back on sub-screens, Resume on the pause screen, or anything marked `data-back`. */
+export const MENU_BACK = '[data-back], [data-act="back"], [data-act="resume"]';
+const BACK = MENU_BACK;
+
+/**
+ * Gamepad and keyboard navigation for whatever `.menu-screen` is mounted under `root`. Generic on purpose: it
  * queries focusable controls on every frame, so screens added later need no extra wiring.
  * D-pad / left stick move focus spatially (wrapping vertically), A activates, B backs out,
  * left/right adjust sliders. A new screen auto-focuses its primary button while a pad is active.
  * A on a pad text field (`data-pad-chars`) starts typing with the pad: up/down picks the character,
  * left/right moves, X deletes, A finishes (and moves on to the control to the right), B finishes.
+ * The keyboard drives the same focus (Menus forwards keydown to `key`; see `menuKey`).
  */
 export class MenuNav {
   private screen: Element | null = null;
@@ -97,6 +119,36 @@ export class MenuNav {
     this.step(pad, dt, active, screen);
     this.mark(active ? this.focused : null);
     this.updateHints(pad);
+  }
+
+  /**
+   * A keydown anywhere (Menus forwards them): arrows / W / S move the focus like the D-pad,
+   * Enter / Space press the focused control. The key is marked used (preventDefault), so Input
+   * does not also count it as a gameplay press when the button resumes or starts a fight.
+   */
+  key(e: KeyboardEvent): void {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+    const screen = this.root.querySelector('.menu-screen');
+    if (!screen || this.items(screen).length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const cur = active && screen.contains(active) ? active : null;
+    const kind: MenuFocus = !cur
+      ? 'none'
+      : cur instanceof HTMLInputElement && cur.type === 'range'
+        ? 'range'
+        : (cur instanceof HTMLInputElement && cur.type !== 'checkbox') || cur instanceof HTMLTextAreaElement || cur instanceof HTMLSelectElement
+          ? 'text'
+          : 'button';
+    const action = menuKey(e.code, kind);
+    if (!action) return;
+    e.preventDefault();
+    if (!cur) {
+      this.focusDefault(screen);
+      this.onMove();
+      return;
+    }
+    if (action !== 'confirm') return this.move(screen, action, cur);
+    if (!e.repeat) cur.click();
   }
 
   private step(pad: GamepadInput, dt: number, active: boolean, screen: Element | null): void {
@@ -208,8 +260,7 @@ export class MenuNav {
     return Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : y > 0 ? 'down' : 'up';
   }
 
-  private move(screen: Element, dir: Dir): void {
-    const cur = this.focused;
+  private move(screen: Element, dir: Dir, cur = this.focused): void {
     if (!cur) return;
     if (cur instanceof HTMLInputElement && cur.type === 'range' && (dir === 'left' || dir === 'right')) {
       this.adjust(cur, dir === 'right' ? 1 : -1);

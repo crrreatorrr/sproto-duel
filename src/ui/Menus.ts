@@ -3,7 +3,7 @@ import type { ExchangeView, HubStatus } from '../hub/link';
 import { padGlyph, type InputDevice, type PadStyle } from '../core/Gamepad';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
 import { rewardIcon } from './icons';
-import { MenuNav } from './MenuNav';
+import { MENU_BACK, MenuNav } from './MenuNav';
 import { resolveImage } from '../assets/AssetLoader';
 import { bossStagePortrait } from '../assets/manifest';
 import { STAGE_COUNT, stageAttackSummary } from '../campaign/BossStages';
@@ -229,18 +229,32 @@ export interface MenuHandlers {
   titleStage?(slot: HTMLElement): void;
 }
 
-const CONTROLS: [string, string][] = [
-  ['W A S D', 'Move'],
-  ['Shift', 'Sprint (drains mana)'],
-  ['Space', 'Dodge roll (brief invulnerability)'],
-  ['F / C', 'Jump'],
-  ['Left click / 1', 'Bolt: fast, cheap, hold to fire'],
-  ['Right click / 2', 'Blast: slow orb, area damage'],
-  ['Q / 3', 'Shield: blocks. Perfect timing reflects'],
-  ['E / 4', 'Stun beam: freezes for 1s'],
-  ['R / 5', 'Ultimate: arena-wide shockwave'],
-  ['Esc / P', 'Pause'],
-];
+/** A key's printed name: KeyW -> W, Digit1 -> 1, ShiftLeft -> Shift, Escape -> Esc. */
+export function keyName(code: string): string {
+  if (code === 'Escape') return 'Esc';
+  return code.replace(/^Key|^Digit|^Numpad/, '').replace(/(Left|Right)$/, '');
+}
+
+/** Keys for an action, deduplicated ("Shift", not "Shift / Shift"). */
+const keys = (codes: readonly string[]) => [...new Set(codes.map(keyName))].join(' / ');
+
+/** How to Play's keyboard rows, from CONFIG.controls (so they always match the real bindings). */
+export function keyboardControls(): [string, string][] {
+  const K = CONFIG.controls;
+  return [
+    ['W A S D / arrows', 'Move'],
+    [keys(K.sprint), 'Sprint (drains mana)'],
+    [keys(K.jump), 'Jump'],
+    [keys(K.dodge), 'Dodge roll (brief invulnerability)'],
+    [`Left click / ${keys(K.bolt)}`, 'Bolt: fast, cheap, hold to fire'],
+    [`Right click / ${keys(K.blast)}`, 'Blast: slow orb, area damage'],
+    [keys(K.shield), 'Shield: blocks. Perfect timing reflects'],
+    [keys(K.stun), 'Stun beam: freezes for 1s'],
+    [keys(K.ultimate), 'Ultimate: arena-wide shockwave'],
+    [keys(K.pause), 'Pause'],
+    ['Arrows / W S, Enter / Space, Esc', 'Menus: move, select, back'],
+  ];
+}
 
 /** Controller rows for How to Play, from CONFIG.gamepad.bindings, in the pad's own glyphs. */
 function padControls(style: PadStyle): [string, string][] {
@@ -304,8 +318,12 @@ export class Menus {
     this.root.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button')) this.h.uiSound('click');
     });
-    // Staff Rack: arrows move between staffs, [ ] equips the neighbour, Enter activates the focused button.
-    document.addEventListener('keydown', (e) => this.onStaffKey(e));
+    // Staff Rack: arrows move between staffs, [ ] equips the neighbour. Then the menu keys
+    // (arrows / W / S move, Enter / Space press; MenuNav.key). Esc is App's.
+    document.addEventListener('keydown', (e) => {
+      this.onStaffKey(e);
+      this.nav.key(e);
+    });
   }
 
   private onStaffKey(e: KeyboardEvent): void {
@@ -411,6 +429,17 @@ export class Menus {
   /** Which screen is showing ('main', 'boss', 'results', 'complete', ...), or null. */
   get current(): string | null {
     return this.screen?.classList[1] ?? null;
+  }
+
+  /**
+   * Esc on a menu: press the screen's Back (or Cancel, Keep Fighting...: the same control as the
+   * pad's B). False when the screen has none (main menu, results), so Esc there does nothing.
+   */
+  back(): boolean {
+    const el = this.screen?.querySelector<HTMLElement>(MENU_BACK);
+    if (!el || (el as HTMLButtonElement).disabled) return false;
+    el.click();
+    return true;
   }
 
   /** Short notice at the top of the screen, over menus and the HUD alike (e.g. "God Mode On"). */
@@ -638,7 +667,7 @@ export class Menus {
       <div class="menu-panel howto">
         <h2>How to Play</h2>
         <div class="control-cols">
-          <div><h3>Keyboard &amp; Mouse</h3><div class="controls">${CONTROLS.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div></div>
+          <div><h3>Keyboard &amp; Mouse</h3><div class="controls">${keyboardControls().map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div></div>
           <div><h3>Controller</h3><div class="controls">${padControls(this.padStyle).map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div></div>
         </div>
 

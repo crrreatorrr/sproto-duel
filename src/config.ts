@@ -1356,14 +1356,19 @@ export const CONFIG = {
     verseDailyCap: 50,
   },
 
+  /**
+   * Keyboard (event.code). The Sproto keyboard convention, shared with the hub and the other games:
+   * WASD and the arrows move, Space jumps, Shift runs, Esc / P pause, Esc backs out of menus.
+   * The dodge roll is on C (it was on Space, and C was a second jump key; F still jumps).
+   */
   controls: {
-    forward: ['KeyW'],
-    back: ['KeyS'],
-    left: ['KeyA'],
-    right: ['KeyD'],
+    forward: ['KeyW', 'ArrowUp'],
+    back: ['KeyS', 'ArrowDown'],
+    left: ['KeyA', 'ArrowLeft'],
+    right: ['KeyD', 'ArrowRight'],
     sprint: ['ShiftLeft', 'ShiftRight'],
-    dodge: ['Space'],
-    jump: ['KeyF', 'KeyC'],
+    dodge: ['KeyC'],
+    jump: ['Space', 'KeyF'],
     bolt: ['Digit1'],
     blast: ['Digit2'],
     shield: ['KeyQ', 'Digit3'],
@@ -1379,6 +1384,18 @@ export const CONFIG = {
     /** Mouse buttons: 0 = left, 2 = right. */
     mouseBolt: 0,
     mouseBlast: 2,
+    /**
+     * Menus (MenuNav): move focus, press the focused control, and back out (Esc; on the pause menu
+     * it resumes). In a text field only the up / down arrows leave it; letters type.
+     */
+    menu: {
+      up: ['ArrowUp', 'KeyW'],
+      down: ['ArrowDown', 'KeyS'],
+      left: ['ArrowLeft'],
+      right: ['ArrowRight'],
+      confirm: ['Enter', 'NumpadEnter', 'Space'],
+      back: ['Escape'],
+    },
   },
 
   /** Controllers in the browser's "standard" mapping (Xbox, PlayStation, Switch Pro). */

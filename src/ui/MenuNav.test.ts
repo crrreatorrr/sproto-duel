@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
-import { DirRepeat } from './MenuNav';
+import { DirRepeat, menuKey } from './MenuNav';
 
 const M = CONFIG.gamepad.menu;
 
@@ -31,5 +31,36 @@ describe('menu auto-repeat', () => {
     let t = 0.016;
     while (!r.step('up', 0.016)) t += 0.016;
     expect(t).toBeGreaterThan(0.3);
+  });
+});
+
+describe('menu keys', () => {
+  it('arrows and W / S move, Enter / Space press', () => {
+    expect(menuKey('ArrowUp', 'button')).toBe('up');
+    expect(menuKey('KeyW', 'button')).toBe('up');
+    expect(menuKey('ArrowDown', 'button')).toBe('down');
+    expect(menuKey('KeyS', 'button')).toBe('down');
+    expect(menuKey('ArrowLeft', 'button')).toBe('left');
+    expect(menuKey('ArrowRight', 'button')).toBe('right');
+    for (const code of ['Enter', 'NumpadEnter', 'Space']) expect(menuKey(code, 'button')).toBe('confirm');
+    // A / D and gameplay keys are not menu keys; Esc is App's (back / resume).
+    for (const code of ['KeyA', 'KeyD', 'KeyQ', 'Escape', 'KeyP']) expect(menuKey(code, 'button')).toBeNull();
+  });
+  it('with nothing focused any menu key still counts (it focuses the first control)', () => {
+    expect(menuKey('KeyS', 'none')).toBe('down');
+    expect(menuKey('Enter', 'none')).toBe('confirm');
+    expect(menuKey('KeyX', 'none')).toBeNull();
+  });
+  it('a slider keeps its own left / right; up / down leave it', () => {
+    expect(menuKey('ArrowLeft', 'range')).toBeNull();
+    expect(menuKey('ArrowRight', 'range')).toBeNull();
+    expect(menuKey('ArrowDown', 'range')).toBe('down');
+    expect(menuKey('KeyW', 'range')).toBe('up');
+    expect(menuKey('Enter', 'range')).toBeNull();
+  });
+  it('a text field types W, S, Space and submits Enter itself; only up / down arrows leave it', () => {
+    for (const code of ['KeyW', 'KeyS', 'Space', 'Enter', 'ArrowLeft', 'ArrowRight']) expect(menuKey(code, 'text')).toBeNull();
+    expect(menuKey('ArrowUp', 'text')).toBe('up');
+    expect(menuKey('ArrowDown', 'text')).toBe('down');
   });
 });

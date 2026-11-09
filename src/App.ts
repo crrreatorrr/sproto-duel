@@ -408,10 +408,20 @@ export class App {
       }
     });
     window.addEventListener('keydown', (e) => {
-      if (!CONFIG.controls.pause.includes(e.code) || e.repeat) return;
-      if (this.state === 'playing') this.pause();
-      else if (this.state === 'paused' && performance.now() - this.pausedAt > 300) this.resume();
-      else if (this.state === 'menu') this.escapeOnline();
+      if (e.repeat) return;
+      const back = CONFIG.controls.menu.back.includes(e.code);
+      if (!back && !CONFIG.controls.pause.includes(e.code)) return;
+      if (this.state === 'playing') return this.pause();
+      if (this.state === 'paused') {
+        // Esc on a pause sub-screen (Settings, How to Play, the Return to Hub check) steps back to
+        // the pause menu, like the pad's B; on the pause menu itself (and P anywhere) it resumes.
+        const sub = this.menus.current !== 'pause' && this.menus.current !== 'online-pause';
+        if (back && sub && this.menus.back()) return;
+        if (performance.now() - this.pausedAt > 300) this.resume();
+        return;
+      }
+      // Menus and results: Esc backs out (leaves an online search, declines a match, Back).
+      if (back && !this.escapeOnline()) this.menus.back();
     });
     // Browsers only start audio after a gesture.
     const firstGesture = () => {
@@ -763,19 +773,22 @@ export class App {
   }
 
   /** Esc on the search screen cancels the ticket. Esc on Match Found declines. */
-  private escapeOnline(): void {
+  /** Esc on an online search or accept screen. True when it did something. */
+  private escapeOnline(): boolean {
     const s = this.onlineSession;
-    if (!s) return;
+    if (!s) return false;
     const cur = this.menus.current;
     if (cur === 'match-found' && s.state === 'accepting') {
       s.decline();
       this.menus.root.querySelectorAll('button').forEach((b) => { (b as HTMLButtonElement).disabled = true; });
-      return;
+      return true;
     }
     if (cur === 'online-status' && (s.state === 'searching' || s.state === 'connecting' || s.state === 'hosting-room' || s.state === 'joining-room' || s.state === 'starting')) {
       s.leave();
       this.openOnline();
+      return true;
     }
+    return false;
   }
 
   /** START: both sides set up their game (the host runs the sim, the guest a replica). */

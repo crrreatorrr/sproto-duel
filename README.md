@@ -48,10 +48,11 @@ Hub** leaves at once from the main menu; from the pause screen mid-fight it asks
 
 | Input | Action |
 |---|---|
-| W A S D | Move |
+| W A S D / arrows | Move |
+| Mouse | Look and aim (click the game to capture the mouse) |
 | Shift | Sprint (drains mana; runs dry, then needs to recover) |
-| Space | Dodge roll, with brief invulnerability |
-| F / C | Jump: hop the Ultimate's shockwave (feet clear at the wavefront) or onto crumbled pillar stumps. Cast freely in the air; no rolling until you land |
+| Space / F | Jump: hop the Ultimate's shockwave (feet clear at the wavefront) or onto crumbled pillar stumps. Cast freely in the air; no rolling until you land |
+| C | Dodge roll, with brief invulnerability |
 | Left click / 1 | **Bolt**: fast, cheap, no cooldown, hold to fire |
 | Right click / 2 | **Blast**: slow big orb, area damage, 3 s cooldown |
 | Q / 3 | **Shield**: blocks for 0.8 s. Raise it in the last 0.2 s before a hit to reflect the spell back, faster and stronger |
@@ -59,6 +60,12 @@ Hub** leaves at once from the main menu; from the pause screen mid-fight it asks
 | R / 5 | **Ultimate**: charged by dealing damage. An arena-wide shockwave. Roll through it, hide behind a pillar, or shield to reduce it |
 | Z X V G T | **Boss spells** once learned: Magic Carpet, Pump It, Vape Cloud, Lock-On, Hellfire Breath (see [Boss spells](#boss-spells)) |
 | Esc / P | Pause |
+| Arrows / W S, Enter / Space, Esc | Menus: move, select, back (Esc on the pause menu resumes) |
+
+The keyboard follows the layout every Sproto game and the hub share: WASD or the arrows move, Space
+jumps, Shift runs, Esc pauses and backs out of menus. Space used to roll and F / C to jump; the roll
+moved to C, the key right under the movement fingers, and F still jumps. The spells keep their keys
+(and 1-5); the boss spells stay off the number row because 9 twice is the god-mode cheat.
 
 ### Controller
 
