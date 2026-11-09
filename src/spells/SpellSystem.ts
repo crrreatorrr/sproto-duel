@@ -536,8 +536,9 @@ export class SpellSystem {
     if (hit.tag.kind === 'wizard') {
       const target = hit.tag.wizard;
       const stuns = !target.evolving; // a transforming boss shrugs it off ("IMMUNE")
-      target.applyStun(St.duration);
+      // The beam's own hit lands before the stun, so it gets no stunned bonus.
       this.dealDamage(target, caster, St.damage, end, 'stun');
+      target.applyStun(St.duration);
       this.fx.impact(end, hit.normal, color, 1.2);
       this.fx.flash(end, color, 1.4, 0.12);
       feel.freeze(St.hitStopMs);
@@ -968,7 +969,11 @@ export class SpellSystem {
     if (source && source !== target) {
       amount *= source.damageMultiplier * (source.pumped ? CONFIG.rewardSpells.pump.damageMultiplier : 1);
       if (SPELL_DAMAGE.has(kind)) amount *= source.spellDamageScale;
+      // Stunned: a hit landing while its caster is stunned deals more.
+      if (source.stunned) amount *= S.stun.stunnedDamageMultiplier;
     }
+    // Stunned: the target takes more from everything.
+    if (target.stunned) amount *= S.stun.stunnedDamageMultiplier;
     if (target.immune || target.evolving) {
       // God mode or a transforming boss: the hit still reads (flash, sound, "IMMUNE" popup) but
       // removes no HP. God mode still takes the knockback; a transforming boss stands its ground.

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { AssetLoader } from '../assets/AssetLoader';
+import { skinScale, type SkinDef } from '../campaign/skins';
 import { glowTexture } from '../fx/textures';
 import { staffModelPath, staffSlug, type StaffId } from '../staff/catalog';
 import type { TitleStaff } from './titleStaffs';
@@ -53,7 +54,10 @@ export class TitleStaffPreview {
   private readonly camera = new THREE.PerspectiveCamera(26, 0.75, 0.1, 30);
   private readonly turntable = new THREE.Group();
   private readonly mixer: THREE.AnimationMixer;
-  private readonly socket: THREE.Object3D;
+  /** Wizard Sproto's staff hand; null on a boss character skin (it holds its own props, no staff). */
+  private readonly socket: THREE.Object3D | null;
+  /** The character on show when it holds no staff (a boss skin). */
+  private readonly character: SkinDef | null;
   private readonly flash: THREE.Sprite;
   private readonly lockedMat = new THREE.MeshBasicMaterial({ color: LOCKED_COLOR });
   private readonly props = new Map<StaffId, StaffProp | null>();
@@ -70,8 +74,14 @@ export class TitleStaffPreview {
   private last = 0;
   private pending = 0;
   private disposed = false;
+  private characterShown = false;
 
-  private constructor(private readonly assets: AssetLoader, model: { root: THREE.Object3D; animations: THREE.AnimationClip[] }, socket: THREE.Object3D) {
+  private constructor(
+    private readonly assets: AssetLoader,
+    model: { root: THREE.Object3D; animations: THREE.AnimationClip[] },
+    socket: THREE.Object3D | null,
+    character: SkinDef | null,
+  ) {
     this.el = document.createElement('div');
     this.el.className = 'title-stage';
     this.el.setAttribute('aria-hidden', 'true');
@@ -95,6 +105,7 @@ export class TitleStaffPreview {
     this.scene.add(key, rim);
 
     this.socket = socket;
+    this.character = socket ? null : character;
     this.scene.add(this.turntable);
     this.turntable.add(model.root);
     model.root.traverse((o) => {
@@ -121,15 +132,20 @@ export class TitleStaffPreview {
   }
 
   /**
-   * The preview, or null when the player model or its staff socket is missing (the title then shows
-   * the menu alone) or WebGL is unavailable.
+   * The preview of `skin` (Wizard Sproto by default), or null when its model, or Sproto's staff
+   * socket, is missing (the title then shows the menu alone) or WebGL is unavailable. A boss skin
+   * stands at Sproto's height and shows its name instead of the staff cycle.
    */
-  static create(assets: AssetLoader): TitleStaffPreview | null {
-    const model = assets.instantiate('wizardPlayer');
-    const socket = model?.root.getObjectByName('socket_staff');
-    if (!model || !socket) return null;
+  static create(assets: AssetLoader, skin: SkinDef | null = null): TitleStaffPreview | null {
+    const key = skin?.model ?? 'wizardPlayer';
+    const model = assets.instantiate(key);
+    if (!model) return null;
+    const staffHand = key === 'wizardPlayer';
+    const socket = model.root.getObjectByName('socket_staff') ?? null;
+    if (staffHand && !socket) return null;
+    if (!staffHand && skin) model.root.scale.multiplyScalar(skinScale(skin));
     try {
-      return new TitleStaffPreview(assets, model, socket);
+      return new TitleStaffPreview(assets, model, staffHand ? socket : null, staffHand ? null : skin);
     } catch (err) {
       console.warn('[title] no preview renderer', err);
       return null;
@@ -139,6 +155,14 @@ export class TitleStaffPreview {
   /** Put the stage into `host` (the main menu's slot) and run the cycle. */
   mount(host: HTMLElement, cycle: TitleStaff[]): void {
     if (this.disposed) return;
+    if (this.character) {
+      // A boss skin: its name, no staff cycle.
+      if (!this.characterShown) this.showCharacter(this.character);
+      host.appendChild(this.el);
+      this.fit();
+      this.wake();
+      return;
+    }
     const same = cycle.length === this.cycle.length && cycle.every((s, i) => s.id === this.cycle[i]?.id && s.locked === this.cycle[i]?.locked);
     if (!same) {
       this.cycle = cycle;
@@ -152,6 +176,7 @@ export class TitleStaffPreview {
 
   /** Jump to `id` (the rack equipped it) with the usual pop. */
   focus(id: StaffId): void {
+    if (this.character) return;
     const i = this.cycle.findIndex((s) => s.id === id);
     if (i < 0 || i === this.index) return;
     this.index = i;
@@ -198,8 +223,22 @@ export class TitleStaffPreview {
     this.label.classList.add('swap');
   }
 
+  private showCharacter(skin: SkinDef): void {
+    this.characterShown = true;
+    this.phase = 'hold';
+    this.t = 0;
+    this.el.style.setProperty('--staff-accent', skin.accent);
+    this.el.classList.remove('locked');
+    this.label.querySelector('b')!.textContent = skin.name;
+    this.label.querySelector('small')!.textContent = 'Character skin · look only';
+    this.label.classList.remove('swap');
+    void this.label.offsetWidth;
+    this.label.classList.add('swap');
+  }
+
   private prop(id: StaffId): StaffProp | null {
     if (this.props.has(id)) return this.props.get(id)!;
+    if (!this.socket) return null;
     const inst = this.assets.instantiateProp(staffModelPath(id));
     let prop: StaffProp | null = null;
     if (inst) {
@@ -259,7 +298,9 @@ export class TitleStaffPreview {
     // Another menu screen replaced the slot, or the tab went away: stop until mount / visible again.
     if (this.disposed || document.hidden || !this.el.isConnected) return;
     this.raf = requestAnimationFrame((n) => this.frame(n));
-    this.pending += Math.min(0.25, (now - this.last) / 1000);
+    // A frame stamped before wake() (a long task in between, such as building a new preview) is
+    // negative: count it as zero or the stage would stay blank until it was paid back.
+    this.pending += Math.max(0, Math.min(0.25, (now - this.last) / 1000));
     this.last = now;
     if (this.pending < MIN_FRAME) return;
     const dt = this.pending;
@@ -300,7 +341,7 @@ export class TitleStaffPreview {
 
     // The flash sits on the hand and fades over the pop.
     const m = this.flash.material;
-    if (this.flash.visible) {
+    if (this.flash.visible && this.socket) {
       this.socket.getWorldPosition(this.flash.position);
       const fade = this.phase === 'in' ? 1 - Math.min(1, this.t / (SWAP_IN * 0.9)) : 0;
       m.opacity = fade;

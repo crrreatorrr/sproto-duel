@@ -318,6 +318,9 @@ export class AudioManager {
     });
     on('lifePackSpawn', (e) => this.play('lifePackSpawn', { pos: e.pos, exactPitch: true }));
     on('lifePackPickup', () => this.play('lifePackPickup', { exactPitch: true }));
+    on('phasePotion', (e) => {
+      if (isPlayer(e.wizard)) this.play('lifePackPickup', { exactPitch: true });
+    });
     on('lifePackExpire', (e) => this.play('ticketExpire', { pos: e.pos, rate: 0.8, volume: 0.6 }));
     on('ultReady', (e) => {
       if (isPlayer(e.wizard)) this.play('ultReady', { exactPitch: true });

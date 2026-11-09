@@ -43,7 +43,10 @@ export interface SimSetup {
   bossId?: string | null;
   /** Boss reward spells seat 0 has learned (REWARDS ids); ignored where the rules forbid them. */
   learned?: string[];
-  /** Seat 0 plays in god mode (CONFIG.debug); ignored under even rules. */
+  /**
+   * Seat 0 starts in god mode (CONFIG.debug); ignored under even rules. God mode also teaches all
+   * five reward spells (where the rules allow them). `setGodMode` toggles it mid-fight.
+   */
   godMode?: boolean;
 }
 
@@ -148,12 +151,8 @@ export class SimWorld {
     if (this.rules.rewardSpells && setup.learned) {
       for (let i = 0; i < REWARDS.length; i++) if (setup.learned.indexOf(REWARDS[i]) >= 0) p.learned |= 1 << i;
     }
-    if (setup.godMode && !this.rules.even) {
-      const D = CONFIG.debug;
-      p.immune = p.infiniteMana = p.noCooldowns = true;
-      p.damageMultiplier = fx(D.godPowerMultiplier);
-      p.clashPowerMultiplier = fx(D.godClashMultiplier);
-    }
+    this.baseLearned = p.learned;
+    if (setup.godMode) this.setGodMode(true);
     this.spells = new SimSpells(this);
     this.spells.rewardSpells = this.rules.rewardSpells;
     this.tickets = new SimTickets(this.arena, this.wizards, this.rng, this.events, () => this.shifts.hazards);
@@ -308,6 +307,27 @@ export class SimWorld {
     }
     m.round++;
     this.startRound();
+  }
+
+  /** Seat 0 is in god mode now (setup, then mid-fight toggles). */
+  godMode = false;
+  /** The reward spells seat 0 brought (setup.learned), restored when god mode turns off. */
+  private baseLearned = 0;
+
+  /**
+   * God mode for seat 0, on or off, from the next step (the input log records each toggle). No
+   * damage taken, unlimited mana, no cooldowns, all reward spells, extra damage and clash power.
+   * Ignored under even rules.
+   */
+  setGodMode(on: boolean): void {
+    if (this.rules.even) return;
+    const D = CONFIG.debug;
+    const p = this.wizards[0];
+    this.godMode = on;
+    p.immune = p.infiniteMana = p.noCooldowns = on;
+    p.damageMultiplier = on ? fx(D.godPowerMultiplier) : ONE;
+    p.clashPowerMultiplier = on ? fx(D.godClashMultiplier) : ONE;
+    if (this.rules.rewardSpells) p.learned = on ? (1 << REWARDS.length) - 1 : this.baseLearned;
   }
 
   /** A seat leaves: the other side wins at once (online Resume / Forfeit, disconnects). */

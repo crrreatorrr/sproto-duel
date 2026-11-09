@@ -1,5 +1,5 @@
 export { BOARD_IDS, BoardId, FOUR_LIGHTS_RELIC_IDS, GAME_IDS, MOCK_TICKET_EARN_CAP, MOCK_TICKET_TTL_SECONDS, NOBU_TRIAL_CEIL_MS, NOBU_TRIAL_FLOOR_MS, RELIC_BY_GAME, RELIC_IDS, SAVE_MAX_BYTES, TICKETS_PER_VERSE, VERSE_DAILY_CAP, canonicalGameId, isBoardId, isGameId, isRelicId, } from './types';
-export type { EarnResult, EventResult, ExchangeResult, GameId, HubSdk, HubSessionInfo, InitResult, LeaderboardRow, LeaderboardTop, RedeemedSession, RelicId, SaveResult, ScoreResult, SellResult, SpendResult, TicketBalanceResult, } from './types';
+export type { EarnResult, EventResult, ExchangeResult, GameId, HubGateView, HubSdk, HubSessionInfo, InitResult, LeaderboardRow, LeaderboardTop, RedeemedSession, RelicId, SaveResult, ScoreResult, SellResult, SpendResult, TicketBalanceResult, } from './types';
 export { HubEvent, relicForEvent } from './events';
 export { EMPTY_SAVE, encodeSave, readSaveResult } from './save';
 export type { HubEventId } from './events';

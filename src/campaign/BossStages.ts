@@ -262,6 +262,12 @@ export class BossStages {
     }
 
     events.emit('bossEvolve', { wizard: e, boss, stage, from, pos: e.pos });
+    // A phase cleared: the player drinks a heal potion. On the sim, the sim heals and announces it.
+    if (this.active && !g.sim && p.alive) {
+      const before = p.health;
+      p.health = Math.min(p.maxHealth, p.health + p.maxHealth * C.phasePotionHeal);
+      events.emit('phasePotion', { wizard: p, healed: p.health - before });
+    }
     this.announce();
   }
 

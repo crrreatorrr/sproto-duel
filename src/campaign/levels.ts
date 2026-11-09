@@ -257,7 +257,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.4,
       preferredRange: [10, 15],
     },
-    stageHealth: [1490, 1660, 1710],
+    stageHealth: [1620, 1660, 1710], // stage 1 up from 1490: the stunned-damage bonus shortened it below ~5 min
     damageMultiplier: 0.77,
     spellDamage: 0.45,
   }),

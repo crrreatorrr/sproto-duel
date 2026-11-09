@@ -1,6 +1,6 @@
 {
   "name": "@metaverse/hub-sdk",
-  "version": "0.6.0",
+  "version": "0.6.3",
   "private": false,
   "type": "module",
   "sideEffects": false,

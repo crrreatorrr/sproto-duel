@@ -99,6 +99,18 @@ export class SimDriver {
     this.present();
   }
 
+  /**
+   * God mode on or off mid-fight, from the next tick: recorded in the log so the replay matches.
+   * False when it could not apply (the match is over, or the log holds no more toggles).
+   */
+  setGodMode(on: boolean): boolean {
+    if (this.world.over || this.world.godMode === on) return !this.world.over;
+    if (!this.recorder.markGodMode(on)) return false;
+    this.world.setGodMode(on);
+    this.apply();
+    return true;
+  }
+
   /** The input log so far, with the result claimed from the sim. */
   log(): DuelLog {
     const m = this.world.match;
@@ -505,6 +517,9 @@ export class SimDriver {
         break;
       case 'lifePackPickup':
         if (w) emit('lifePackPickup', { id: e.o, pos, wizard: w, healed: q(e.n) });
+        break;
+      case 'phasePotion':
+        if (w) emit('phasePotion', { wizard: w, healed: q(e.n) });
         break;
       case 'lifePackExpire':
         emit('lifePackExpire', { id: e.o, pos });
