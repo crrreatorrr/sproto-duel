@@ -18,6 +18,7 @@ export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
  * Relic → staff in this game. One staff slot, so these never stack.
  * `breakwater_coin` (Sproto Arcade) gives the same award as NOBU's `cones_tip`: owning either,
  * or both, owns the Nobu Staff once.
+ * `tidebreaker_belt` (Sproto Fighter) unlocks Fighter's Might, matching the hub's item matrix.
  * Absent on purpose: `tinubu_crown` (earned in Duel).
  */
 const STAFF_BY_RELIC: Readonly<Record<string, StaffId>> = {
@@ -25,6 +26,7 @@ const STAFF_BY_RELIC: Readonly<Record<string, StaffId>> = {
   genesis_shard: 'duel_staff_moonward',
   cones_tip: 'duel_staff_nobu',
   breakwater_coin: 'duel_staff_nobu',
+  tidebreaker_belt: 'duel_staff_fighters_might',
 };
 
 /** Relics from the current hub init, or null when this visit has no session. */
