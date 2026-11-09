@@ -153,3 +153,30 @@ describe('Character rack', () => {
     expect(btn('sproto').classList.contains('equipped')).toBe(false);
   });
 });
+
+describe('keyboard', () => {
+  it('How to Play lists the real key bindings', async () => {
+    const { keyboardControls, keyName } = await import('./Menus');
+    const rows = Object.fromEntries(keyboardControls().map(([k, v]) => [v.split(' ')[0], k]));
+    expect(rows.Jump).toBe('Space / F');
+    expect(rows.Dodge).toBe('C');
+    expect(rows.Sprint).toBe('Shift');
+    expect(rows.Pause).toBe('Esc / P');
+    expect(rows['Shield:']).toBe('Q / 3');
+    expect(keyName('NumpadEnter')).toBe('Enter');
+  });
+  it('Esc (Menus.back) presses the screen\'s Back, and does nothing without one', () => {
+    let backs = 0;
+    const m = new Menus(document.body, loadSettings(), handlers);
+    m.showSettings(() => backs++);
+    expect(m.back()).toBe(true);
+    expect(backs).toBe(1);
+    m.showMain();
+    expect(m.back()).toBe(false);
+    let resumed = 0;
+    const r = new Menus(document.body, loadSettings(), { ...handlers, resume: () => resumed++ });
+    r.showPause();
+    expect(r.back()).toBe(true);
+    expect(resumed).toBe(1);
+  });
+});
