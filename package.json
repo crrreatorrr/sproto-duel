@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build && node scripts/check-prod-debug.mjs && node scripts/build-server-sim.mjs",
@@ -26,12 +29,15 @@
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.5.1",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
     "@types/howler": "^2.2.13",
     "@types/node": "^26.6.5",
     "@types/three": "^0.186.0",
     "acorn": "8.15.0",
     "esbuild": "0.28.2",
     "happy-dom": "21.0.4",
+    "meshoptimizer": "^1.1.1",
     "playwright": "1.63.0",
     "typescript": "^7.0.2",
     "typescript5": "npm:typescript@5.9.3",
