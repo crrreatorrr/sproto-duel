@@ -138,17 +138,19 @@ export function registerStageScenarios(qa: QAHarness, game: Game, app: App): voi
     });
   });
 
-  qa.add('stages.player_health_persists', (c) => {
+  qa.add('stages.player_heal_potion_per_phase', (c) => {
     withBoss(c, game, SAHIL, () => {
       const p = game.player, e = game.enemy;
       p.health = p.maxHealth * 0.37;
       p.mana = 40;
       hitTo(game, 0);
       finishEvolve(c);
-      c.expect(st.stage === 1 && Math.abs(p.health - p.maxHealth * 0.37) < 1e-6, `player health ${p.health.toFixed(1)} after the boss transformed`);
+      // Each transformation hands the player a heal potion (CONFIG.campaign.phasePotionHeal), never above full.
+      const potion = CONFIG.campaign.phasePotionHeal;
+      c.expect(st.stage === 1 && Math.abs(p.health - p.maxHealth * (0.37 + potion)) < 1e-6, `player health ${p.health.toFixed(1)} after the boss transformed`);
       hitTo(game, 0);
       finishEvolve(c);
-      c.expect(st.stage === 2 && Math.abs(p.health - p.maxHealth * 0.37) < 1e-6, 'player health refilled at stage 3');
+      c.expect(st.stage === 2 && Math.abs(p.health - p.maxHealth * Math.min(1, 0.37 + 2 * potion)) < 1e-6, `player health ${p.health.toFixed(1)} at stage 3`);
       c.note(`player ${p.health.toFixed(0)}/${p.maxHealth}, boss ${e.health}/${e.maxHealth}`);
     }, { player: [0, -12], enemy: [0, 8] });
   });

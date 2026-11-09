@@ -190,6 +190,8 @@ export class Game {
   /** Online host: the seed and staffs from START, and the wizards by network seat. */
   simSeed: number | null = null;
   simStaffs: (string | null)[] | null = null;
+  /** The reward spells the player has earned (App: the campaign save), without god mode's extras. */
+  simLearned: string[] | null = null;
   simSeats: Wizard[] | null = null;
   /** Gauntlet extras a SimDriver hands over (boss powers, reward spells, shifts, life packs). */
   presentSimEvent: ((e: SimEvent, pos: THREE.Vector3, w: Wizard | null, o: Wizard | null) => void) | null = null;

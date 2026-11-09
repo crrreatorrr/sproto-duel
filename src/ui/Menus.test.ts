@@ -118,3 +118,38 @@ describe('Menus escapes server and user strings', () => {
     expect(menus.root.querySelector('.pause-sub')!.textContent).toBe(p);
   });
 });
+
+describe('Character rack', () => {
+  it('lists skins in the main menu, marks the chosen one, dims locked ones and reports clicks', () => {
+    document.body.innerHTML = '';
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    let selected = 'sproto';
+    const picked: string[] = [];
+    const menus = new Menus(parent, loadSettings(), {
+      ...handlers,
+      characterRack: () => ({
+        skins: [
+          { id: 'sproto', name: 'Wizard Sproto', line: 'The original', accent: '#8fb4ff', locked: false },
+          { id: 'sahil', name: 'Sahil', line: 'Boss skin · look only', accent: '#ff9a3c', locked: false },
+          { id: 'tinubu', name: 'Tinubu', line: 'Beat Tinubu', accent: '#ffffff', locked: true },
+        ],
+        selected,
+      }),
+      selectCharacter: (id) => {
+        picked.push(id);
+        if (id !== 'tinubu') selected = id;
+      },
+    });
+    menus.showMain();
+    const btn = (id: string) => menus.root.querySelector<HTMLButtonElement>(`[data-skin="${id}"]`)!;
+    expect(menus.root.querySelectorAll('[data-char-rack] [data-skin]').length).toBe(3);
+    expect(btn('sproto').classList.contains('equipped')).toBe(true);
+    expect(btn('tinubu').classList.contains('locked')).toBe(true);
+    btn('sahil').click();
+    btn('tinubu').click();
+    expect(picked).toEqual(['sahil', 'tinubu']);
+    expect(btn('sahil').classList.contains('equipped')).toBe(true);
+    expect(btn('sproto').classList.contains('equipped')).toBe(false);
+  });
+});

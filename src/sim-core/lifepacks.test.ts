@@ -84,12 +84,14 @@ describe('life packs', () => {
     boss.pos.z = fx(8);
 
     nextStage(w);
+    // The phase's heal potion topped the player up: back below the low-health line.
+    p.health = mul(p.maxHealth, fx(0.3));
     const t = untilPack(w, 4000);
     expect(w.lifePacks.spawned).toBe(2);
     expect(t / 60).toBeGreaterThanOrEqual(L.lowHealthDelay - 0.05);
     w.lifePacks.collect(p);
-    p.health = mul(p.maxHealth, fx(0.3));
     nextStage(w);
+    p.health = mul(p.maxHealth, fx(0.3));
     untilPack(w, 4000);
     expect(w.lifePacks.spawned).toBe(3);
     w.lifePacks.collect(p);

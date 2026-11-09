@@ -3,12 +3,15 @@ import { RELIC_BY_GAME } from './types';
  * Event ids games report through `reportEvent`.
  * `ready` is the boot handshake. `game_beaten` is accepted but grants nothing: the
  * server has no open rule for it (migration 0008), so a client cannot claim a relic
- * by saying it won. The six `*.` ids are the relic triggers from the architecture doc.
+ * by saying it won. The six relic triggers from the architecture doc are unchanged.
+ * `hpos10i.boss_defeated` is the Deathbot Life Medal event. It is not a Relic trigger,
+ * so `relicForEvent` does not grant from it.
  */
 export const HubEvent = {
     Ready: 'ready',
     GameBeaten: 'game_beaten',
     Hpos10iLevelComplete: 'hpos10i.level_complete',
+    Hpos10iBossDefeated: 'hpos10i.boss_defeated',
     PbQuestComplete: 'pb.quest_complete',
     NobuBossDefeated: 'nobu.boss_defeated',
     SprotoBossDefeated: 'sproto.boss_defeated',

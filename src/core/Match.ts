@@ -229,7 +229,7 @@ export class Match {
       arena: (isArenaId(theme) ? theme : 'moonlit') as ArenaId,
       staffs,
       bossId: boss ? boss.id : null,
-      learned: rules.rewardSpells ? [...p.learned] : [],
+      learned: rules.rewardSpells ? [...(g.simLearned ?? p.learned)] : [],
       godMode: rules.godModeAllowed && CONFIG.debug.godMode && !g.godHeld,
     });
     g.simulating = true;

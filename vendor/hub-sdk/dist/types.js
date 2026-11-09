@@ -1,5 +1,14 @@
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
-export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade'];
+export const GAME_IDS = [
+    'hpos10i',
+    'nobu',
+    'peoples-bitcoin',
+    'sproto',
+    'sproto-fighter',
+    'sproto-arcade',
+    'sproto-shooter',
+    'sproto-coop-battle',
+];
 /** Earn-once relics. The primary key on the server is (user, relic). */
 export const RELIC_IDS = [
     'hpos10i_core',
@@ -15,6 +24,7 @@ export const RELIC_IDS = [
  * So does the Breakwater Coin (Sproto Arcade, the Bar cabinet's second game).
  */
 export const FOUR_LIGHTS_RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'];
+/** Games with no entry here have no Relic. Shooter and Coop Battle are in that set. */
 export const RELIC_BY_GAME = {
     hpos10i: 'hpos10i_core',
     'peoples-bitcoin': 'genesis_shard',
@@ -50,8 +60,12 @@ export const MOCK_TICKET_EARN_CAP = 1000;
 export const MOCK_TICKET_TTL_SECONDS = 60;
 /** Largest save the server accepts, in bytes of its JSON text. */
 export const SAVE_MAX_BYTES = 4096;
-/** NOBU time-trial floors per level, integer ms (Contract C13). The same numbers are in NOBU's src/config/trials.js. */
-export const NOBU_TRIAL_FLOOR_MS = { '1': 15000, '2': 15000, '3': 12000 };
+/** NOBU time-trial floors per Classic level, versioned layout or Chapter 2 level, integer ms (Contract C13). */
+export const NOBU_TRIAL_FLOOR_MS = {
+    '1': 15000, '2': 15000, '3': 12000,
+    '1v2': 25700, '2v2': 26000, '3v2': 20600,
+    '4': 24000, '6': 30000, '5': 21000,
+};
 /** NOBU time-trial ceiling, integer ms. */
 export const NOBU_TRIAL_CEIL_MS = 1_800_000;
 export function isGameId(value) {

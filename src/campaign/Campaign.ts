@@ -1,4 +1,4 @@
-import { BOSSES, type BossDef } from './levels';
+import { BOSSES, bossFighters, type BossDef } from './levels';
 import { REWARD_SPELLS, isRewardSpell, type RewardSpellId } from '../spells/rewardCatalog';
 
 /** What the Boss Gauntlet remembers between sessions. */
@@ -14,6 +14,11 @@ export interface CampaignSave {
    * Settings' "Forget learned spells" (or `reset`) clears them.
    */
   unlockedSpells: RewardSpellId[];
+  /**
+   * Fighter ids beaten in a saved win (bosses and partners, gauntlet order): their skins are
+   * unlocked. Never cleared except by `reset`. Missing in older saves: derived from progress.
+   */
+  defeated: string[];
 }
 
 export const CAMPAIGN_STORAGE_KEY = 'arcane-duel-campaign';
@@ -30,6 +35,19 @@ const canonical = (ids: readonly unknown[]): RewardSpellId[] => REWARD_SPELLS.fi
 export function migratedSpells(next: number, clears: number): RewardSpellId[] {
   if (clears > 0) return [...REWARD_SPELLS];
   return BOSSES.slice(0, Math.max(0, Math.min(BOSSES.length, next))).map((b) => b.reward);
+}
+
+const FIGHTER_IDS: readonly string[] = BOSSES.flatMap((b) => bossFighters(b).map((f) => f.id));
+/** Known fighter ids only, once each, in gauntlet order. */
+const canonicalFighters = (ids: readonly unknown[]): string[] => FIGHTER_IDS.filter((id) => ids.includes(id));
+
+/**
+ * The fighters a save from before skins has beaten: every boss before `next`, every boss whose
+ * spell was learned, and all of them after a clear.
+ */
+export function migratedDefeated(next: number, clears: number, spells: readonly RewardSpellId[]): string[] {
+  const beaten = BOSSES.filter((b, i) => clears > 0 || i < next || spells.includes(b.reward));
+  return canonicalFighters(beaten.flatMap((b) => bossFighters(b).map((f) => f.id)));
 }
 
 /**
@@ -77,6 +95,11 @@ export class Campaign {
   /** Reward spells learned so far (saved). */
   get unlocked(): readonly RewardSpellId[] {
     return this.save.unlockedSpells;
+  }
+
+  /** Fighter ids beaten in saved wins (their skins are unlocked). */
+  get defeated(): readonly string[] {
+    return this.save.defeated;
   }
 
   hasLearned(id: RewardSpellId): boolean {
@@ -128,11 +151,12 @@ export class Campaign {
     const learned = this.hasLearned(reward);
     this.lastLearned = learned ? null : reward;
     const unlockedSpells = learned ? this.save.unlockedSpells : canonical([...this.save.unlockedSpells, reward]);
+    const defeated = canonicalFighters([...this.save.defeated, ...bossFighters(this.boss).map((f) => f.id)]);
     if (this.isLast) {
-      this.write({ ...this.save, next: 0, clears: this.save.clears + 1, unlockedSpells });
+      this.write({ ...this.save, next: 0, clears: this.save.clears + 1, unlockedSpells, defeated });
       return 'complete';
     }
-    this.write({ ...this.save, next: Math.max(this.save.next, this.index + 1), unlockedSpells });
+    this.write({ ...this.save, next: Math.max(this.save.next, this.index + 1), unlockedSpells, defeated });
     return 'next';
   }
 
@@ -157,24 +181,26 @@ export class Campaign {
   reset(): void {
     this.index = 0;
     this.lastLearned = null;
-    this.write({ version: CAMPAIGN_SAVE_VERSION, next: 0, clears: 0, unlockedSpells: [] });
+    this.write({ version: CAMPAIGN_SAVE_VERSION, next: 0, clears: 0, unlockedSpells: [], defeated: [] });
   }
 
   private read(): CampaignSave {
-    const fresh: CampaignSave = { version: CAMPAIGN_SAVE_VERSION, next: 0, clears: 0, unlockedSpells: [] };
+    const fresh: CampaignSave = { version: CAMPAIGN_SAVE_VERSION, next: 0, clears: 0, unlockedSpells: [], defeated: [] };
     try {
       const raw = localStorage.getItem(this.storageKey);
       if (!raw) return fresh;
-      const data = JSON.parse(raw) as Partial<CampaignSave> & { unlockedSpells?: unknown };
+      const data = JSON.parse(raw) as Partial<CampaignSave> & { unlockedSpells?: unknown; defeated?: unknown };
       const n = Number(data.next);
       const c = Number(data.clears);
       const next = Number.isFinite(n) ? Math.max(0, Math.min(BOSSES.length, Math.floor(n))) : 0;
       const clears = Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0;
       // Saves from before the reward spells: everything the progress has earned.
       const spells = Array.isArray(data.unlockedSpells) ? canonical(data.unlockedSpells.filter(isRewardSpell)) : migratedSpells(next, clears);
-      const save: CampaignSave = { version: CAMPAIGN_SAVE_VERSION, next, clears, unlockedSpells: spells };
+      // Saves from before skins: the fighters the progress has beaten.
+      const defeated = Array.isArray(data.defeated) ? canonicalFighters(data.defeated) : migratedDefeated(next, clears, spells);
+      const save: CampaignSave = { version: CAMPAIGN_SAVE_VERSION, next, clears, unlockedSpells: spells, defeated };
       // Write a migrated save back in the current format.
-      if (data.version !== CAMPAIGN_SAVE_VERSION || !Array.isArray(data.unlockedSpells)) this.persist(save);
+      if (data.version !== CAMPAIGN_SAVE_VERSION || !Array.isArray(data.unlockedSpells) || !Array.isArray(data.defeated)) this.persist(save);
       return save;
     } catch {
       // Storage unavailable or corrupt: start fresh.

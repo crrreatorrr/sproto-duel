@@ -510,6 +510,8 @@ export const CONFIG = {
     },
     stun: {
       duration: 1.0,
+      /** A stunned wizard takes this much more damage, and its hits that land while it is stunned deal this much more. */
+      stunnedDamageMultiplier: 1.5,
       cooldown: 8,
       manaCost: 22,
       castTime: 0.2,
@@ -1156,6 +1158,8 @@ export const CONFIG = {
     refill: [0.3, 0.92] as [number, number],
     /** Outward push on the player when the boss evolves, and its reach in meters. */
     evolveKnockback: 22,
+    /** Each boss transformation (end of a phase) hands the player a heal potion: this share of max health. */
+    phasePotionHeal: 0.33,
     evolveRadius: 9,
     /** Share of evolveTime after which the next stage's look (model, size, aura) appears. */
     evolveSwapAt: 0.45,
