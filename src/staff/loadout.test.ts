@@ -57,6 +57,26 @@ describe('staff ownership from relics', () => {
     expect(getOwnedStaffs()).toEqual(['duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu']);
   });
 
+  it("unlocks Fighter's Might from the Tidebreaker Belt and lets it be equipped", () => {
+    setSessionRelics(['tidebreaker_belt']);
+    expect(getOwnedStaffs()).toEqual(['duel_staff_sproto', 'duel_staff_fighters_might']);
+    expect(setSelectedStaff('duel_staff_fighters_might')).toBe(true);
+    expect(getLoadout()).toMatchObject({ staff: 'duel_staff_fighters_might', replaced: null });
+  });
+
+  it("does not own Fighter's Might without the Tidebreaker Belt", () => {
+    setSessionRelics(['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'breakwater_coin']);
+    expect(getOwnedStaffs()).not.toContain('duel_staff_fighters_might');
+    expect(setSelectedStaff('duel_staff_fighters_might')).toBe(false);
+  });
+
+  it('owns every staff with every relic', () => {
+    setSessionRelics(['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin']);
+    expect(getOwnedStaffs()).toEqual([
+      'duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might',
+    ]);
+  });
+
   it('drops an equipped Nobu Staff when neither relic is owned', () => {
     setSessionRelics(['breakwater_coin']);
     expect(setSelectedStaff('duel_staff_nobu')).toBe(true);
