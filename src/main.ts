@@ -7,7 +7,7 @@ import { crashGuard } from './core/crash';
 import { showCrashPanel } from './ui/CrashPanel';
 
 // Uncaught errors and rejections share the loop's counter; the panel opens once the game pauses.
-crashGuard.install(window);
+crashGuard.install(window, document);
 crashGuard.onFatal((report) => showCrashPanel(report));
 
 async function boot() {

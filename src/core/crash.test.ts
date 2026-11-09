@@ -197,3 +197,102 @@ describe('showCrashPanel', () => {
     panel.remove();
   });
 });
+
+describe('page errors (review fixes)', () => {
+  const errorEvent = (init: object) => Object.assign(new Event('error'), init);
+  const rejection = (reason: unknown) => Object.assign(new Event('unhandledrejection'), { reason });
+
+  it('page errors with no failing frame never pause the game (async boot, hidden tab)', () => {
+    const guard = new CrashGuard({ threshold: 3, log: () => {}, surface: null, origin: 'https://game.test' });
+    const fatal = vi.fn();
+    guard.onFatal(fatal);
+    const target = new EventTarget() as unknown as Window;
+    guard.install(target);
+    for (let i = 0; i < 10; i++) {
+      target.dispatchEvent(errorEvent({ error: new Error(`e${i}`), message: `e${i}` }));
+      target.dispatchEvent(rejection(`r${i}`));
+    }
+    expect(guard.errors).toBe(20); // still counted and logged
+    expect(guard.consecutive).toBe(0);
+    expect(fatal).not.toHaveBeenCalled();
+    guard.report(new Error('frame'), 'frame'); // one failing frame after them is one, not a pause
+    expect(guard.consecutive).toBe(1);
+    expect(guard.paused).toBe(false);
+  });
+
+  it('page errors extend a streak that a failing frame started', () => {
+    const guard = new CrashGuard({ threshold: 3, log: () => {}, surface: null, origin: 'https://game.test' });
+    const target = new EventTarget() as unknown as Window;
+    guard.install(target);
+    guard.report(new Error('frame'), 'frame');
+    target.dispatchEvent(rejection('a'));
+    expect(guard.paused).toBe(false);
+    target.dispatchEvent(rejection('b'));
+    expect(guard.paused).toBe(true);
+  });
+
+  it('ignores cross-origin and muted errors', () => {
+    const guard = new CrashGuard({ log: () => {}, surface: null, origin: 'https://game.test' });
+    const target = new EventTarget() as unknown as Window;
+    guard.install(target);
+    target.dispatchEvent(errorEvent({ error: null, message: 'Script error.' }));
+    target.dispatchEvent(
+      errorEvent({ error: new Error('ext'), message: 'ext', filename: 'chrome-extension://abc/content.js' }),
+    );
+    target.dispatchEvent(errorEvent({ error: new Error('ad'), message: 'ad', filename: 'https://ads.example/x.js' }));
+    expect(guard.errors).toBe(0);
+    target.dispatchEvent(
+      errorEvent({ error: new Error('ours'), message: 'ours', filename: 'https://game.test/assets/i.js' }),
+    );
+    expect(guard.errors).toBe(1);
+    target.dispatchEvent(errorEvent({ error: new Error('inline'), message: 'inline', filename: '' }));
+    expect(guard.errors).toBe(2);
+  });
+
+  it('ignores AbortError and NotAllowedError rejections', () => {
+    const guard = new CrashGuard({ log: () => {}, surface: null });
+    const target = new EventTarget() as unknown as Window;
+    guard.install(target);
+    target.dispatchEvent(rejection(new DOMException('The user aborted a request.', 'AbortError')));
+    target.dispatchEvent(rejection(new DOMException('play() failed', 'NotAllowedError')));
+    expect(guard.errors).toBe(0);
+    target.dispatchEvent(rejection(new DOMException('bad', 'NotFoundError')));
+    expect(guard.errors).toBe(1);
+  });
+
+  it('a visibility change resets the streak', () => {
+    const guard = new CrashGuard({ threshold: 3, log: () => {}, surface: null });
+    const target = new EventTarget() as unknown as Window;
+    const doc = new EventTarget() as unknown as Document;
+    const uninstall = guard.install(target, doc);
+    guard.report(new Error('a'), 'frame');
+    guard.report(new Error('b'), 'frame');
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(guard.consecutive).toBe(0);
+    guard.report(new Error('c'), 'frame');
+    expect(guard.paused).toBe(false);
+    uninstall();
+    guard.report(new Error('d'), 'frame');
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(guard.consecutive).toBe(2);
+  });
+
+  it('a step that returns false neither grows nor resets the streak', () => {
+    const guard = new CrashGuard({ threshold: 3, log: () => {}, surface: null });
+    const queue: ((now: number) => void)[] = [];
+    let n = 0;
+    createFrameLoop(
+      () => {
+        n++;
+        if (n % 10 === 0) throw new Error('step');
+        return false;
+      },
+      { guard, raf: (cb) => queue.push(cb) },
+    )(0);
+    for (let i = 0; i < 25; i++) queue.shift()?.(i);
+    expect(guard.consecutive).toBe(2);
+    expect(guard.paused).toBe(false);
+    for (let i = 0; i < 5; i++) queue.shift()?.(i);
+    expect(guard.paused).toBe(true);
+  });
+});
