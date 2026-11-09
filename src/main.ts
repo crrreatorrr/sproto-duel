@@ -3,6 +3,12 @@ import { App } from './App';
 import { Game } from './core/Game';
 import { Campaign } from './campaign/Campaign';
 import { connectHub } from './hub/link';
+import { crashGuard } from './core/crash';
+import { showCrashPanel } from './ui/CrashPanel';
+
+// Uncaught errors and rejections share the loop's counter; the panel opens once the game pauses.
+crashGuard.install(window, document);
+crashGuard.onFatal((report) => showCrashPanel(report));
 
 async function boot() {
   const container = document.getElementById('game')!;
@@ -38,11 +44,8 @@ async function boot() {
   }
 }
 
+// A failed boot (an asset, the physics module) shows the same panel, with Retry and the details.
 boot().catch((err) => {
-  console.error(err);
-  // As text: an error message can carry a server response.
-  const pre = document.createElement('pre');
-  pre.className = 'fatal';
-  pre.textContent = String(err?.stack ?? err);
-  document.body.appendChild(pre);
+  document.querySelector('#ui > .loading')?.remove();
+  crashGuard.report(err, 'boot');
 });

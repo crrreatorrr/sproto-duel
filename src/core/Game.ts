@@ -26,6 +26,7 @@ import type { SimEvent, SimSetup } from '../sim-core';
 import type { Match } from './Match';
 import { feel } from './feel';
 import { Input } from './Input';
+import { createFrameLoop } from './crash';
 
 /** Anything that drives a wizard from inside the fixed tick (AI, training dummy). */
 export interface TickController {
@@ -613,16 +614,40 @@ export class Game {
     return !!this.presenter?.live;
   }
 
-  private readonly frame = (now: number) => {
-    requestAnimationFrame(this.frame);
+  /**
+   * The rAF loop. It always reschedules, even when a frame throws; a throw ends that frame (no
+   * further fixed steps run in it, and the step backlog is dropped). After a few failing frames in a
+   * row the crash guard pauses the game and shows the "Something broke" panel (core/crash.ts).
+   */
+  private readonly frame = createFrameLoop((now: number) => {
     // Clamp both ways: long stalls (tab switch) and clocks going backwards must never explode smoothing.
     const realDt = Math.max(0, Math.min(0.1, (now - this.lastTime) / 1000));
     this.lastTime = now;
-    this.advance(realDt);
-  };
+    return this.advance(realDt);
+  });
 
-  /** One rendered frame: input, simulation steps, render. The rAF loop calls it; QA may too (no new loop). */
-  advance(realDt: number): void {
+  /**
+   * One rendered frame: input, simulation steps, render. The rAF loop calls it; QA may too (no new loop).
+   * Returns whether the crash guard should count the frame as good: true when a fixed step ran or sim
+   * time is stopped (menus, hit-stop), false when sim time ran but no step was due yet (a 144 Hz
+   * frame), so a step that throws every time it runs still trips the panel.
+   */
+  advance(realDt: number): boolean {
+    try {
+      return this.advanceFrame(realDt);
+    } catch (err) {
+      // The failed step already bumped simTime/simTick and left its systems half-applied: drop the
+      // backlog so it is not rerun on top of that state in the next frame.
+      this.accumulator = 0;
+      throw err;
+    } finally {
+      // Even on a throw: a one-frame press must not replay next frame (a double cast).
+      this.input.endFrame();
+      for (const p of this.extraPads) p.endFrame();
+    }
+  }
+
+  private advanceFrame(realDt: number): boolean {
     this.trackPerf(realDt);
 
     // A cinematic freezes the fight: no aiming, moving or casting until it hands control back.
@@ -636,7 +661,8 @@ export class Game {
     const scale = this.simulating ? feel.update(realDt) * this.cinematicScale : 0;
     const fixed = CONFIG.sim.fixedDt;
     // Online: the sim runs on wall-clock time; hit-stop and slow-mo stay visual (`scale` below).
-    this.accumulator += this.fixedTimeScale ? (this.simulating ? realDt : 0) : realDt * scale;
+    const added = this.fixedTimeScale ? (this.simulating ? realDt : 0) : realDt * scale;
+    this.accumulator += added;
     let steps = 0;
     while (this.accumulator >= fixed && steps < CONFIG.sim.maxStepsPerFrame) {
       this.tick(fixed);
@@ -650,8 +676,7 @@ export class Game {
     // Effects keep real time through a cinematic (the world is frozen, its light show isn't).
     const fxDt = this.simulating && this.cinematicScale < 1 ? realDt : realDt * scale;
     this.renderFrame(realDt, realDt * scale, alpha, fxDt);
-    this.input.endFrame();
-    for (const p of this.extraPads) p.endFrame();
+    return steps > 0 || added === 0;
   }
 
   /** One fixed simulation step. Deterministic given the same intents. */
