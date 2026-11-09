@@ -314,6 +314,8 @@ export class WizardVisual {
   celebrate = false;
   /** True when a GLB is shown, false for the primitive placeholder. */
   usesModel = false;
+  /** The look is a staff-holding model (it should have `socket_staff`). False for boss looks, which hold their own props. */
+  private holdsStaff = true;
   /** True when the GLB is a rigged (skinned) variant from models/rigged/. */
   rigged = false;
   /**
@@ -416,6 +418,7 @@ export class WizardVisual {
     this.styleMenace = modelSpec.motion?.menace ?? 0;
     if (model) {
       this.usesModel = true;
+      this.holdsStaff = !!modelSpec.muzzle?.points.staff;
       this.rigged = !!model.rig;
       const height = modelSpec.fitHeight ?? CONFIG.wizard.height;
       this.topHeight = height;
@@ -493,7 +496,8 @@ export class WizardVisual {
     }
     const socket = this.staffSocket();
     if (!socket) {
-      console.warn('[staff] player model has no socket_staff');
+      // A boss look (a character skin) keeps its own phone, vape or gun: the staff is not shown.
+      if (this.holdsStaff) console.warn('[staff] player model has no socket_staff');
       return;
     }
     const root = this.staffProp?.root ?? this.proceduralStaff(def);

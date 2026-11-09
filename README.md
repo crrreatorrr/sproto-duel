@@ -22,6 +22,18 @@ Without a hub session it cycles every staff and shows the ones you don't own as 
 silhouettes. It is display only, pauses while hidden, and is freed when a fight starts
 (`src/ui/TitleStaffPreview.ts`; the list is `titleStaffCycle` in `src/ui/titleStaffs.ts`).
 
+**Character skins.** The main menu's **Character** rack picks your look, next to the **Staff** rack.
+Wizard Sproto is always there. Beating a boss in the Boss Gauntlet (a saved win) unlocks that boss's
+first-stage look for every mode: Quick Duel, the Gauntlet, Local Versus (player 1) and online. The
+double fight unlocks both Bitcoin Obama and The Midget. A skin is cosmetic only: your hitbox,
+health, speed, spells and staff stats don't change, and the look is scaled to Sproto's height. A
+boss look keeps its own props (phone, vape, gun), so the equipped staff isn't shown on it; its
+stats still apply. Locked skins name the boss that unlocks them. God mode unlocks all of them for
+the session. Online, your opponent still sees the default rival look: the protocol carries no
+skin. The choice is saved in `localStorage` (`arcane-duel-skin`), and the beaten bosses are saved in
+the campaign save's `defeated` list. Older saves fill it in from their progress. See
+`src/campaign/skins.ts`.
+
 ```bash
 npm run build      # typecheck + production build into dist/
 npm run gen:audio  # regenerate the synthesized placeholder sounds

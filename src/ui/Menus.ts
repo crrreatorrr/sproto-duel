@@ -213,6 +213,10 @@ export interface MenuHandlers {
   staffRack(): { owned: { id: string; name: string; line: string; accent: string; bolt: string }[]; selected: string; ranked: boolean };
   /** Equip a staff. No-op mid-fight. */
   selectStaff(id: string): void;
+  /** Character skins (look only): every one, locked until its boss is beaten, and the chosen one. */
+  characterRack?(): { skins: { id: string; name: string; line: string; accent: string; locked: boolean }[]; selected: string };
+  /** Wear a character skin. No-op mid-fight; a locked one says how to unlock it. */
+  selectCharacter?(id: string): void;
   /** The main menu's slot for the title screen's live Wizard Sproto (App fills it). */
   titleStage?(slot: HTMLElement): void;
 }
@@ -333,6 +337,37 @@ export class Menus {
     return `<div class="staff-rack" data-staff-rack><span class="staff-kicker">${escapeHtml(kicker)}</span>${picks}</div>${note}`;
   }
 
+  /** Character skins, Wizard Sproto first; locked ones show the boss that unlocks them. */
+  private characterRackHtml(): string {
+    const view = this.h.characterRack?.();
+    if (!view) return '';
+    const picks = view.skins.map((s) => {
+      const on = s.id === view.selected;
+      return `<button type="button" class="staff-pick char-pick${on ? ' equipped' : ''}${s.locked ? ' locked' : ''}" data-skin="${escapeHtml(s.id)}" style="--accent:${s.accent};--bolt:${s.locked ? '#4a4366' : s.accent}" aria-pressed="${on}"${s.locked ? ' aria-disabled="true"' : ''}>
+        <i class="staff-orb" aria-hidden="true"></i><span class="staff-copy"><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.line)}</small></span></button>`;
+    }).join('');
+    return `<div class="staff-rack char-rack" data-char-rack><span class="staff-kicker">Character</span>${picks}</div>`;
+  }
+
+  private bindCharacter(root: ParentNode): void {
+    root.querySelectorAll<HTMLButtonElement>('[data-skin]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.h.selectCharacter?.(btn.dataset.skin ?? '');
+        this.paintCharacter(root);
+      });
+    });
+  }
+
+  private paintCharacter(root: ParentNode): void {
+    const view = this.h.characterRack?.();
+    if (!view) return;
+    root.querySelectorAll<HTMLButtonElement>('[data-skin]').forEach((btn) => {
+      const on = btn.dataset.skin === view.selected;
+      btn.classList.toggle('equipped', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
   private bindStaff(root: ParentNode): void {
     root.querySelectorAll<HTMLButtonElement>('[data-staff]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -435,6 +470,7 @@ export class Menus {
           ${this.h.versus ? '<button class="ghost versus-btn" data-act="versus">Local Versus<small>Two players, one screen</small></button>' : ''}
           ${this.onlineButtonHtml()}
         </div>
+        ${this.characterRackHtml()}
         ${this.staffRackHtml(false)}
         <div class="row">
           <button class="ghost" data-act="howto">How to Play</button>
@@ -457,6 +493,7 @@ export class Menus {
     this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showMain()));
     this.on(s, '[data-act="exchange"]', () => this.showExchange());
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
+    this.bindCharacter(s);
     this.bindStaff(s);
     this.h.titleStage?.(s.querySelector<HTMLElement>('[data-title-slot]')!);
   }

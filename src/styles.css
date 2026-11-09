@@ -847,6 +847,9 @@ html, body {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 0 16px color-mix(in srgb, var(--accent) 65%, transparent);
 }
+/* Character skins: a locked one is a dim silhouette that names the boss to beat. */
+.menus button.char-pick.locked { opacity: 0.55; border-style: dashed; }
+.menus button.char-pick.locked .staff-orb { box-shadow: none; }
 .staff-ranked, .staff-lock { margin: 0; font-size: 13px; letter-spacing: 0.04em; color: var(--gold); }
 .menu-actions { display: grid; gap: 10px; }
 .menu-actions.row { grid-auto-flow: column; grid-auto-columns: 1fr; }
