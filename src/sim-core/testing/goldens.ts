@@ -19,7 +19,7 @@ export interface GoldenCase {
 
 const ALL_SPELLS = ['carpet', 'pump', 'vape', 'lockon', 'breath'];
 const BOSS_LIST = ['sahil', 'obama', 'broccoli', 'agent', 'tinubu'];
-const STAFF_LIST = ['duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might'];
+const STAFF_LIST = ['duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might', 'duel_staff_alien_ray'];
 
 export const GOLDEN_CASES: GoldenCase[] = [
   // Online and Local Versus: both seats logged, staffs are looks only.

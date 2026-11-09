@@ -16,8 +16,8 @@ export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
 
 /**
  * Relic → staff in this game. One staff slot, so these never stack.
- * `breakwater_coin` (Sproto Arcade) gives the same award as NOBU's `cones_tip`: owning either,
- * or both, owns the Nobu Staff once.
+ * `breakwater_coin` is Sproto Arcade's: the hub grants it for beating Bront, the Arcade's first
+ * boss, and it unlocks the Alien Ray Staff here.
  * `tidebreaker_belt` (Sproto Fighter) unlocks Fighter's Might, matching the hub's item matrix.
  * Absent on purpose: `tinubu_crown` (earned in Duel).
  */
@@ -25,7 +25,7 @@ const STAFF_BY_RELIC: Readonly<Record<string, StaffId>> = {
   hpos10i_core: 'duel_staff_momentum',
   genesis_shard: 'duel_staff_moonward',
   cones_tip: 'duel_staff_nobu',
-  breakwater_coin: 'duel_staff_nobu',
+  breakwater_coin: 'duel_staff_alien_ray',
   tidebreaker_belt: 'duel_staff_fighters_might',
 };
 

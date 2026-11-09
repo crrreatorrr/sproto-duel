@@ -11,7 +11,7 @@ import type { SimInput } from './wizard';
 const any = { anyVersion: true };
 const RULES = ['online', 'versus', 'quick', 'gauntlet'] as const;
 const BOSSES = ['sahil', 'obama', 'broccoli', 'agent', 'tinubu'];
-const STAFFS = [null, 'duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might'];
+const STAFFS = [null, 'duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might', 'duel_staff_alien_ray'];
 
 /** A random but well-formed log: every tick carries facing and aim, so nothing the sim reads is missing. */
 function randomLog(seed: number): DuelLog {
@@ -32,7 +32,7 @@ function randomLog(seed: number): DuelLog {
     writers.push(w);
   }
   const log: DuelLog = {
-    schema: LOG_SCHEMA, simVersion: 'any', seed: r.next() | 0, rules, staffs: [STAFFS[r.range(0, 5)], STAFFS[r.range(0, 5)]], ticks,
+    schema: LOG_SCHEMA, simVersion: 'any', seed: r.next() | 0, rules, staffs: [STAFFS[r.range(0, STAFFS.length - 1)], STAFFS[r.range(0, STAFFS.length - 1)]], ticks,
     inputs: writers.map((w) => w.encode()),
   };
   if (rules === 'gauntlet') log.bossId = BOSSES[r.range(0, 4)];

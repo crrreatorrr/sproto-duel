@@ -8,7 +8,13 @@ import { CONFIG } from '../config';
  * LOD1 is the mesh the socketed wizard was authored with, and together with the empty rig it stays
  * under the 10k triangle budget. The full `staff_<name>.glb` files sit beside it for a later close-up.
  */
-export type StaffId = 'duel_staff_sproto' | 'duel_staff_momentum' | 'duel_staff_moonward' | 'duel_staff_nobu' | 'duel_staff_fighters_might';
+export type StaffId =
+  | 'duel_staff_sproto'
+  | 'duel_staff_momentum'
+  | 'duel_staff_moonward'
+  | 'duel_staff_nobu'
+  | 'duel_staff_fighters_might'
+  | 'duel_staff_alien_ray';
 
 export const STAFF_IDS: readonly StaffId[] = [
   'duel_staff_sproto',
@@ -16,16 +22,18 @@ export const STAFF_IDS: readonly StaffId[] = [
   'duel_staff_moonward',
   'duel_staff_nobu',
   'duel_staff_fighters_might',
+  'duel_staff_alien_ray',
 ];
 
 export const SPROTO_STAFF: StaffId = 'duel_staff_sproto';
 
-const SLUG: Record<StaffId, 'sproto' | 'momentum' | 'moonward' | 'nobu' | 'fighters_might'> = {
+const SLUG: Record<StaffId, 'sproto' | 'momentum' | 'moonward' | 'nobu' | 'fighters_might' | 'alien_ray'> = {
   duel_staff_sproto: 'sproto',
   duel_staff_momentum: 'momentum',
   duel_staff_moonward: 'moonward',
   duel_staff_nobu: 'nobu',
   duel_staff_fighters_might: 'fighters_might',
+  duel_staff_alien_ray: 'alien_ray',
 };
 
 export interface StaffPulse {
@@ -59,6 +67,9 @@ export interface EquippedStaff {
   /** Null: use CONFIG.spells.bolt.knockback. */
   boltKnockback: number | null;
   boltLabel: string;
+  /** Bolt look only (the hitbox is unchanged): orb and glow size ×, and the core's extra length ×. 1 = stock. */
+  boltScale: number;
+  rayStretch: number;
   blink: StaffBlink | null;
   boltColor: number;
   trailColor: number;
@@ -108,6 +119,8 @@ export function staffLine(id: StaffId): string {
       return `Bark Bolt · knockback ${s.nobu.boltKnockback}`;
     case 'duel_staff_fighters_might':
       return 'Fist Bolt';
+    case 'duel_staff_alien_ray':
+      return `Alien Ray · damage ${damage * s.alien_ray.boltDamageMult}`;
   }
 }
 
@@ -136,6 +149,8 @@ export function equipStaff(id: StaffId, ranked: boolean): EquippedStaff {
     boltDamageMult: mult,
     boltKnockback: knock,
     boltLabel: label,
+    boltScale: 'boltScale' in def ? def.boltScale : 1,
+    rayStretch: 'rayStretch' in def ? def.rayStretch : 1,
     blink,
     boltColor: def.bolt,
     trailColor: def.trail,

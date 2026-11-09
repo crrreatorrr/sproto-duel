@@ -145,6 +145,8 @@ export class SimDriver {
         if (!p) continue;
         p.netId = s.id;
         p.caster = this.seats[s.caster.index];
+        // Staff colours and size, as an offline cast gets them in SpellSystem.launchBolt.
+        if (s.kind === 'bolt') p.applyStaffLook(p.caster?.staff);
       }
       p.prevPos.copy(fresh ? tmp.set(q(s.pos.x), q(s.pos.y), q(s.pos.z)) : p.pos);
       p.pos.set(q(s.pos.x), q(s.pos.y), q(s.pos.z));
@@ -289,7 +291,7 @@ export class SimDriver {
         const surface = e.o >= 0 ? 'wizard' : e.o === SURFACE_PILLAR ? 'pillar' : e.o === SURFACE_WALL ? 'wall' : 'floor';
         if (e.s === 'bolt') {
           if (e.o >= 0) {
-            fx.impact(pos, null, color, e.f ? 1.6 : 1);
+            fx.impact(pos, null, color, (e.f ? 1.6 : 1) * (owner?.staff?.boltScale ?? 1));
             feel.freeze(S.bolt.hitStopMs, !e.f);
             const target = this.wiz(e.o);
             if (feel.isLocal(target) || feel.isLocal(owner)) feel.shake(S.bolt.shake);

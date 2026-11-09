@@ -22,6 +22,14 @@ Without a hub session it cycles every staff and shows the ones you don't own as 
 silhouettes. It is display only, pauses while hidden, and is freed when a fight starts
 (`src/ui/TitleStaffPreview.ts`; the list is `titleStaffCycle` in `src/ui/titleStaffs.ts`).
 
+**Alien Ray Staff.** Beat Bront, Sproto Arcade's first boss: the hub grants the Breakwater Coin,
+which unlocks this staff here (`src/staff/loadout.ts`). Its bolt, the Alien Ray, deals 3x damage
+(12 instead of 4) at the stock fire rate, and flies as a big green ray (looks only; the hitbox is
+the stock bolt's). On the staff the saucer spins, the cow turns in the tractor beam and the six rim
+aliens hop in a stadium wave; the dome, beam and shaft lights glow and flare on each cast. Tuning:
+`CONFIG.staffs.alien_ray`. The model is built from the Tripo source with Blender:
+`tools/blender/alien_ray_staff.py` then `tools/blender/finish-staff.mjs` (usage at the top of the script).
+
 **Character skins.** The main menu's **Character** rack picks your look, next to the **Staff** rack.
 Wizard Sproto is always there. Beating a boss in the Boss Gauntlet (a saved win) unlocks that boss's
 first-stage look for every mode: Quick Duel, the Gauntlet, Local Versus (player 1) and online. The

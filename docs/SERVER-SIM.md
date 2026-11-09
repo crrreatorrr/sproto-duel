@@ -154,7 +154,7 @@ read directly, so tuning cannot drift):
   crumbling to stumps, glass, sliding blocks, lava, drifting clouds, and the collision queries.
 - `tickets.ts`: golden tickets.
 - `staffs.ts`: all staffs, including `duel_staff_fighters_might` (Fist Bolt: 2x damage, 1.85x fire
-  interval). The game's Staff Rack has no mesh for it yet; the sim accepts it in a loadout.
+  interval) and `duel_staff_alien_ray` (Alien Ray: 3x damage, stock fire interval).
 
 ## CPU rival and story bosses (A5)
 
@@ -257,8 +257,8 @@ review the diff. They cover:
 
 - online and Local Versus: KO, timeouts, a drawn round, and forfeits by either seat, one of them
   during the intro;
-- Quick Duel against the CPU rival with every staff, including `duel_staff_fighters_might`; with
-  all reward spells learned; and in god mode;
+- Quick Duel against the CPU rival with every staff, including `duel_staff_fighters_might` and
+  `duel_staff_alien_ray`; with all reward spells learned; and in god mode;
 - every boss: a god-mode win through all three stages, and an honest loss.
 
 The inputs come from scripted bots (`src/sim-core/testing/bot.ts`), not people. The same logs are
