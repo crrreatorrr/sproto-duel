@@ -1,4 +1,4 @@
-/*! @metaverse/hub-sdk 0.6.3 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
+/*! @metaverse/hub-sdk 0.6.4 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
 "use strict";
 var HubSDK = (() => {
   var __defProp = Object.defineProperty;
@@ -94,7 +94,9 @@ var HubSDK = (() => {
     "cones_tip",
     "tinubu_crown",
     "tidebreaker_belt",
-    "breakwater_coin"
+    "breakwater_coin",
+    "marina_anchor",
+    "dragon_scale"
   ];
   var FOUR_LIGHTS_RELIC_IDS = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown"];
   var RELIC_BY_GAME = {
@@ -103,7 +105,9 @@ var HubSDK = (() => {
     nobu: "cones_tip",
     sproto: "tinubu_crown",
     "sproto-fighter": "tidebreaker_belt",
-    "sproto-arcade": "breakwater_coin"
+    "sproto-arcade": "breakwater_coin",
+    "sproto-coop-battle": "marina_anchor",
+    "sproto-shooter": "dragon_scale"
   };
   var BoardId = {
     Hpos10iActTime: "hpos10i_act_time",
@@ -159,7 +163,9 @@ var HubSDK = (() => {
     NobuBossDefeated: "nobu.boss_defeated",
     SprotoBossDefeated: "sproto.boss_defeated",
     FighterStoryLevelComplete: "fighter.story_level_complete",
-    ArcadeBossDefeated: "arcade.boss_defeated"
+    ArcadeBossDefeated: "arcade.boss_defeated",
+    CoopStageClear: "coop.stage_clear",
+    ShooterWaveClear: "shooter.wave_clear"
   };
   function record(data) {
     return data;
@@ -190,6 +196,14 @@ var HubSDK = (() => {
     }
     if (eventId === HubEvent.ArcadeBossDefeated && game === "sproto-arcade") {
       if (payload.boss === "bront") return own;
+      return void 0;
+    }
+    if (eventId === HubEvent.CoopStageClear && game === "sproto-coop-battle") {
+      if (payload.stage === 1) return own;
+      return void 0;
+    }
+    if (eventId === HubEvent.ShooterWaveClear && game === "sproto-shooter") {
+      if (payload.wave === 1) return own;
       return void 0;
     }
     return void 0;

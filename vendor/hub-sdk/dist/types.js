@@ -17,14 +17,17 @@ export const RELIC_IDS = [
     'tinubu_crown',
     'tidebreaker_belt',
     'breakwater_coin',
+    'marina_anchor',
+    'dragon_scale',
 ];
 /**
- * The four Relics socketed on the Four Lights monument. The Tidebreaker Belt (Sproto Fighter)
- * is a Relic too, but it sits on its own plinth in the Bar and does not count toward Four Lights.
- * So does the Breakwater Coin (Sproto Arcade, the Bar cabinet's second game).
+ * The four Relics that make the Four Lights. The Tidebreaker Belt (Sproto Fighter), the Breakwater
+ * Coin (Sproto Arcade), the Marina Anchor (Sproto Coop Battle) and the Dragon Scale (Sproto Shooter)
+ * are Relics too, but they do not count toward the Four Lights, the Hall of Champions or the Four
+ * Lights pet.
  */
 export const FOUR_LIGHTS_RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'];
-/** Games with no entry here have no Relic. Shooter and Coop Battle are in that set. */
+/** Each game's Relic. Partial: a game id with no entry cannot grant a Relic. */
 export const RELIC_BY_GAME = {
     hpos10i: 'hpos10i_core',
     'peoples-bitcoin': 'genesis_shard',
@@ -32,6 +35,8 @@ export const RELIC_BY_GAME = {
     sproto: 'tinubu_crown',
     'sproto-fighter': 'tidebreaker_belt',
     'sproto-arcade': 'breakwater_coin',
+    'sproto-coop-battle': 'marina_anchor',
+    'sproto-shooter': 'dragon_scale',
 };
 /**
  * Nakama leaderboard ids. Sort direction matches the architecture:
