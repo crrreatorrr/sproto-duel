@@ -332,8 +332,7 @@ export class SpellSystem {
     p.radius = B.radius;
     p.damage = damage;
     p.knockback = w.staff?.boltKnockback ?? B.knockback;
-    p.boltColor = w.staff?.boltColor ?? 0;
-    p.trailColor = w.staff?.trailColor ?? 0;
+    p.applyStaffLook(w.staff);
     p.power = p.basePower = B.power * w.clashPowerMultiplier;
     p.life = B.lifetime;
     // Lock-On: the bolt curves toward the nearest enemy in front of the caster.

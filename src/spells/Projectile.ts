@@ -129,6 +129,12 @@ export class Projectile implements SkinTarget {
   /** Staff bolt / trail colours. 0 keeps the team palette. */
   boltColor = 0;
   trailColor = 0;
+  /**
+   * Staff bolt look (the Alien Ray Staff): orb, glow and trail size ×, and the core's length × on top
+   * of its speed stretch. Looks only: the hitbox stays `radius`. 1 = the stock bolt.
+   */
+  boltScale = 1;
+  rayStretch = 1;
   /** Wizard this projectile already passed through during a dodge (for the EVADE callout). */
   evaded: Wizard | null = null;
   /** Bit per wizard index: set once that wizard's AI has evaluated this projectile. Cleared on spawn. */
@@ -198,21 +204,31 @@ export class Projectile implements SkinTarget {
     if (this.kind === 'bolt') {
       if (this.boltColor && this.tintCore && this.tintGlow) {
         const c = tmpBoltColor.setHex(this.boltColor);
-        this.tintCore.color.copy(c).lerp(tmpBoltWhite, 0.55).multiplyScalar(3.2);
-        this.tintGlow.color.copy(c).multiplyScalar(1.8);
+        // A bigger staff bolt keeps more of its colour, so bloom doesn't wash a ray out to white.
+        const big = this.boltScale;
+        this.tintCore.color.copy(c).lerp(tmpBoltWhite, 0.55 / big).multiplyScalar(3.2 / Math.sqrt(big));
+        this.tintGlow.color.copy(c).multiplyScalar(1.8 / big);
         this.core.material = this.tintCore;
         this.glow.material = this.tintGlow;
       } else {
         this.core.material = this.mats.boltCore[team];
         this.glow.material = this.mats.boltGlow[team];
       }
-      this.glow.scale.setScalar(this.radius * 9 * glow);
+      this.glow.scale.setScalar(this.radius * 9 * glow * Math.sqrt(this.boltScale));
     } else {
       this.core.material = this.mats.blastCore[team];
       this.glow.material = this.mats.blastGlow[team];
       this.glow.scale.setScalar(this.radius * 6.5 * glow);
     }
-    this.core.scale.setScalar(this.radius);
+    this.core.scale.setScalar(this.radius * (this.kind === 'bolt' ? this.boltScale : 1));
+  }
+
+  /** The caster's staff bolt look (colours, size), at launch. Reflected bolts keep it. */
+  applyStaffLook(staff: { boltColor: number; trailColor: number; boltScale: number; rayStretch: number } | null | undefined): void {
+    this.boltColor = staff?.boltColor ?? 0;
+    this.trailColor = staff?.trailColor ?? 0;
+    this.boltScale = staff?.boltScale ?? 1;
+    this.rayStretch = staff?.rayStretch ?? 1;
   }
 
   private launch(): void {
@@ -237,12 +253,14 @@ export class Projectile implements SkinTarget {
     this.knockback = 0;
     this.boltColor = 0;
     this.trailColor = 0;
+    this.boltScale = 1;
+    this.rayStretch = 1;
   }
 
   /** Per-tick trail: glowing motes for the orb, the object's own trail (smoke, crumbs...) otherwise. */
   trail(fx: Effects): void {
     if (this.slot) this.skins.trail(this.slot, this);
-    else fx.trail(this.pos, this.trailColor || this.color, this.kind === 'bolt' ? 0.22 : 0.5 * (this.radius / CONFIG.spells.blast.radius), this.kind === 'bolt' ? 1 : 3);
+    else fx.trail(this.pos, this.trailColor || this.color, this.kind === 'bolt' ? 0.22 * this.boltScale : 0.5 * (this.radius / CONFIG.spells.blast.radius), this.kind === 'bolt' ? 1 : 3);
   }
 
   /** Render-time placement with interpolation; bolts stretch along their velocity. Objects pose in ProjectileSkins.sync. */
@@ -251,7 +269,8 @@ export class Projectile implements SkinTarget {
     if (this.slot) return;
     if (this.kind === 'bolt') {
       const speed = this.vel.length();
-      this.core.scale.set(this.radius * 0.8, this.radius * 0.8, this.radius * (1 + speed * 0.06));
+      const r = this.radius * this.boltScale;
+      this.core.scale.set(r * 0.8, r * 0.8, r * (1 + speed * 0.06 * this.rayStretch));
       if (speed > 0.01) this.core.lookAt(this.group.position.x + this.vel.x, this.group.position.y + this.vel.y, this.group.position.z + this.vel.z);
     } else {
       const pulse = 1 + Math.sin(time * 18) * 0.06;

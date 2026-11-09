@@ -798,6 +798,25 @@ export const CONFIG = {
       boltLabel: 'Fist Bolt',
       pulse: { material: 'staff_fighters_might_gauntlet_glow_mat', min: 1, max: 2.8, hz: 1.2, onCast: 4 },
     },
+    /**
+     * Alien Ray Staff: Sproto Arcade's Breakwater Coin (beating Bront, the Arcade's first boss).
+     * Built from the Tripo model with tools/blender/alien_ray_staff.py: the saucer spins, the cow
+     * turns in the tractor beam and the six rim aliens hop in a stadium wave.
+     */
+    alien_ray: {
+      name: 'Alien Ray Staff',
+      bolt: 0x57ff2e,
+      core: 0xd9ffc4,
+      trail: 0x19e04a,
+      accent: 0xff8c2a,
+      /** Bolt damage × this (4 → 12). The HUD calls the bolt Alien Ray. */
+      boltDamageMult: 3,
+      boltLabel: 'Alien Ray',
+      /** Looks only, the hitbox stays the bolt's radius: the orb and glow this much bigger, the core stretched into a ray. */
+      boltScale: 2.1,
+      rayStretch: 2.0,
+      pulse: { material: 'staff_alien_ray_glow_mat', min: 1.1, max: 2.6, hz: 0.8, onCast: 4.5 },
+    },
   },
 
   clash: {
