@@ -266,4 +266,92 @@ export function registerMenuScenarios(qa: QAHarness, game: Game, app: App): void
       app.toMenu();
     }
   });
+  /** A key press the way a browser delivers it: keydown on the focused element, bubbling to window. */
+  const key = (code: string): KeyboardEvent => {
+    const t = (document.activeElement as HTMLElement | null) ?? document.body;
+    const e = new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true });
+    t.dispatchEvent(e);
+    t.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+    return e;
+  };
+  const focusedLabel = () => {
+    const el = document.activeElement as HTMLElement | null;
+    return el ? `${el.tagName.toLowerCase()}${el.dataset.act ? `[${el.dataset.act}]` : ''}${el.dataset.key ? `{${el.dataset.key}}` : ''}` : 'none';
+  };
+
+  qa.add('keys.menu_navigation', (c) => {
+    // Menus by keyboard alone: arrows / W / S move, Enter / Space press, Esc backs out; the Space
+    // that pressed a button is not also a gameplay press.
+    if (app.state !== 'menu') {
+      c.note(`skipped (app state ${app.state})`);
+      return;
+    }
+    try {
+      let backs = 0;
+      app.menus.showSettings(() => backs++);
+      (document.activeElement as HTMLElement | null)?.blur();
+      const first = key('KeyS');
+      c.expect(first.defaultPrevented && app.menus.root.contains(document.activeElement), `S with nothing focused did not focus the screen (${focusedLabel()})`);
+      const was = document.activeElement;
+      key('ArrowUp');
+      c.expect(document.activeElement !== was && app.menus.root.contains(document.activeElement), `ArrowUp did not move (${focusedLabel()})`);
+      const slider = app.menus.root.querySelector<HTMLInputElement>('input[type="range"][data-key="master"]')!;
+      slider.focus();
+      c.expect(!key('ArrowLeft').defaultPrevented, 'ArrowLeft on a slider was taken from the slider');
+      c.expect(key('ArrowDown').defaultPrevented && document.activeElement !== slider, `ArrowDown did not leave the slider (${focusedLabel()})`);
+      const box = app.menus.root.querySelector<HTMLInputElement>('input[type="checkbox"][data-key="invertY"]')!;
+      box.focus();
+      const on = box.checked;
+      key('Enter');
+      c.expect(box.checked !== on, 'Enter did not toggle a checkbox');
+      key('Space');
+      c.expect(box.checked === on, 'Space did not toggle it back');
+      key('Escape');
+      c.expect(backs === 1, `Esc on Settings pressed Back ${backs} time(s)`);
+
+      app.menus.showMain();
+      (document.activeElement as HTMLElement | null)?.blur();
+      key('Enter');
+      c.expect(app.state === 'menu' && (document.activeElement as HTMLElement | null)?.dataset.act === 'start', `Enter with nothing focused: state ${app.state}, focus ${focusedLabel()}`);
+      app.menus.root.querySelector<HTMLElement>('[data-act="howto"]')!.focus();
+      game.input.endFrame();
+      key('Space');
+      c.expect(app.menus.current === 'howto', `Space on How to Play opened "${app.menus.current}"`);
+      c.expect(!game.input.wasPressed(['Space']), 'the Space that pressed a menu button also counted as a gameplay press');
+      key('Escape');
+      c.expect(app.menus.current === 'main', `Esc on How to Play went to "${app.menus.current}"`);
+      key('Escape');
+      c.expect(app.menus.current === 'main' && app.state === 'menu', 'Esc on the main menu did something');
+    } finally {
+      (document.activeElement as HTMLElement | null)?.blur();
+      game.input.endFrame();
+      app.menus.showMain();
+    }
+  });
+
+  qa.add('keys.gameplay_layout', (c) => {
+    // Space jumps, C rolls, F still jumps, the arrows move like WASD.
+    const pc = game.playerController;
+    const intent = c.player.intent;
+    c.setup();
+    const tap = (code: string) => {
+      intent.clear();
+      window.dispatchEvent(new KeyboardEvent('keydown', { code, cancelable: true }));
+      pc.update();
+      game.input.endFrame();
+      window.dispatchEvent(new KeyboardEvent('keyup', { code }));
+    };
+    tap('Space');
+    c.expect(intent.wants('jump') && !intent.wants('dodge'), 'Space did not jump');
+    tap('KeyF');
+    c.expect(intent.wants('jump'), 'F did not jump');
+    tap('KeyC');
+    c.expect(intent.wants('dodge') && !intent.wants('jump'), 'C did not roll');
+    for (const [code, wasd] of [['ArrowUp', 'KeyW'], ['ArrowLeft', 'KeyA']] as const) {
+      tap(wasd);
+      const want = intent.move.clone();
+      tap(code);
+      c.expect(intent.move.lengthSq() > 0.5 && intent.move.distanceTo(want) < 1e-6, `${code} did not move like ${wasd}`);
+    }
+  });
 }

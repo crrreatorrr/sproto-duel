@@ -24,8 +24,11 @@ export class Input {
 
   constructor(private readonly element: HTMLElement) {
     window.addEventListener('keydown', (e) => {
+      // A menu already used this key (MenuNav: Space / Enter pressed a button that resumed or
+      // started a fight): it is held, but it is not also a fresh gameplay press (a jump).
+      const usedByMenu = e.defaultPrevented;
       if (BLOCK_DEFAULT.has(e.code) && !(e.target instanceof HTMLInputElement)) e.preventDefault();
-      if (!e.repeat) this.pressed.add(e.code);
+      if (!e.repeat && !usedByMenu) this.pressed.add(e.code);
       this.down.add(e.code);
       this.pad.useKeyboardMouse();
     });

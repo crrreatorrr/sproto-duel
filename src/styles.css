@@ -48,10 +48,27 @@ html, body {
 .popup-block { color: #c7d2ff; font-size: 22px; letter-spacing: 0.06em; }
 .popup-burn { color: #ffae5e; font-size: 22px; }
 
-.fatal {
-  position: fixed; inset: 20px; padding: 16px; overflow: auto; background: #200; color: #fbb;
-  font: 13px/1.4 ui-monospace, monospace; white-space: pre-wrap; z-index: 99;
+/* "Something broke": the crash guard's pause panel (core/crash.ts, ui/CrashPanel.ts). */
+.crash-panel {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 99;
+  display: grid; gap: 12px; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto;
+  padding: 22px; border: 1px solid var(--edge); border-radius: 12px; background: rgba(14, 10, 28, 0.94);
+  backdrop-filter: blur(6px); color: var(--ink); font-family: var(--hud); pointer-events: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
 }
+.crash-panel h2 { margin: 0; font-family: var(--display); font-size: 28px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.crash-panel .note { margin: 0; color: var(--ink-dim); font-size: 16px; }
+.crash-panel summary { cursor: pointer; color: var(--ink-dim); font-size: 14px; letter-spacing: 0.06em; }
+.crash-panel pre {
+  margin: 8px 0 0; max-height: 30vh; overflow: auto; padding: 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.45);
+  color: #fbb; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word;
+}
+.crash-panel button {
+  font: 700 20px/1 var(--hud); letter-spacing: 0.1em; text-transform: uppercase; padding: 16px; border-radius: 8px;
+  cursor: pointer; background: linear-gradient(180deg, #f5c96a, #c9892c); color: #1d1206; border: 1px solid #ffe2a3;
+}
+.crash-panel button:hover { box-shadow: 0 0 22px rgba(255, 200, 100, 0.6); }
+.crash-panel button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
 /* ------------------------------------------------------------------ HUD */
 .hud { position: absolute; inset: 0; transition: opacity 0.3s; }
@@ -297,6 +314,10 @@ html, body {
 }
 .menus.pad-nav .setting input:focus { outline: none; }
 .menus.pad-nav .setting:has(.pad-focus) > span { color: var(--gold); }
+/* Room code field: focused, then typing with the pad (the selected character is the cursor). */
+.menus.pad-nav input.room-code.pad-focus { outline: 2px solid var(--gold); outline-offset: 3px; }
+.menus.pad-nav input.room-code.pad-editing { background: rgba(60, 46, 110, 0.9); box-shadow: 0 0 26px rgba(255, 200, 100, 0.45); }
+.menus.pad-nav input.room-code.pad-editing::selection { background: var(--gold); color: #1a1030; }
 
 .pad-hints {
   position: absolute; right: 26px; bottom: 22px; display: flex; gap: 20px; opacity: 0; transition: opacity 0.2s;

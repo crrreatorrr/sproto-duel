@@ -1375,14 +1375,19 @@ export const CONFIG = {
     verseDailyCap: 50,
   },
 
+  /**
+   * Keyboard (event.code). The Sproto keyboard convention, shared with the hub and the other games:
+   * WASD and the arrows move, Space jumps, Shift runs, Esc / P pause, Esc backs out of menus.
+   * The dodge roll is on C (it was on Space, and C was a second jump key; F still jumps).
+   */
   controls: {
-    forward: ['KeyW'],
-    back: ['KeyS'],
-    left: ['KeyA'],
-    right: ['KeyD'],
+    forward: ['KeyW', 'ArrowUp'],
+    back: ['KeyS', 'ArrowDown'],
+    left: ['KeyA', 'ArrowLeft'],
+    right: ['KeyD', 'ArrowRight'],
     sprint: ['ShiftLeft', 'ShiftRight'],
-    dodge: ['Space'],
-    jump: ['KeyF', 'KeyC'],
+    dodge: ['KeyC'],
+    jump: ['Space', 'KeyF'],
     bolt: ['Digit1'],
     blast: ['Digit2'],
     shield: ['KeyQ', 'Digit3'],
@@ -1398,12 +1403,28 @@ export const CONFIG = {
     /** Mouse buttons: 0 = left, 2 = right. */
     mouseBolt: 0,
     mouseBlast: 2,
+    /**
+     * Menus (MenuNav): move focus, press the focused control, and back out (Esc; on the pause menu
+     * it resumes). In a text field only the up / down arrows leave it; letters type.
+     */
+    menu: {
+      up: ['ArrowUp', 'KeyW'],
+      down: ['ArrowDown', 'KeyS'],
+      left: ['ArrowLeft'],
+      right: ['ArrowRight'],
+      confirm: ['Enter', 'NumpadEnter', 'Space'],
+      back: ['Escape'],
+    },
   },
 
   /** Controllers in the browser's "standard" mapping (Xbox, PlayStation, Switch Pro). */
   gamepad: {
-    /** Radial deadzones (stick magnitude 0..1); `trigger` is the analog value that counts as pressed. */
-    deadzone: { move: 0.16, look: 0.12, trigger: 0.3 },
+    /**
+     * Radial deadzones (stick magnitude 0..1), rescaled so motion starts smoothly from 0; `trigger`
+     * is the analog value that counts as pressed. 0.2 / 0.15 is the shared Sproto controller
+     * convention (the hub plaza and every game), so a pad feels the same in each.
+     */
+    deadzone: { move: 0.2, look: 0.15, trigger: 0.3 },
     /** Stick magnitude treated as full deflection (worn sticks rarely reach 1). */
     outerDeadzone: 0.94,
     /** Response exponent after the deadzone: 1 = linear, 2 = fine control near center. */
@@ -1462,9 +1483,9 @@ export const CONFIG = {
       ko: { strong: 1, weak: 1, ms: 550 },
     },
     menu: {
-      /** Seconds a direction is held before it starts repeating, then the repeat interval. */
-      repeatDelay: 0.38,
-      repeatInterval: 0.09,
+      /** Seconds a direction is held before it starts repeating, then the repeat interval (Sproto convention). */
+      repeatDelay: 0.35,
+      repeatInterval: 0.12,
       /** Left-stick travel that counts as a menu direction. */
       stickThreshold: 0.5,
     },

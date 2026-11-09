@@ -84,6 +84,10 @@ export function withPad(game: Game, app: App, fn: (r: PadRig) => void, pad = new
   Object.defineProperty(navigator, 'getGamepads', { configurable: true, writable: true, value: () => [pad, null, null, null] });
   gp.reset();
   let now = 1000;
+  // The pad "connects" on an idle poll first: buttons held when a pad appears are latched (ignored
+  // until released), so scenarios that press on their first frame need it to be there already.
+  gp.update(now);
+  game.input.endFrame();
   const r: PadRig = {
     pad,
     gp,
@@ -336,7 +340,7 @@ export function registerGamepadScenarios(qa: QAHarness, game: Game, app: App): v
       c.expect(game.rig.yaw === yaw && game.rig.pitch === pitch, 'drift turned the camera');
       c.expect(r.gp.device === 'kbm', 'stick drift stole the active device from keyboard + mouse');
       // Radial, not per-axis: a diagonal just past the radius moves (an axial deadzone would not).
-      r.pad.stick('left', 0.14, -0.14);
+      r.pad.stick('left', 0.17, -0.17);
       c.step(0.5, () => r.frame());
       c.expect(c.player.pos.distanceTo(start) > 0.05, 'diagonal past the radial deadzone did not move');
     });
@@ -567,6 +571,198 @@ export function registerGamepadScenarios(qa: QAHarness, game: Game, app: App): v
       }, pad);
     } finally {
       game.playerControl = saved;
+    }
+  });
+
+  qa.add('pad.latch_on_connect', (c) => {
+    // The hub's A (and a trigger) still held when the pad first appears in the game: ignored until
+    // released, in gameplay and in the menus, even when the pad was already the active device.
+    c.setup();
+    const gp = game.input.pad;
+    const pc = game.playerController;
+    const intent = c.player.intent;
+    const pad = new FakePad();
+    const own = Object.getOwnPropertyDescriptor(navigator, 'getGamepads');
+    const savedDevice = gp.device;
+    let pads: (FakePad | null)[] = [null, null, null, null];
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, writable: true, value: () => pads });
+    let now = 5000;
+    const frame = (after?: () => void) => {
+      now += DT * 1000;
+      gp.update(now);
+      pc.look();
+      pc.update();
+      after?.();
+      game.input.endFrame();
+    };
+    try {
+      gp.reset();
+      gp.setDevice('gamepad'); // no "first press wakes the pad" swallow: only the latch protects
+      frame();
+      c.expect(!gp.connected, 'a pad before it was plugged in');
+      pad.set('a', 1);
+      pad.set('rt', 1);
+      pads = [pad, null, null, null];
+      intent.clear();
+      for (let i = 0; i < 8; i++) frame();
+      c.expect(gp.connected, 'pad not picked up');
+      c.expect(!intent.wants('jump') && !intent.holdBolt && !gp.isDown(['a']) && gp.rt === 0, `held-at-connect buttons leaked (jump ${intent.wants('jump')}, bolt ${intent.holdBolt}, rt ${gp.rt})`);
+      pad.set('a', 0);
+      pad.set('rt', 0);
+      frame();
+      pad.set('a', 1);
+      frame();
+      c.expect(intent.wants('jump'), 'A after release did not jump');
+      pad.set('a', 0);
+      frame();
+
+      // Unplug and plug back in with A held (hot-plug): latched again.
+      pads = [null, null, null, null];
+      frame();
+      c.expect(!gp.connected, 'unplug not seen');
+      intent.clear();
+      pad.set('a', 1);
+      pads = [pad, null, null, null];
+      frame();
+      frame();
+      c.expect(gp.connected && !intent.wants('jump'), 'reconnect with A held jumped');
+      pad.set('a', 0);
+      frame();
+
+      // Menus: a held A on a freshly connected pad does not press the focused button.
+      if (app.state === 'menu' && app.menus.visible) {
+        let started = 0;
+        app.menus.showMain();
+        const quick = app.menus.root.querySelector<HTMLButtonElement>('button.primary')!;
+        quick.addEventListener('click', (e) => {
+          started++;
+          e.stopImmediatePropagation();
+        }, { capture: true });
+        quick.focus();
+        pads = [null, null, null, null];
+        frame(() => app.menus.nav.update(gp, DT));
+        pad.set('a', 1);
+        pads = [pad, null, null, null];
+        for (let i = 0; i < 6; i++) frame(() => app.menus.nav.update(gp, DT));
+        c.expect(started === 0, `held A confirmed the main menu ${started} time(s)`);
+        pad.set('a', 0);
+        frame(() => app.menus.nav.update(gp, DT));
+        quick.blur();
+        app.menus.showMain();
+      } else c.note(`menu latch check skipped (app state ${app.state})`);
+    } finally {
+      if (own) Object.defineProperty(navigator, 'getGamepads', own);
+      else delete (navigator as unknown as Record<string, unknown>).getGamepads;
+      gp.reset();
+      gp.setDevice(savedDevice);
+      intent.clear();
+    }
+  });
+
+  qa.add('pad.room_code_entry', (c) => {
+    // Online Duel's Join Room code typed with the pad alone; the real online screen, stub handlers.
+    if (app.state !== 'menu') {
+      c.note(`skipped (app state ${app.state})`);
+      return;
+    }
+    let joined: string | null = null;
+    let backs = 0;
+    withPad(game, app, (r) => {
+      const step = () => r.frame(false, () => app.menus.nav.update(r.gp, DT));
+      const press = (b: PadButton) => {
+        r.pad.set(b, 1);
+        step();
+        r.pad.set(b, 0);
+        step();
+      };
+      app.menus.showOnline({ quick() {}, create() {}, join: (code) => (joined = code), back: () => backs++ });
+      try {
+        const field = app.menus.root.querySelector<HTMLInputElement>('input.room-code')!;
+        r.gp.setDevice('gamepad');
+        step(); // focuses Quick Match
+        field.focus();
+        step();
+        press('a');
+        c.expect(field.classList.contains('pad-editing'), 'A on the code field did not start pad typing');
+        press('up');
+        c.expect(field.value === '2', `up on an empty slot typed "${field.value}"`);
+        press('right');
+        press('down');
+        c.expect(field.value === '2Z', `down on the next slot: "${field.value}"`);
+        press('x');
+        c.expect(field.value === '2', `X did not delete: "${field.value}"`);
+        press('b');
+        c.expect(!field.classList.contains('pad-editing') && backs === 0, `B while typing: editing ${field.classList.contains('pad-editing')}, backs ${backs}`);
+        c.expect(document.activeElement === field, 'B while typing left the field');
+        press('a');
+        press('up');
+        press('up');
+        c.expect(field.value === '23', `typing resumed at the end: "${field.value}"`);
+        press('a');
+        c.expect(!field.classList.contains('pad-editing'), 'A did not finish typing');
+        c.expect((document.activeElement as HTMLElement | null)?.dataset.act === 'join', `A did not move on to Join (${(document.activeElement as HTMLElement | null)?.dataset.act})`);
+        press('a');
+        c.expect(joined === '23', `Join got "${joined}"`);
+        press('b');
+        c.expect(backs === 1, 'B outside the field did not press Back');
+      } finally {
+        (document.activeElement as HTMLElement | null)?.blur();
+        app.menus.showMain();
+      }
+    });
+  });
+
+  qa.add('pad.versus_join_screen', (c) => {
+    // Two controllers: controller 1 is P1's (its A does not take P2's seat), controller 2 joins
+    // with A; B unjoins P2, then B again goes back to the main menu.
+    if (app.state !== 'menu' || !app.menus.visible) {
+      c.note(`skipped (app state ${app.state})`);
+      return;
+    }
+    const at = (i: number) => {
+      const p = new FakePad();
+      Object.defineProperty(p, 'index', { value: i });
+      return p;
+    };
+    const pads = [at(0), at(1)];
+    const own = Object.getOwnPropertyDescriptor(navigator, 'getGamepads');
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, writable: true, value: () => [pads[0], pads[1], null, null] });
+    const gp = game.input.pad;
+    let now = 9000;
+    const frame = () => {
+      now += DT * 1000;
+      game.input.endFrame();
+      gp.update(now);
+      app.padFrame(DT);
+    };
+    const press = (i: number, b: PadButton) => {
+      pads[i].set(b, 1);
+      frame();
+      pads[i].set(b, 0);
+      frame();
+    };
+    const p2Text = () => app.menus.root.querySelector('[data-seat="2"] .join-dev')?.textContent ?? '';
+    try {
+      gp.reset();
+      pads[0].set('a', 1); // the A that picked Local Versus is still held
+      app.showVersusJoin();
+      frame();
+      pads[0].set('a', 0);
+      frame();
+      c.expect(app.menus.current === 'versus-join', `not on the join screen (${app.menus.current})`);
+      press(0, 'a');
+      c.expect(p2Text().includes('Controller 2'), `controller 1 took P2's seat: "${p2Text()}"`);
+      press(1, 'a');
+      c.expect(p2Text() === 'Controller 2', `controller 2 did not join: "${p2Text()}"`);
+      press(1, 'b');
+      c.expect(app.menus.current === 'versus-join' && p2Text() !== 'Controller 2', `B did not unjoin P2 (${app.menus.current}, "${p2Text()}")`);
+      press(0, 'b');
+      c.expect(app.menus.current === 'main', `B with nobody joined did not go back (${app.menus.current})`);
+    } finally {
+      if (own) Object.defineProperty(navigator, 'getGamepads', own);
+      else delete (navigator as unknown as Record<string, unknown>).getGamepads;
+      gp.reset();
+      if (app.menus.current !== 'main') app.toMenu();
     }
   });
 
