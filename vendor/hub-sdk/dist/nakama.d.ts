@@ -62,6 +62,19 @@ export interface ProfileResult {
         owned: string[];
         active: string | null;
     };
+    /** Owned item union. Present once the server ships hub gates. Not a list of missing items. */
+    items?: string[];
+    /**
+     * Enabled hub gates with an unlocked bool. No missing-item list and no required item ids.
+     * `target` is an allowlisted realm id or session/zone key, never a URL.
+     */
+    gates?: {
+        gateId: string;
+        unlocked: boolean;
+        actionType: string;
+        target: string | null;
+        lockedHintPool: string | null;
+    }[];
 }
 export interface PortalEnterResult {
     ticket: string;
