@@ -440,6 +440,12 @@ export class HUD {
       g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 2), `+${Math.round(e.healed)} HP`, 'heal');
       this.healFlash = 0.6;
     });
+    // A boss phase ended: the heal potion's "+HP" over the player.
+    events.on('phasePotion', (e) => {
+      const healed = Math.round(e.healed);
+      g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 2.2), healed > 0 ? `Heal Potion +${healed} HP` : 'Heal Potion', 'heal');
+      if (e.wizard === g.player) this.healFlash = 0.6;
+    });
     // Arena shifts: what the floor just grew, named where it is; a spring's healing as it lands.
     events.on('arenaShift', (e) => {
       const sh = e.shift;

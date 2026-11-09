@@ -47,6 +47,8 @@ DuelSim.replay(log) -> { ok, error?, simVersion, winnerSeat: 0|1|null, wins: [n,
   ticks: 13464,                     // 60 Hz ticks simulated, up to and including the match's last
   inputs: ['<base64>', '<base64>'], // one stream per input seat (seat 0 first); CPU seats are simulated
   forfeit: { tick: 3000, seat: 1 }, // optional: seat leaving before tick index `tick`
+  godMode: true,                    // optional: seat 0 starts in god mode (not under even rules)
+  godToggles: [{ tick: 900, on: false }], // optional: god mode set before tick index `tick`, in order
   claimed: { winnerSeat: 1, wins: [1, 2], rounds: 3, ticks: 13464 }
 }
 ```
@@ -178,8 +180,13 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
 - **Boss ids**: `sahil`, `obama` (the double fight with The Midget: one defeat when both are
   down), `broccoli`, `agent`, `tinubu`. The arena comes from the boss.
 - **Extra log fields**: `bossId` (gauntlet), `learned` (the reward spells the player brings: the
-  hub should check they are ones this account has earned) and `godMode` (seat 0 in god mode; the
-  replay simulates it, and the hub decides whether such a win pays; we suggest not).
+  hub should check they are ones this account has earned), `godMode` (seat 0 starts in god mode)
+  and `godToggles` (turned on or off mid-fight). The replay simulates both, and the hub decides
+  whether such a win pays; we suggest not.
+- **Combat rules:** a stunned wizard takes `stunnedDamageMultiplier` (1.5×) damage, and a hit that
+  lands while its caster is stunned deals 1.5× (both stack). The stun beam's own hit lands before
+  its stun. Each boss transformation heals the player by `campaign.phasePotionHeal` (33%) of max
+  health (the `phasePotion` event).
 - **Size**: one seat, about 1.1 KB of log per minute for the scripted bot. A 15-20 minute boss
   fight can reach the 16 KB limit; see the PR notes.
 
@@ -217,8 +224,12 @@ crosshair raycast.
   `HubLink.lastReplay`. **The SDK's `earnTickets` takes no data, so the Tickets earn call can't carry
   it.** The hub needs a `sproto.boss_defeated` report for every boss, or an RPC that takes the log,
   before it can pay the per-boss reward on a verified replay.
-- **God mode** is fixed for a whole match on the sim (it is part of the setup and the log). A toggle
-  mid-fight applies from the next fight.
+- **God mode** can be toggled mid-fight. The setup's `godMode` is how the fight starts, and each
+  toggle goes into the log's `godToggles` and applies before that tick, in the game and the replay
+  alike (`SimWorld.setGodMode`). God mode also teaches all five reward spells; the log's `learned`
+  holds only the spells the player brought, and they come back when god mode turns off. A log
+  holds at most 256 toggles (`MAX_GOD_TOGGLES`); past that the game refuses further toggles in
+  that fight. Any `on: true` toggle means god mode was used.
 - **Not on the sim:** the QA sandbox (`__duel.qa` scenarios and soaks) still runs the legacy
   engine, so those scenarios test the old code paths. Online replicas run no sim at all.
 - `node scripts/check-game-sim-e2e.mjs` plays a Quick Duel and a boss fight in the real game in

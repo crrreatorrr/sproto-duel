@@ -26,8 +26,13 @@ export interface DuelLog {
   /** Boss reward spells seat 0 has learned (carpet, pump, vape, lockon, breath); the hub should
    * check they are ones this player has earned. Ignored by even rules. */
   learned?: string[];
-  /** Seat 0 played in god mode (testing aid). The replay simulates it; the hub decides what it pays. */
+  /** Seat 0 started in god mode (testing aid). The replay simulates it; the hub decides what it pays. */
   godMode?: boolean;
+  /**
+   * God mode turned on or off mid-fight: each applied before the tick with this index (0-based),
+   * in tick order. Any `on: true` means god mode was used. Ignored by even rules.
+   */
+  godToggles?: { tick: number; on: boolean }[];
   /** Ticks simulated, up to and including the tick the match ended. */
   ticks: number;
   /** One encoded stream per seat that plays from input (CPU seats are simulated). */

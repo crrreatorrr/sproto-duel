@@ -43,7 +43,7 @@ Hub** leaves at once from the main menu; from the pause screen mid-fight it asks
 | Left click / 1 | **Bolt**: fast, cheap, no cooldown, hold to fire |
 | Right click / 2 | **Blast**: slow big orb, area damage, 3 s cooldown |
 | Q / 3 | **Shield**: blocks for 0.8 s. Raise it in the last 0.2 s before a hit to reflect the spell back, faster and stronger |
-| E / 4 | **Stun**: beam that freezes the target for 1 s, 8 s cooldown |
+| E / 4 | **Stun**: beam that freezes the target for 1 s, 8 s cooldown. A stunned wizard takes 50% more damage, and its own hits that land while it is stunned deal 50% more |
 | R / 5 | **Ultimate**: charged by dealing damage. An arena-wide shockwave. Roll through it, hide behind a pillar, or shield to reduce it |
 | Z X V G T | **Boss spells** once learned: Magic Carpet, Pump It, Vape Cloud, Lock-On, Hellfire Breath (see [Boss spells](#boss-spells)) |
 | Esc / P | Pause |
@@ -207,6 +207,9 @@ in each stage, a minute or more in, sooner when you're below 40% health. Only yo
 them; each heals half your max health. An uncollected pack vanishes after 40 s and still counts.
 The hearts under your bars show how many are left. Quick Duel has none. Tuning: `CONFIG.lifePacks`.
 
+**Heal potion.** Every time a boss transforms (one phase ends), you drink a heal potion: +33% of
+your max health, never above full. Tuning: `CONFIG.campaign.phasePotionHeal`.
+
 **Transformation cinematics.** Every transformation is a short cinematic. The fight freezes (no
 one moves, casts, burns or takes damage, and your input is ignored), letterbox bars slide in and
 the camera swoops in to orbit the boss. He rises off the ground spinning and shuddering, glows
@@ -321,7 +324,8 @@ in that session, but the save never skips a fight: a win is saved only if every 
 the run is (`Campaign.continuesSave`), so a fair win after god-mode wins saves nothing either, and
 teaches no spell, until you start over (New Gauntlet) or pick your saved run back up (Continue).
 While god mode is on, the boss card's reward line reads "God mode: progress not saved" (or "Not
-saved" after god-mode wins). A fight's result is settled the moment it ends: toggling god mode
+saved" after god-mode wins). Turning god mode on at any point in a fight, even for a moment,
+makes that fight's win unsaved. A fight's result is settled the moment it ends: toggling god mode
 before the results show changes nothing.
 
 **The double fight.** In fight 2 you face Bitcoin Obama (tall) and The Midget (short, much faster
@@ -423,8 +427,9 @@ almost impossible: the reference AI dies in his second form.
 No damage taken (hits still flash and show **IMMUNE**), unlimited mana (spells never fail, sprint
 never runs dry), no spell cooldowns (Blast, Shield and Stun are ready again at once and the
 Ultimate is always charged; bolts keep their normal fire rate), all five boss spells (with no
-cooldowns either), 5× damage and 5× clash power. Toggle it any time by typing **9 9** quickly, with
-**F9**, or in Settings; start with it on via `?god` in the URL. A **GOD MODE** badge shows on the
+cooldowns either), 5× damage and 5× clash power. Toggle it any time, mid-fight too (it applies on
+the next tick), by typing **9 9** quickly, with **F9**, or in Settings; start with it on via `?god`
+in the URL. Turning it off mid-fight takes back the boss spells you haven't earned. A **GOD MODE** badge shows on the
 HUD. It is never saved: a reload turns it off. Standing in lava or the fire ring doesn't flash you
 white (zero-damage hazard ticks skip the hit flash). The menus' background duel ignores it (stock
 stats until a match starts). Tuning: `CONFIG.debug`.

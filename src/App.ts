@@ -928,6 +928,8 @@ export class App {
     const learned = this.game.player.learned;
     learned.clear();
     for (const id of this.campaign.unlocked) learned.add(id);
+    // The sim's setup takes only the earned spells: its god mode adds the rest, and takes them back.
+    this.game.simLearned = [...learned];
     if (CONFIG.debug.godMode) for (const id of REWARD_SPELLS) learned.add(id);
   }
 
@@ -939,25 +941,25 @@ export class App {
   }
 
   /**
-   * God mode (testing): toggled from Settings, F9 in a match, or `?god`. Never saved. Once the fight
-   * is decided (the final KO) its result is settled: a toggle before the results changes nothing.
+   * God mode (testing): toggled from Settings, F9 or "99" (mid-fight too), or `?god`. Never saved.
+   * Once the fight is decided (the final KO) its result is settled: a toggle before the results
+   * changes nothing.
    */
   setGodMode(on: boolean): void {
     if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.rules.godModeAllowed) {
       this.menus.toast('God mode is off here', 'Local Versus and online duels are played even');
       return;
     }
-    // On the sim, god mode is part of the match's setup (and its input log): a toggle mid-fight
-    // takes effect from the next fight.
-    const midSim = !!this.game.sim && (this.state === 'playing' || this.state === 'paused') && !this.match.decided;
-    this.game.setGodMode(on);
-    this.syncLearned();
-    if (midSim) {
-      this.menus.syncGodMode(on);
-      this.menus.toast(on ? 'God Mode On' : 'God Mode Off', 'From the next fight');
+    const live = (this.state === 'playing' || this.state === 'paused') && !this.match.decided;
+    // On the sim, a toggle mid-fight applies from the next tick and goes into the input log, so the
+    // replay plays it the same way.
+    if (live && this.game.sim && !this.game.sim.setGodMode(on)) {
+      this.menus.toast('God mode unchanged', 'Too many toggles this fight');
       return;
     }
-    if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.decided) this.godUsed = true;
+    this.game.setGodMode(on);
+    this.syncLearned();
+    if (on && live) this.godUsed = true;
     this.menus.syncGodMode(on);
     if (this.menus.current === 'boss') this.menus.setBossRewardNote(this.rewardNote());
     this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · no cooldowns · ${CONFIG.debug.godPowerMultiplier}× damage` : '', on ? 'god-on' : 'god-off');
