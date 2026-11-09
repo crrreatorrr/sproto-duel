@@ -1383,8 +1383,12 @@ export const CONFIG = {
 
   /** Controllers in the browser's "standard" mapping (Xbox, PlayStation, Switch Pro). */
   gamepad: {
-    /** Radial deadzones (stick magnitude 0..1); `trigger` is the analog value that counts as pressed. */
-    deadzone: { move: 0.16, look: 0.12, trigger: 0.3 },
+    /**
+     * Radial deadzones (stick magnitude 0..1), rescaled so motion starts smoothly from 0; `trigger`
+     * is the analog value that counts as pressed. 0.2 / 0.15 is the shared Sproto controller
+     * convention (the hub plaza and every game), so a pad feels the same in each.
+     */
+    deadzone: { move: 0.2, look: 0.15, trigger: 0.3 },
     /** Stick magnitude treated as full deflection (worn sticks rarely reach 1). */
     outerDeadzone: 0.94,
     /** Response exponent after the deadzone: 1 = linear, 2 = fine control near center. */
@@ -1443,9 +1447,9 @@ export const CONFIG = {
       ko: { strong: 1, weak: 1, ms: 550 },
     },
     menu: {
-      /** Seconds a direction is held before it starts repeating, then the repeat interval. */
-      repeatDelay: 0.38,
-      repeatInterval: 0.09,
+      /** Seconds a direction is held before it starts repeating, then the repeat interval (Sproto convention). */
+      repeatDelay: 0.35,
+      repeatInterval: 0.12,
       /** Left-stick travel that counts as a menu direction. */
       stickThreshold: 0.5,
     },

@@ -8,7 +8,7 @@ import { MODELS } from './assets/manifest';
 import { BOSSES, bossDisplayName, type BossDef } from './campaign/levels';
 import { DoubleTap } from './core/DoubleTap';
 import { events } from './core/events';
-import { bindRumble, connectedPadIndices, GamepadInput, padHolding, rewardLabels, spellLabels } from './core/Gamepad';
+import { bindRumble, connectedPadIndices, GamepadInput, padsHolding, rewardLabels, spellLabels } from './core/Gamepad';
 import { bossModelKeys, nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
 import { GAUNTLET, ONLINE, QUICK, VERSUS, type MatchRules } from './core/rules';
@@ -19,6 +19,7 @@ import type { AcceptEndMsg, FoundMsg, OutcomeMsg, RematchStateMsg, StartMsg } fr
 type NetStack = typeof import('./net/onlineStack');
 import type { TickController } from './core/Game';
 import { assignDevices } from './input/assignDevices';
+import { joinStep, newJoinState, type JoinState } from './input/versusJoin';
 import type { DeviceBinding } from './input/IntentSource';
 import { LocalHumanSource } from './player/PlayerController';
 import { AIController } from './enemy/AIController';
@@ -110,8 +111,8 @@ export class App {
   private versusOn = false;
   /** The device split of the current (or last) Local Versus, for Rematch. */
   private versusDevices: [DeviceBinding, DeviceBinding] | null = null;
-  /** Local Versus join screen: the pad that joined as P2, and whether A was let go since. */
-  private join: { p2: number | null; released: boolean } | null = null;
+  /** Local Versus join screen: the pad that joined as P2, and whether A / B were let go since. */
+  private join: JoinState | null = null;
   /** The current online match (or search), its game wiring, and the server's verdict. */
   onlineSession: OnlineSession | null = null;
   onlineCtl: OnlineController | null = null;
@@ -467,22 +468,16 @@ export class App {
     this.menus.nav.update(split && !pad.connected ? this.p2Pad : pad, dt);
   }
 
-  /** Local Versus join screen, once per frame: A on a pad joins P2, A again (or B to go back). */
+  /** Local Versus join screen, once per frame: A on a pad joins P2, A again starts, B backs out (src/input/versusJoin.ts). */
   private joinFrame(): void {
     const j = this.join!;
-    const holding = padHolding('a');
-    if (holding < 0) j.released = true;
-    if (j.released && holding >= 0) {
-      j.released = false;
-      if (j.p2 === null) {
-        j.p2 = holding;
-        this.audio.play('uiClick', { exactPitch: true });
-      } else if (holding === j.p2 || connectedPadIndices().length > 1) {
-        this.startVersusFromJoin();
-        return;
-      }
+    const action = joinStep(j, { pads: connectedPadIndices(), aHeld: padsHolding('a'), bHeld: padsHolding('b') });
+    if (action === 'joined' || action === 'left') this.audio.play('uiClick', { exactPitch: true });
+    if (action === 'start') return this.startVersusFromJoin();
+    if (action === 'back') {
+      this.join = null;
+      return this.toMenu();
     }
-    if (padHolding('b') >= 0 && j.p2 !== null) j.p2 = null;
     this.menus.updateVersusJoin(this.joinView());
   }
 
@@ -502,7 +497,7 @@ export class App {
   /** Local Versus: the join screen over the attract duel. */
   showVersusJoin(): void {
     this.enterMenuState('quick');
-    this.join = { p2: null, released: false };
+    this.join = newJoinState();
     this.menus.showVersusJoin(this.joinView(), { start: () => this.startVersusFromJoin(), back: () => this.toMenu() });
   }
 

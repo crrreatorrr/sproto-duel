@@ -88,6 +88,27 @@ export function shapeStick(x: number, y: number, deadzone: number, curve: number
   return shaped;
 }
 
+/**
+ * Latch on connect: remember every button held when a pad appears (page load, travel from the hub,
+ * reconnect, a seat taking over a pad), so the press that was already going (the hub's A on a
+ * portal) never reaches the game.
+ */
+export function latchHeld(raw: ArrayLike<number>, latched: Uint8Array): void {
+  for (let i = 0; i < latched.length; i++) latched[i] = raw[i] ? 1 : 0;
+}
+
+/**
+ * Mask latched buttons out of `down` (in place) until each is released once; a released button
+ * is unlatched and works normally from its next press.
+ */
+export function applyLatch(down: Uint8Array, latched: Uint8Array): void {
+  for (let i = 0; i < down.length; i++) {
+    if (!latched[i]) continue;
+    if (down[i]) down[i] = 0;
+    else latched[i] = 0;
+  }
+}
+
 interface Rumble {
   strong: number;
   weak: number;
@@ -126,8 +147,17 @@ export class GamepadInput {
   slot: number | 'any' | null = 'any';
   readonly excluded = new Set<number>();
 
+  /** Buttons as the game sees them (latched ones masked out), this frame and the previous one. */
   private readonly down = new Uint8Array(PAD_BUTTONS.length);
   private readonly prev = new Uint8Array(PAD_BUTTONS.length);
+  /** Buttons as the hardware reports them (device activity and trigger hysteresis read these). */
+  private readonly raw = new Uint8Array(PAD_BUTTONS.length);
+  private readonly rawPrev = new Uint8Array(PAD_BUTTONS.length);
+  /** Held when the pad appeared; ignored until released (see latchHeld). */
+  private readonly latched = new Uint8Array(PAD_BUTTONS.length);
+  private latchNext = true;
+  /** Indices of the standard pads connected at the previous poll (a new one "appears"). */
+  private known = new Set<number>();
   private index = -1;
   private stale = true;
   private lastPoll = 0;
@@ -168,6 +198,7 @@ export class GamepadInput {
     this.lastPoll = now;
     this.justActivated = false;
     this.prev.set(this.down);
+    this.rawPrev.set(this.raw);
 
     const pad = this.pick();
     if (!pad) {
@@ -181,6 +212,8 @@ export class GamepadInput {
       return;
     }
     if (!this.connected || pad.id !== this.id) {
+      // Connected (again), or after reset(): latch. Switching to another pad already plugged in is not.
+      if (!this.connected) this.latchNext = true;
       this.connected = true;
       this.id = pad.id;
       this.style = padStyleFromId(pad.id);
@@ -189,19 +222,25 @@ export class GamepadInput {
 
     const buttons = pad.buttons;
     const tz = G.deadzone.trigger;
-    for (let i = 0; i < this.down.length; i++) {
+    for (let i = 0; i < this.raw.length; i++) {
       const b = buttons[i];
       if (!b) {
-        this.down[i] = 0;
+        this.raw[i] = 0;
       } else if (i === LT || i === RT) {
         // Analog triggers with a little hysteresis so a resting finger doesn't chatter.
-        this.down[i] = b.value > (this.prev[i] ? tz * 0.7 : tz) || (b.pressed && b.value === 0) ? 1 : 0;
+        this.raw[i] = b.value > (this.rawPrev[i] ? tz * 0.7 : tz) || (b.pressed && b.value === 0) ? 1 : 0;
       } else {
-        this.down[i] = b.pressed ? 1 : 0;
+        this.raw[i] = b.pressed ? 1 : 0;
       }
     }
-    this.lt = buttons[LT]?.value ?? 0;
-    this.rt = buttons[RT]?.value ?? 0;
+    if (this.latchNext) {
+      this.latchNext = false;
+      latchHeld(this.raw, this.latched);
+    }
+    this.down.set(this.raw);
+    applyLatch(this.down, this.latched);
+    this.lt = this.latched[LT] ? 0 : (buttons[LT]?.value ?? 0);
+    this.rt = this.latched[RT] ? 0 : (buttons[RT]?.value ?? 0);
     const ax = pad.axes;
     shapeStick(ax[0] ?? 0, ax[1] ?? 0, G.deadzone.move, G.curve.move, this.move);
     shapeStick(ax[2] ?? 0, ax[3] ?? 0, G.deadzone.look, G.curve.look, this.look);
@@ -229,10 +268,17 @@ export class GamepadInput {
     return false;
   }
 
-  /** Forget all state (QA uses this around injected pads). Doesn't notify listeners. */
+  /**
+   * Forget all state (QA around injected pads; Local Versus when a pad changes hands). Doesn't
+   * notify listeners. Buttons held at the next poll are latched, like a pad that just connected.
+   */
   reset(): void {
     this.clearState();
     this.prev.fill(0);
+    this.rawPrev.fill(0);
+    this.latched.fill(0);
+    this.latchNext = true;
+    this.known.clear();
     this.index = -1;
     this.connected = false;
     this.id = '';
@@ -283,12 +329,24 @@ export class GamepadInput {
     } catch {
       return null; // blocked by permissions policy
     }
+    const pad = this.choose(pads);
+    // Latch on connect: a pad that was not there at the previous poll starts with its held buttons ignored.
+    const known = new Set<number>();
+    for (const p of pads) if (p && p.connected && p.mapping === 'standard') known.add(p.index);
+    if (pad && !this.known.has(pad.index)) this.latchNext = true;
+    this.known = known;
+    return pad;
+  }
+
+  private choose(pads: readonly (Gamepad | null)[]): Gamepad | null {
+    if (this.slot === null) return null;
     if (this.slot !== 'any') {
       const fixed = pads[this.slot] ?? [...pads].find((p) => p?.index === this.slot) ?? null;
       const ok = fixed && fixed.connected && fixed.mapping === 'standard' ? fixed : null;
       if (ok && ok.index !== this.index) {
         this.index = ok.index;
         this.prev.fill(0);
+        this.rawPrev.fill(0);
       }
       if (!ok) this.index = -1;
       return ok;
@@ -304,6 +362,7 @@ export class GamepadInput {
         current = p;
         this.index = p.index;
         this.prev.fill(0);
+        this.rawPrev.fill(0);
         break;
       }
     }
@@ -311,6 +370,7 @@ export class GamepadInput {
     if (pad && pad.index !== this.index) {
       this.index = pad.index;
       this.prev.fill(0);
+      this.rawPrev.fill(0);
     }
     if (!pad) this.index = -1;
     return pad;
@@ -322,7 +382,7 @@ export class GamepadInput {
     for (let i = 0; i < p.buttons.length; i++) {
       const b = p.buttons[i];
       if (i === LT || i === RT ? b.value > t : b.pressed) {
-        if (p.index !== this.index || !this.prev[i]) return true;
+        if (p.index !== this.index || !this.rawPrev[i]) return true;
       }
     }
     const a = p.axes;
@@ -331,6 +391,7 @@ export class GamepadInput {
 
   private clearState(): void {
     this.down.fill(0);
+    this.raw.fill(0);
     this.move.x = this.move.y = this.look.x = this.look.y = 0;
     this.lt = this.rt = 0;
   }
@@ -375,15 +436,16 @@ export function connectedPadIndices(): number[] {
   }
 }
 
-/** The index of a standard pad holding `button` down right now, or -1 (join screen: "press A"). */
-export function padHolding(button: PadButton): number {
+/** Indices of the standard pads holding `button` down right now (Local Versus join screen). */
+export function padsHolding(button: PadButton): number[] {
   const i = INDEX.get(button)!;
+  const out: number[] = [];
   try {
     for (const p of navigator.getGamepads?.() ?? []) {
-      if (p && p.connected && p.mapping === 'standard' && p.buttons[i]?.pressed) return p.index;
+      if (p && p.connected && p.mapping === 'standard' && p.buttons[i]?.pressed) out.push(p.index);
     }
   } catch {
     /* blocked */
   }
-  return -1;
+  return out;
 }

@@ -83,6 +83,28 @@ DualShock/DualSense). With a controller the game never needs to capture the mous
 | X | □ | Boss spell: Hellfire Breath |
 | Menu | Options | Pause / resume |
 | D-pad or left stick, A, B | D-pad or left stick, ✕, ○ | Menus: move focus, select, back; left/right adjusts sliders |
+| View, Home | Create, PS | Unused (Home belongs to the system) |
+
+Why this layout: it is a third-person shooter, so the right thumb stays on the camera while the
+fingers fire (RT bolt, LT blast) and defend (LB shield, RB stun); the thumb only leaves the stick for
+the moves you make between shots (A jump, B roll, Y Ultimate). The D-pad holds the boss spells,
+which you cast while the left stick keeps moving.
+
+- **Hub to game and back without the keyboard.** Buttons held when a controller first appears (page
+  load, coming from the hub, a reconnect, a seat taking over a pad in Local Versus) are ignored until
+  released, so the A that picked the portal in the hub never presses anything here. Browsers hide a
+  pad on a new page until it is pressed once; that first press is swallowed the same way. Return to
+  Hub is on the main menu and the pause menu (the pause one asks first).
+- **Menus.** The D-pad and the left stick move (auto-repeat after 0.35 s, then every 0.12 s), A
+  selects, B goes back (Resume on the pause menu; nothing on the main menu and the results screens,
+  so a roll mashed at the KO cannot skip them). On Online Duel's room code field, A starts typing
+  with the pad: up/down picks the letter, left/right moves, X deletes, A finishes and moves on to
+  Join Room, B stops typing.
+- **Local Versus join screen.** A on a controller joins it as P2; with two or more controllers,
+  Controller 1 is P1's and another one joins. A again (either side) starts; B unjoins P2, and B with
+  nobody joined goes back to the main menu.
+- Sticks use radial deadzones of 0.2 (left) and 0.15 (right), rescaled so motion starts smoothly
+  from 0 (the shared Sproto convention, the same in the hub).
 
 Settings has controller look sensitivity, a separate invert Y, aim assist strength and vibration.
 Aim assist with a pad uses a wider cone than the mouse plus a gentle pull toward the opponent while
@@ -105,7 +127,8 @@ Two players on one screen, split side by side (P1 left, P2 right), best of three
 arena. Main menu → **Local Versus** → Player 2 presses A on a controller → **Fight** (or A again).
 
 - Devices: with one controller, P1 plays keyboard + mouse and P2 the controller. With two or more,
-  P1 also gets the first controller and P2 takes the one that pressed A. A controller is required.
+  P1 also gets the first controller and P2 takes another one that pressed A (Controller 1's A never
+  takes P2's seat). A controller is required.
 - Even rules: both staffs are looks only (starter stats), no boss reward spells, no life packs, no
   god mode (F9, "99" and `?god` are ignored mid-match). Golden tickets still spawn.
 - Nothing is reported to the hub (no Tickets, no board): one screen could farm it.

@@ -11,6 +11,14 @@ import { ARENA_NAMES, BOSSES, bossDisplayName, type BossDef, type BossFighter } 
 import { bossPortraitHtml, bossStyleVars } from '../campaign/portrait';
 import { ticketChipLabel, ticketChipText } from './ticketChip';
 
+/**
+ * Room code alphabet and length for typing a code with a controller (MenuNav's pad text entry).
+ * Same as ROOM_ALPHABET / ROOM_CODE_LENGTH in net/protocol (a test keeps them equal); not imported,
+ * so the online protocol stays in its lazily loaded chunk.
+ */
+export const ROOM_CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+export const ROOM_CODE_MAX = 6;
+
 export interface Settings {
   /** Multiplier on CONFIG.camera.sensitivity. */
   sensitivity: number;
@@ -552,11 +560,13 @@ export class Menus {
     s.querySelector('[data-seat="1"] .join-dev')!.textContent = view.p1;
     const p2 = s.querySelector('[data-seat="2"]')!;
     p2.classList.toggle('ready', view.p2 !== null);
-    p2.querySelector('.join-dev')!.textContent = view.p2 ?? (view.pads ? 'Press A on a controller' : 'Connect a controller, then press A');
+    // Controller 1 is P1's when there are two or more, so P2 joins with another one.
+    const waiting = view.pads >= 2 ? 'Press A on Controller 2' : view.pads ? 'Press A on a controller' : 'Connect a controller, then press A';
+    p2.querySelector('.join-dev')!.textContent = view.p2 ?? waiting;
     s.querySelector<HTMLButtonElement>('[data-act="start"]')!.disabled = view.p2 === null;
     s.querySelector('.join-hint')!.textContent = view.p2 === null
-      ? 'Player 2 plays with a controller. Player 1 keeps keyboard + mouse (and the first controller, when there are two).'
-      : 'Press A again (or Fight) to start. Start pauses from either side.';
+      ? 'Player 2 plays with a controller. Player 1 keeps keyboard + mouse (and Controller 1, when there are two). B goes back.'
+      : 'Press A again (or Fight) to start, B to unjoin Player 2. Start pauses from either side.';
   }
 
   /** Tickets to Verse. The rate is fixed; the daily cap is enforced by the hub. */
@@ -834,7 +844,7 @@ export class Menus {
         ${this.rewardLine(info)}
         ${this.staffRackHtml(true)}
         <div class="menu-actions row"><button class="primary" data-act="begin">${this.label({ label: 'Begin', sub: info.beginNote })}</button>
-        <button class="ghost" data-act="menu">Main Menu</button></div>
+        <button class="ghost" data-act="menu" data-back>Main Menu</button></div>
       </div>`, 'boss');
     this.bossIntro = { ...info };
     this.on(s, '[data-act="begin"]', () => actions.begin());
@@ -960,7 +970,7 @@ export class Menus {
         <button class="primary" data-act="quick" data-autofocus>Quick Match<small>Play whoever is searching</small></button>
         <button data-act="create">Create Room<small>Get a code to share</small></button>
         <div class="row join-row">
-          <input class="room-code" maxlength="7" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code">
+          <input class="room-code" maxlength="7" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code" data-pad-chars="${ROOM_CODE_CHARS}" data-pad-max="${ROOM_CODE_MAX}">
           <button data-act="join">Join Room</button>
         </div>
         <button class="ghost" data-act="back" data-back>Back</button>

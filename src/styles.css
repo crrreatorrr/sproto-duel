@@ -297,6 +297,10 @@ html, body {
 }
 .menus.pad-nav .setting input:focus { outline: none; }
 .menus.pad-nav .setting:has(.pad-focus) > span { color: var(--gold); }
+/* Room code field: focused, then typing with the pad (the selected character is the cursor). */
+.menus.pad-nav input.room-code.pad-focus { outline: 2px solid var(--gold); outline-offset: 3px; }
+.menus.pad-nav input.room-code.pad-editing { background: rgba(60, 46, 110, 0.9); box-shadow: 0 0 26px rgba(255, 200, 100, 0.45); }
+.menus.pad-nav input.room-code.pad-editing::selection { background: var(--gold); color: #1a1030; }
 
 .pad-hints {
   position: absolute; right: 26px; bottom: 22px; display: flex; gap: 20px; opacity: 0; transition: opacity 0.2s;
