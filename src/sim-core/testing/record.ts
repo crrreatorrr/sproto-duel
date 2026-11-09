@@ -13,9 +13,14 @@ export interface Recorded {
 
 /**
  * Play `setup` with one bot per input seat (in world.inputSeats() order) until the match ends,
- * `maxTicks` pass, or `forfeit` fires (a seat leaving before tick `forfeit.tick`).
+ * `maxTicks` pass, or `forfeit` fires (a seat leaving before tick `forfeit.tick`). `godToggles`
+ * turn seat 0's god mode on or off before the given ticks, as the game does mid-fight.
  */
-export function recordMatch(setup: SimSetup, bots: Bot[], opts: { maxTicks?: number; forfeit?: { tick: number; seat: number } } = {}): Recorded {
+export function recordMatch(
+  setup: SimSetup,
+  bots: Bot[],
+  opts: { maxTicks?: number; forfeit?: { tick: number; seat: number }; godToggles?: { tick: number; on: boolean }[] } = {},
+): Recorded {
   const world = new SimWorld(setup);
   world.events.enabled = false;
   const rec = new LogRecorder(world);
@@ -23,6 +28,9 @@ export function recordMatch(setup: SimSetup, bots: Bot[], opts: { maxTicks?: num
   const frames: (SimInput | null)[] = [null, null, null];
   const max = opts.maxTicks ?? 60 * 60 * 40;
   while (!world.over && rec.ticks < max) {
+    for (const g of opts.godToggles ?? []) {
+      if (g.tick === rec.ticks && rec.markGodMode(g.on)) world.setGodMode(g.on);
+    }
     if (opts.forfeit && opts.forfeit.tick === rec.ticks) {
       rec.markForfeit(opts.forfeit.seat);
       world.forfeit(opts.forfeit.seat);

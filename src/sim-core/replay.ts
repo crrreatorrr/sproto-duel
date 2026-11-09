@@ -15,6 +15,8 @@ import { REWARDS } from './rewards';
 
 /** Longest log accepted: 45 minutes of ticks (a Boss Gauntlet fight's safety cap is 35). */
 export const MAX_TICKS = 60 * 60 * 45;
+/** Most mid-fight god-mode toggles one log may hold. */
+export const MAX_GOD_TOGGLES = 256;
 
 export interface ReplayResult {
   ok: boolean;
@@ -120,8 +122,18 @@ export function replay(log: DuelLog, opts?: ReplayOptions): ReplayResult {
     }
     const ff = log.forfeit;
     if (ff !== undefined && ff !== null && (!isInt(ff.tick) || ff.tick < 0 || ff.tick > log.ticks || (ff.seat !== 0 && ff.seat !== 1))) return fail('bad forfeit', world);
+    const gt = log.godToggles;
+    if (gt !== undefined && gt !== null) {
+      if (!isArray(gt) || gt.length > MAX_GOD_TOGGLES) return fail('bad godToggles', world);
+      for (let i = 0; i < gt.length; i++) {
+        const g = gt[i];
+        if (!g || typeof g !== 'object' || !isInt(g.tick) || g.tick < 0 || g.tick >= log.ticks || typeof g.on !== 'boolean' || (i > 0 && g.tick < gt[i - 1].tick)) return fail('bad godToggles', world);
+      }
+    }
+    let gi = 0;
     const frames: (SimInput | null)[] = [null, null, null];
     for (let t = 0; t < log.ticks; t++) {
+      while (gt && gi < gt.length && gt[gi].tick === t) world.setGodMode(gt[gi++].on);
       if (ff && ff.tick === t) {
         world.forfeit(ff.seat);
         break;
@@ -172,6 +184,7 @@ export class LogRecorder {
   private readonly writers: SeatWriter[] = [];
   private readonly pending: (SimInput | null)[] = [];
   private forfeit: { tick: number; seat: number } | null = null;
+  private readonly godToggles: { tick: number; on: boolean }[] = [];
   ticks = 0;
 
   constructor(private readonly world: SimWorld) {
@@ -200,6 +213,13 @@ export class LogRecorder {
     this.forfeit = { tick: this.ticks, seat };
   }
 
+  /** God mode turned on or off before the next tick; false (not recorded) once the log is full. */
+  markGodMode(on: boolean): boolean {
+    if (this.godToggles.length >= MAX_GOD_TOGGLES) return false;
+    this.godToggles.push({ tick: this.ticks, on });
+    return true;
+  }
+
   /** Encoded bytes so far (all seats). */
   get size(): number {
     let n = 0;
@@ -222,6 +242,9 @@ export class LogRecorder {
     if (s.learned && s.learned.length) out.learned = s.learned.slice();
     if (s.godMode) out.godMode = true;
     if (this.forfeit) out.forfeit = this.forfeit;
+    // A toggle after the last tick changed nothing.
+    const gt = this.godToggles.filter((g) => g.tick < this.ticks);
+    if (gt.length) out.godToggles = gt;
     if (claimed) out.claimed = claimed;
     return out;
   }

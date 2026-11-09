@@ -3,6 +3,8 @@ import { CONFIG, type TeamPalette } from './config';
 import { AudioManager } from './audio/AudioManager';
 import { BossCinematic } from './campaign/BossCinematic';
 import { Campaign } from './campaign/Campaign';
+import { DEFAULT_SKIN, SKINS, getSelectedSkin, setSelectedSkin, skinDef, skinScale, type SkinDef } from './campaign/skins';
+import { MODELS } from './assets/manifest';
 import { BOSSES, bossDisplayName, type BossDef } from './campaign/levels';
 import { DoubleTap } from './core/DoubleTap';
 import { events } from './core/events';
@@ -148,6 +150,11 @@ export class App {
   private resultsTimer = 0;
   /** The title screen's live Wizard Sproto (its own small renderer); freed when a fight starts. */
   private titlePreview: TitleStaffPreview | null = null;
+  /** The character skin the title preview shows. */
+  private titlePreviewSkin: string | null = null;
+  /** The character skin the player wears now, and the latest pending wear (models load async). */
+  private wornSkin = DEFAULT_SKIN;
+  private skinToken = 0;
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
   /** Hub idempotency id for the fight in progress. One per start, reused if the win handler runs again. */
@@ -215,6 +222,8 @@ export class App {
       refreshTickets: () => this.hub.refreshBalance(),
       staffRack: () => this.staffRack(),
       selectStaff: (id) => this.selectStaff(id),
+      characterRack: () => this.characterRack(),
+      selectCharacter: (id) => this.selectCharacter(id),
       titleStage: (slot) => this.showTitleStage(slot),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
@@ -225,6 +234,7 @@ export class App {
     events.on('matchEnd', (e) => this.onMatchEnd(e.winner));
     this.bindInput();
     this.applyStaff();
+    this.applySkin();
     this.toMenu();
   }
 
@@ -273,12 +283,89 @@ export class App {
     if (isStaffId(id)) this.titlePreview?.focus(id);
   }
 
+  /** Character skins unlocked: Sproto, every fighter beaten in a saved gauntlet win, all of them in god mode. */
+  private unlockedSkins(): Set<string> {
+    if (CONFIG.debug.godMode) return new Set(SKINS.map((s) => s.id));
+    return new Set([DEFAULT_SKIN, ...this.campaign.defeated]);
+  }
+
+  /** The skin to wear: the saved choice while it is unlocked, else Sproto. */
+  private currentSkin(): SkinDef {
+    const id = getSelectedSkin();
+    return (this.unlockedSkins().has(id) && skinDef(id)) || skinDef(DEFAULT_SKIN)!;
+  }
+
+  private characterRack() {
+    const unlocked = this.unlockedSkins();
+    return {
+      skins: SKINS.map((s) => {
+        const locked = !unlocked.has(s.id);
+        return { id: s.id, name: s.name, accent: s.accent, locked, line: s.id === DEFAULT_SKIN ? 'The original' : locked ? `Beat ${s.unlockedBy}` : 'Boss skin · look only' };
+      }),
+      selected: this.currentSkin().id,
+    };
+  }
+
+  /** Character rack clicks. Locked skins say which boss unlocks them. Ignored during a fight. */
+  private selectCharacter(id: string): void {
+    if (this.state === 'playing' || this.state === 'paused') return;
+    const skin = skinDef(id);
+    if (!skin) return;
+    if (!this.unlockedSkins().has(id)) {
+      this.menus.toast('Character locked', `Beat ${skin.unlockedBy} in the Boss Gauntlet`);
+      return;
+    }
+    setSelectedSkin(id);
+    this.applySkin();
+  }
+
+  /**
+   * Dress the player in the current skin (look only: the hitbox, stats and muzzles the sim uses
+   * stay the player's). A boss look loads on demand and is scaled to the player's height; it keeps
+   * its own props, so the staff isn't shown on it. The title preview follows.
+   */
+  private applySkin(): void {
+    const skin = this.currentSkin();
+    const token = ++this.skinToken;
+    const wear = () => {
+      if (token !== this.skinToken) return;
+      this.refreshTitleStage();
+      if (skin.id === this.wornSkin) return;
+      const assets = this.game.assets;
+      const inst = assets.instantiate(skin.model);
+      if (!inst) {
+        console.warn(`[skin] missing model for ${skin.id}`);
+        return;
+      }
+      const boss = skin.id !== DEFAULT_SKIN;
+      if (boss) inst.root.scale.multiplyScalar(skinScale(skin));
+      const p = this.game.player;
+      p.visual.setAppearance(p.team, inst, boss ? { ...MODELS[skin.model], fitHeight: MODELS.wizardPlayer.fitHeight } : MODELS[skin.model]);
+      this.wornSkin = skin.id;
+    };
+    if (this.game.assets.modelsReady([skin.model])) wear();
+    else void this.game.assets.ensureModels([skin.model]).then(wear, () => undefined);
+  }
+
+  /** Rebuild the title preview in place if the main menu shows one for another skin. */
+  private refreshTitleStage(): void {
+    const slot = this.menus.root.querySelector<HTMLElement>('[data-title-slot]');
+    if (slot && this.titlePreviewSkin !== this.currentSkin().id) this.showTitleStage(slot);
+  }
+
   /**
    * Main menu: the live Wizard Sproto cycling the owned staffs (every staff, unowned ones locked,
    * without a hub session). Built on first use and again after a fight freed it.
    */
   private showTitleStage(slot: HTMLElement): void {
-    this.titlePreview ??= TitleStaffPreview.create(this.game.assets);
+    const skin = this.currentSkin();
+    if (this.titlePreviewSkin !== skin.id) {
+      // A boss skin that hasn't loaded yet: keep what's there, applySkin comes back once it has.
+      if (!this.game.assets.modelsReady([skin.model])) return;
+      this.disposeTitleStage();
+    }
+    this.titlePreview ??= TitleStaffPreview.create(this.game.assets, skin.id === DEFAULT_SKIN ? null : skin);
+    this.titlePreviewSkin = skin.id;
     const load = getLoadout();
     this.titlePreview?.mount(slot, titleStaffCycle(this.hub.connected, load.owned, load.staff));
   }
@@ -286,6 +373,7 @@ export class App {
   private disposeTitleStage(): void {
     this.titlePreview?.dispose();
     this.titlePreview = null;
+    this.titlePreviewSkin = null;
   }
 
   private bindInput(): void {
@@ -928,6 +1016,8 @@ export class App {
     const learned = this.game.player.learned;
     learned.clear();
     for (const id of this.campaign.unlocked) learned.add(id);
+    // The sim's setup takes only the earned spells: its god mode adds the rest, and takes them back.
+    this.game.simLearned = [...learned];
     if (CONFIG.debug.godMode) for (const id of REWARD_SPELLS) learned.add(id);
   }
 
@@ -939,25 +1029,26 @@ export class App {
   }
 
   /**
-   * God mode (testing): toggled from Settings, F9 in a match, or `?god`. Never saved. Once the fight
-   * is decided (the final KO) its result is settled: a toggle before the results changes nothing.
+   * God mode (testing): toggled from Settings, F9 or "99" (mid-fight too), or `?god`. Never saved.
+   * Once the fight is decided (the final KO) its result is settled: a toggle before the results
+   * changes nothing.
    */
   setGodMode(on: boolean): void {
     if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.rules.godModeAllowed) {
       this.menus.toast('God mode is off here', 'Local Versus and online duels are played even');
       return;
     }
-    // On the sim, god mode is part of the match's setup (and its input log): a toggle mid-fight
-    // takes effect from the next fight.
-    const midSim = !!this.game.sim && (this.state === 'playing' || this.state === 'paused') && !this.match.decided;
-    this.game.setGodMode(on);
-    this.syncLearned();
-    if (midSim) {
-      this.menus.syncGodMode(on);
-      this.menus.toast(on ? 'God Mode On' : 'God Mode Off', 'From the next fight');
+    const live = (this.state === 'playing' || this.state === 'paused') && !this.match.decided;
+    // On the sim, a toggle mid-fight applies from the next tick and goes into the input log, so the
+    // replay plays it the same way.
+    if (live && this.game.sim && !this.game.sim.setGodMode(on)) {
+      this.menus.toast('God mode unchanged', 'Too many toggles this fight');
       return;
     }
-    if (on && (this.state === 'playing' || this.state === 'paused') && !this.match.decided) this.godUsed = true;
+    this.game.setGodMode(on);
+    this.syncLearned();
+    if (this.state !== 'playing' && this.state !== 'paused') this.applySkin();
+    if (on && live) this.godUsed = true;
     this.menus.syncGodMode(on);
     if (this.menus.current === 'boss') this.menus.setBossRewardNote(this.rewardNote());
     this.menus.toast(on ? 'God Mode On' : 'God Mode Off', on ? `No damage · unlimited mana · no cooldowns · ${CONFIG.debug.godPowerMultiplier}× damage` : '', on ? 'god-on' : 'god-off');
@@ -1078,6 +1169,7 @@ export class App {
 
   toMenu(): void {
     this.syncLearned();
+    this.applySkin();
     this.enterMenuState('quick');
     this.dressEnemy(null);
     this.ai.setProfile(QUICK_DUEL_AI);
@@ -1128,8 +1220,15 @@ export class App {
       this.gauntletOutcome = c.isLast ? 'complete' : 'next';
       c.lastLearned = null;
       if (this.godUsed) this.winUnsaved = 'god';
-      else if (c.recordWin() === 'unsaved') this.winUnsaved = 'skipped';
-      else this.syncLearned();
+      else {
+        const before = new Set(c.defeated);
+        if (c.recordWin() === 'unsaved') this.winUnsaved = 'skipped';
+        else {
+          this.syncLearned();
+          const fresh = c.defeated.filter((id) => !before.has(id)).map((id) => skinDef(id)?.name).filter(Boolean);
+          if (fresh.length) this.menus.toast('Character unlocked', `${fresh.join(' & ')}: pick in the main menu`);
+        }
+      }
     }
     // Hub reports go around Campaign.recordWin. A gauntlet win against a story boss posts
     // sproto.boss_defeated (the hub pays). Quick Duel posts no Tickets. God mode skips the board.

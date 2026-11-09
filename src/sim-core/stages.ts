@@ -20,6 +20,7 @@ const EVOLVE_R = fx(C.evolveRadius);
 const EVOLVE_KNOCK = fx(C.evolveKnockback);
 const SPELL_DAMAGE = fx(C.aggression.spellDamage);
 const ULT_CHARGE = fx(C.ultCharge);
+const POTION = fx(C.phasePotionHeal);
 
 /** The boss's base AI scaled for `stage` (BossStages.stageProfile), as floats for the AI to convert. */
 export function stageProfile(boss: BossFighter, stage: number): AIProfile {
@@ -110,6 +111,12 @@ export class SimStages {
     }
     this.world.powers.cancel(e);
     this.world.events.push('bossEvolve', e.index, this.boss.id, stage, -1, e.pos.x, e.pos.y, e.pos.z, from > 0);
+    // A phase cleared: the player drinks a heal potion (never above max health).
+    if (p.alive) {
+      const before = p.health;
+      p.health = Math.min(p.maxHealth, p.health + mul(p.maxHealth, POTION));
+      this.world.events.push('phasePotion', p.index, '', p.health - before, e.index, p.pos.x, p.pos.y, p.pos.z);
+    }
   }
 
   private toStage(stage: number): void {

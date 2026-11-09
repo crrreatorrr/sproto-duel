@@ -68,6 +68,7 @@ const STUN_CD = sec(ST.cooldown);
 const STUN_MANA = fx(ST.manaCost);
 const STUN_RANGE = fx(ST.range);
 const STUN_DAMAGE = fx(ST.damage);
+const STUNNED_DAMAGE = fx(ST.stunnedDamageMultiplier);
 const ULT_MAX = fx(U.chargeMax);
 const ULT_PER_DEALT = fx(U.chargePerDamageDealt);
 const ULT_DAMAGE = fx(U.damage);
@@ -632,8 +633,9 @@ export class SimSpells {
     if (hitKind === HIT_WIZARD) {
       const target = this.world.wizards[hitIndex];
       const stuns = !target.evolving;
-      target.applyStun(STUN_TIME);
+      // The beam's own hit lands before the stun, so it gets no stunned bonus.
       this.dealDamage(target, caster, STUN_DAMAGE, end, 'stun', null, 0);
+      target.applyStun(STUN_TIME);
       ev.atPos('impact', end, target.index, 'stun');
       if (stuns) ev.push('stunned', target.index);
     } else if (hitKind === HIT_OBSTACLE) {
@@ -988,7 +990,8 @@ export class SimSpells {
   // ------------------------------------------------------------------ damage
 
   /**
-   * The single place damage is applied (SpellSystem.dealDamage): source multipliers, immunity,
+   * The single place damage is applied (SpellSystem.dealDamage): source multipliers, the stunned
+   * bonus (either side stunned: x stunnedDamageMultiplier each), immunity,
    * stats, Ultimate charge, knockback, events, KO. Never between allies.
    */
   dealDamage(target: SimWizard, source: SimWizard | null, amount: number, point: V3, kind: string, knockDir: V3 | null, knockback: number): number {
@@ -998,7 +1001,11 @@ export class SimSpells {
       amount = mul(amount, source.damageMultiplier);
       if (source.pumped) amount = mul(amount, PUMP_DAMAGE);
       if (SPELL_KINDS[kind]) amount = mul(amount, source.spellDamageScale);
+      // Stunned: a hit landing while its caster is stunned deals more.
+      if (source.stunned) amount = mul(amount, STUNNED_DAMAGE);
     }
+    // Stunned: the target takes more from everything.
+    if (target.stunned) amount = mul(amount, STUNNED_DAMAGE);
     const ev = this.world.events;
     if (target.immune || target.evolving) {
       if (kind !== 'fire' && kind !== 'scorch') target.hitFlash = sec(CONFIG.wizard.hitFlashTime);

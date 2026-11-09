@@ -96,6 +96,8 @@ export interface GameEvents {
   lifePackSpawn: { id: number; pos: Vector3; first: boolean; left: number };
   /** The player collected the life pack and healed `healed` HP. */
   lifePackPickup: { id: number; pos: Vector3; wizard: Wizard; healed: number };
+  /** A boss phase ended (a transformation): `wizard` drank a heal potion for `healed` HP. */
+  phasePotion: { wizard: Wizard; healed: number };
   /** The arena changed for a boss stage (pools and a spring at 1, vents at 2), its new features fading in. */
   arenaShift: { stage: number; shift: ArenaShiftDef };
   /** A vent starts its warning, and erupts. */
