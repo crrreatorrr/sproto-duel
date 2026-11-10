@@ -478,7 +478,7 @@ export class ProjectileSkins {
     if (fx) {
       tmpDir.copy(t.vel).normalize();
       const pal = this.palettes[slot.team] ?? t.caster.team;
-      if (slot.skin === 'bullet') {
+      if (slot.skin === 'bullet' || slot.skin === 'missile') {
         const M = K.muzzleFlash;
         fx.muzzleFlash(t.pos, tmpDir, pal.spell, M.size, M.light, M.duration);
       } else if (slot.skin === 'grenade') {
@@ -514,6 +514,7 @@ export class ProjectileSkins {
       case 'bullet':
         fx.trail(p, t.color, 0.07, 1);
         return;
+      case 'missile':
       case 'hellfire':
       case 'skull': {
         const big = slot.skin === 'skull' ? 1.6 : 1;

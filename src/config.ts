@@ -817,6 +817,25 @@ export const CONFIG = {
       rayStretch: 2.0,
       pulse: { material: 'staff_alien_ray_glow_mat', min: 1.1, max: 2.6, hz: 0.8, onCast: 4.5 },
     },
+    shooter: {
+      name: 'Shooter Staff',
+      boltLabel: 'Missile',
+      boltDamageMult: 4,
+      boltManaMult: 2,
+      boltSkin: 'missile' as const,
+      bolt: 0xff942b,
+      trail: 0xe85122,
+      accent: 0xff942b,
+      pulse: null,
+    },
+    fighter: {
+      name: 'Fighter Staff',
+      boltManaMult: 0,
+      bolt: 0x56eaff,
+      trail: 0x9262ff,
+      accent: 0x56eaff,
+      pulse: null,
+    },
   },
 
   clash: {

@@ -1,9 +1,9 @@
 /** Staff bolt stats in the sim: the Alien Ray Staff's bolts deal three times the stock damage. */
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
-import { ONE } from './fixed';
+import { ONE, fx } from './fixed';
 import { STAFFS } from './staffs';
-import { HELD_BOLT, type SimInput } from './wizard';
+import { CD_BOLT, HELD_BOLT, type SimInput } from './wizard';
 import { SimWorld } from './world';
 
 const FIRE: SimInput = { move: 0, held: HELD_BOLT, press: 0, facing: 0, aimYaw: 0, aimPitch: 0, aimDist: 10 };
@@ -28,6 +28,27 @@ describe('staff bolt damage', () => {
     const stock = firstBoltDamage(null);
     expect(stock).toBe(CONFIG.spells.bolt.damage);
     expect(firstBoltDamage('duel_staff_alien_ray')).toBe(stock * 3);
+  });
+
+  it.each([
+    ['duel_staff_fighter', 0, 4],
+    ['duel_staff_shooter', 10, 16],
+  ])('%s fires for %i mana and deals %i damage', (staff, mana, damage) => {
+    const w = new SimWorld({ seed: 3, rules: 'quick', arena: 'moonlit', staffs: [staff, null] });
+    w.ais.length = 0;
+    while (w.actionsLocked) w.step([null]);
+    const player = w.wizards[0];
+    player.mana = fx(Math.max(0, mana - 1));
+    player.manaDelay = 6000;
+    w.step([FIRE]);
+    if (mana > 0) {
+      expect(w.spells.active).toHaveLength(0);
+      player.cd[CD_BOLT] = 0;
+      player.mana = fx(mana);
+      w.step([FIRE]);
+    }
+    expect(player.mana).toBe(0);
+    expect(w.spells.active[0]?.damage).toBe(fx(damage));
   });
 
   it('is a look only under even rules (Local Versus and online)', () => {

@@ -7,7 +7,7 @@ import type { Game } from '../core/Game';
 import type { Match, Phase } from '../core/Match';
 import type { Projectile } from '../spells/Projectile';
 import type { Wizard } from '../wizard/Wizard';
-import { COOLDOWNS, SNAPSHOT_VERSION, type ArenaState, type ProjectileState, type Snapshot, type WizardState } from './state';
+import { COOLDOWNS, SKINS, SNAPSHOT_VERSION, type ArenaState, type ProjectileState, type Snapshot, type WizardState } from './state';
 
 export function captureWizard(w: Wizard): WizardState {
   const c = w.cast;
@@ -159,7 +159,8 @@ export function applyProjectiles(game: Game, list: readonly ProjectileState[], s
       p.vel.set(s.vel[0], s.vel[1], s.vel[2]);
       p.radius = s.radius;
       p.reflected = s.reflected;
-      p.refreshLook();
+      if (s.kind === 'bolt') p.applyStaffLook(owner.staff);
+      p.refreshLook(SKINS.find((skin) => skin === s.skin) ?? 'orb');
       continue;
     }
     p.prevPos.copy(p.pos);

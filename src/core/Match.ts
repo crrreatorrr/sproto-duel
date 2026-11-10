@@ -220,7 +220,7 @@ export class Match {
   private startSimMatch(boss: BossDef | null, rules: Readonly<MatchRules>): void {
     const g = this.game;
     const p = g.player;
-    const staffs: (string | null)[] = g.simStaffs ?? [p.staff?.id ?? null, null];
+    const staffs: (string | null)[] = g.simStaffs ?? [p.staff?.cosmeticOnly ? null : p.staff?.id ?? null, null];
     const seed = g.simSeed ?? (Math.floor(Math.random() * 0x7fffffff) | 0);
     const theme = g.arena.theme;
     g.startSim({

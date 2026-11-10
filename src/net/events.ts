@@ -83,7 +83,8 @@ export function encodeEvent<W, V>(name: string, payload: Record<string, unknown>
         out.push(typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : 0);
         break;
       case 's':
-        out.push(v == null ? null : String(v));
+        // Missile appearance is in the projectile snapshot. Use the gunshot cue clients already know.
+        out.push(name === 'skinLaunch' && field === 'skin' && v === 'missile' ? 'bullet' : v == null ? null : String(v));
         break;
       case 'b':
         out.push(v ? 1 : 0);

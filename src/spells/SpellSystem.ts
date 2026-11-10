@@ -303,7 +303,7 @@ export class SpellSystem {
   private castBolt(w: Wizard): boolean {
     const B = S.bolt;
     if (w.cd.bolt > 0) return false;
-    if (!w.spendMana(B.manaCost)) {
+    if (!w.spendMana(w.staff?.boltManaCost ?? B.manaCost)) {
       if (w.intent.wants('bolt')) this.noMana(w);
       w.cd.bolt = B.fireInterval * 2;
       return true;

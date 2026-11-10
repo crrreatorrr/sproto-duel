@@ -664,7 +664,7 @@ export class HUD {
         const total = s.spell === 'bolt' ? S.bolt.fireInterval : S[s.spell].cooldown;
         seconds = p.cd[s.spell];
         frac = total > 0 ? seconds / total : 0;
-        cost = S[s.spell].manaCost;
+        cost = s.spell === 'bolt' ? p.staff?.boltManaCost ?? S.bolt.manaCost : S[s.spell].manaCost;
       }
       const noMana = p.mana < cost;
       const active = (s.spell === 'shield' && p.shielded) || p.cast?.spell === s.spell;

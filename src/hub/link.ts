@@ -36,7 +36,7 @@ export class HubLink {
   ranked = false;
   /**
    * Relics from the hub init result for this visit. Empty when the visit is standalone.
-   * A copy of what `init` already returned. Nothing in the game writes this back.
+   * Updated when the hub grants a relic during this visit.
    */
   relics: readonly RelicId[] = [];
   balance: number | null = null;
@@ -214,6 +214,7 @@ export class HubLink {
       }
     }
     if (crown) {
+      if (!this.relics.includes('tinubu_crown')) this.relics = [...this.relics, 'tinubu_crown'];
       sub = sub ? `${sub} · Tinubu's Crown` : "Tinubu's Crown";
       if (!title) title = "Tinubu's Crown";
     }
