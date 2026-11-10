@@ -85,6 +85,8 @@ export interface StaffStats {
   id: string;
   /** Bolt damage multiplier (Q16). */
   boltDamage: number;
+  /** Bolt mana cost (Q16), defaulting to the stock bolt. */
+  boltManaCost?: number;
   /** Bolt fire interval multiplier (Q16). */
   boltInterval: number;
   /** Bolt knockback (Q16 m/s), or -1 for the stock bolt. */

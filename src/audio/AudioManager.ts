@@ -31,6 +31,7 @@ const SKIN_SOUNDS: Record<Exclude<ProjectileSkin, 'orb'>, { key: SoundKey; rate:
   floret: { key: 'veggieCrunch', rate: 1.15, volume: 0.85 },
   broccoli: { key: 'veggieCrunch', rate: 0.8, volume: 1 },
   bullet: { key: 'gunshot', rate: 1, volume: 1 },
+  missile: { key: 'gunshot', rate: 0.8, volume: 1 },
   grenade: { key: 'grenadeThump', rate: 1, volume: 1 },
   hellfire: { key: 'fireRoar', rate: 1.2, volume: 0.8 },
   skull: { key: 'fireRoar', rate: 0.85, volume: 1 },
@@ -219,6 +220,7 @@ export class AudioManager {
     });
     on('cast', (e) => {
       // Bolts and blasts thrown as objects sound on 'skinLaunch' instead (one per projectile).
+      if (e.spell === 'bolt' && e.wizard.staff?.boltSkin) return;
       if ((e.spell === 'bolt' || e.spell === 'blast') && (e.wizard.skins?.[e.spell] ?? 'orb') !== 'orb') return;
       const key: Record<string, SoundKey> = { bolt: 'boltCast', blast: 'blastCast', shield: 'shieldUp', stun: 'stunBeam', ultimate: 'ultWave' };
       this.play(key[e.spell], { pos: e.spell === 'ultimate' ? undefined : e.pos, volume: isPlayer(e.wizard) ? 1 : 0.85 });

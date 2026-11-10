@@ -54,7 +54,7 @@ describe('staff ownership from relics', () => {
 
   it('keeps the other relic staffs alongside the Breakwater Coin', () => {
     setSessionRelics(['hpos10i_core', 'genesis_shard', 'breakwater_coin', 'tinubu_crown']);
-    expect(getOwnedStaffs()).toEqual(['duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_alien_ray']);
+    expect(getOwnedStaffs()).toEqual(['duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_alien_ray', 'duel_staff_fighter']);
   });
 
   it("unlocks Fighter's Might from the Tidebreaker Belt and lets it be equipped", () => {
@@ -70,11 +70,25 @@ describe('staff ownership from relics', () => {
     expect(setSelectedStaff('duel_staff_fighters_might')).toBe(false);
   });
 
+  it('unlocks Shooter with Dragon Scale and Fighter with Tinubu\'s Crown', () => {
+    setSessionRelics(['dragon_scale']);
+    expect(setSelectedStaff('duel_staff_shooter')).toBe(true);
+    expect(setSelectedStaff('duel_staff_fighter')).toBe(false);
+
+    setSessionRelics(['genesis_shard']);
+    expect(getOwnedStaffs()).toEqual(['duel_staff_sproto', 'duel_staff_moonward']);
+    expect(setSelectedStaff('duel_staff_fighter')).toBe(false);
+    setSessionRelics(['tinubu_crown']);
+    expect(getOwnedStaffs()).toEqual(['duel_staff_sproto', 'duel_staff_fighter']);
+    expect(getLoadout()).toMatchObject({ staff: 'duel_staff_sproto', replaced: 'Shooter Staff' });
+    expect(setSelectedStaff('duel_staff_fighter')).toBe(true);
+  });
+
   it('owns every staff with every relic', () => {
-    setSessionRelics(['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin']);
+    setSessionRelics(['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin', 'dragon_scale']);
     expect(getOwnedStaffs()).toEqual([
       'duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu', 'duel_staff_fighters_might',
-      'duel_staff_alien_ray',
+      'duel_staff_alien_ray', 'duel_staff_shooter', 'duel_staff_fighter',
     ]);
   });
 

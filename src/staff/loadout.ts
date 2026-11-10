@@ -4,9 +4,8 @@ import { SPROTO_STAFF, STAFF_IDS, isStaffId, staffName, type StaffId } from './c
  * The only place Sproto Duel reads which staffs are owned and which one is equipped.
  *
  * A hub visit passes the relic ids `init` already returned (`setSessionRelics`). Ownership is
- * the starter staff plus the staff for each relic that unlocks one in this game. Tinubu's Crown
- * is earned here and unlocks nothing. With no session, the local `arcane-duel-loadout` cache is
- * the fallback (starter only when that cache is empty).
+ * the starter staff plus any staffs unlocked by those relics. With no session, the local
+ * `arcane-duel-loadout` cache is the fallback (starter only when that cache is empty).
  *
  * Equipping writes that cache's staff slot. It does not grant a Relic, change Tickets, touch the
  * campaign save, or post a score. Server loadout and `equip_change` come later. Do not add hub
@@ -15,21 +14,23 @@ import { SPROTO_STAFF, STAFF_IDS, isStaffId, staffName, type StaffId } from './c
 export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
 
 /**
- * Relic → staff in this game. One staff slot, so these never stack.
+ * Relic required for each staff in this game. One staff slot, so these never stack.
  * `breakwater_coin` is Sproto Arcade's: the hub grants it for beating Bront, the Arcade's first
  * boss, and it unlocks the Alien Ray Staff here.
  * `tidebreaker_belt` (Sproto Fighter) unlocks Fighter's Might, matching the hub's item matrix.
- * Absent on purpose: `tinubu_crown` (earned in Duel).
+ * `tinubu_crown` unlocks the separate Fighter Staff.
  */
-const STAFF_BY_RELIC: Readonly<Record<string, StaffId>> = {
-  hpos10i_core: 'duel_staff_momentum',
-  genesis_shard: 'duel_staff_moonward',
-  cones_tip: 'duel_staff_nobu',
-  breakwater_coin: 'duel_staff_alien_ray',
-  tidebreaker_belt: 'duel_staff_fighters_might',
+const RELIC_BY_STAFF: Record<Exclude<StaffId, typeof SPROTO_STAFF>, string> = {
+  duel_staff_momentum: 'hpos10i_core',
+  duel_staff_moonward: 'genesis_shard',
+  duel_staff_nobu: 'cones_tip',
+  duel_staff_fighters_might: 'tidebreaker_belt',
+  duel_staff_alien_ray: 'breakwater_coin',
+  duel_staff_shooter: 'dragon_scale',
+  duel_staff_fighter: 'tinubu_crown',
 };
 
-/** Relics from the current hub init, or null when this visit has no session. */
+/** Relics from the current hub session, or null when this visit has no session. */
 let sessionRelics: readonly string[] | null = null;
 
 export interface StaffLoadout {
@@ -120,14 +121,9 @@ export function getOwnedStaffs(): StaffId[] {
   return staffsFromCache();
 }
 
-/** Starter, plus one staff per relic that unlocks one here. Stable catalog order. */
+/** Starter and all staffs unlocked by the player’s relics, in catalog order. */
 function staffsForRelics(relics: readonly string[]): StaffId[] {
-  const unlocked = new Set<StaffId>();
-  for (const relic of relics) {
-    const staff = STAFF_BY_RELIC[relic];
-    if (staff) unlocked.add(staff);
-  }
-  return STAFF_IDS.filter((id) => id === SPROTO_STAFF || unlocked.has(id));
+  return STAFF_IDS.filter((id) => id === SPROTO_STAFF || relics.includes(RELIC_BY_STAFF[id]));
 }
 
 /** Local fallback. Unknown ids are ignored. Sproto is always included. */

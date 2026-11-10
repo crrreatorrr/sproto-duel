@@ -143,6 +143,7 @@ export class Projectile implements SkinTarget {
    * What it looks like in flight: the caster's skin for this kind (`Wizard.skins`), picked at
    * launch and kept for life, so a reflected phone flies back as a phone. 'orb' = the spell orb.
    */
+  private staffSkin: ProjectileSkin | null = null;
   skin: ProjectileSkin = 'orb';
   readonly group = new THREE.Group();
   private readonly core: THREE.Mesh;
@@ -224,16 +225,17 @@ export class Projectile implements SkinTarget {
   }
 
   /** The caster's staff bolt look (colours, size), at launch. Reflected bolts keep it. */
-  applyStaffLook(staff: { boltColor: number; trailColor: number; boltScale: number; rayStretch: number } | null | undefined): void {
+  applyStaffLook(staff: { boltColor: number; trailColor: number; boltScale: number; rayStretch: number; boltSkin: ProjectileSkin | null } | null | undefined): void {
     this.boltColor = staff?.boltColor ?? 0;
     this.trailColor = staff?.trailColor ?? 0;
     this.boltScale = staff?.boltScale ?? 1;
     this.rayStretch = staff?.rayStretch ?? 1;
+    this.staffSkin = staff?.boltSkin ?? null;
   }
 
   private launch(): void {
     this.launched = true;
-    const skin = this.caster?.skins?.[this.kind] ?? 'orb';
+    const skin = this.staffSkin ?? this.caster?.skins?.[this.kind] ?? 'orb';
     this.slot = skin === 'orb' ? null : this.skins.acquire(skin, this.caster.index, this);
     this.skin = this.slot ? skin : 'orb'; // a full batch falls back to the orb
     this.core.visible = !this.slot;
@@ -248,6 +250,7 @@ export class Projectile implements SkinTarget {
     }
     this.slot = null;
     this.skin = 'orb';
+    this.staffSkin = null;
     this.launched = false;
     this.core.visible = true;
     this.knockback = 0;

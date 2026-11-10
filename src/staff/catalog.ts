@@ -1,3 +1,4 @@
+import type { ProjectileSkin } from '../campaign/levels';
 import { CONFIG } from '../config';
 
 /**
@@ -14,7 +15,9 @@ export type StaffId =
   | 'duel_staff_moonward'
   | 'duel_staff_nobu'
   | 'duel_staff_fighters_might'
-  | 'duel_staff_alien_ray';
+  | 'duel_staff_alien_ray'
+  | 'duel_staff_shooter'
+  | 'duel_staff_fighter';
 
 export const STAFF_IDS: readonly StaffId[] = [
   'duel_staff_sproto',
@@ -23,17 +26,21 @@ export const STAFF_IDS: readonly StaffId[] = [
   'duel_staff_nobu',
   'duel_staff_fighters_might',
   'duel_staff_alien_ray',
+  'duel_staff_shooter',
+  'duel_staff_fighter',
 ];
 
-export const SPROTO_STAFF: StaffId = 'duel_staff_sproto';
+export const SPROTO_STAFF = 'duel_staff_sproto';
 
-const SLUG: Record<StaffId, 'sproto' | 'momentum' | 'moonward' | 'nobu' | 'fighters_might' | 'alien_ray'> = {
+const SLUG: Record<StaffId, keyof typeof CONFIG.staffs> = {
   duel_staff_sproto: 'sproto',
   duel_staff_momentum: 'momentum',
   duel_staff_moonward: 'moonward',
   duel_staff_nobu: 'nobu',
   duel_staff_fighters_might: 'fighters_might',
   duel_staff_alien_ray: 'alien_ray',
+  duel_staff_shooter: 'shooter',
+  duel_staff_fighter: 'fighter',
 };
 
 export interface StaffPulse {
@@ -58,12 +65,15 @@ export interface StaffBlink {
 /** What the player is holding. Gameplay fields are the starter values while ranked. */
 export interface EquippedStaff {
   id: StaffId;
+  cosmeticOnly: boolean;
   name: string;
   /** One line under the name on the Staff Rack. */
   line: string;
   slug: string;
   clip: string;
   boltDamageMult: number;
+  boltManaCost: number;
+  boltSkin: ProjectileSkin | null;
   /** Null: use CONFIG.spells.bolt.knockback. */
   boltKnockback: number | null;
   boltLabel: string;
@@ -109,6 +119,10 @@ export function staffLine(id: StaffId): string {
   const s = CONFIG.staffs;
   const damage = CONFIG.spells.bolt.damage;
   switch (id) {
+    case 'duel_staff_shooter':
+      return `Missile · damage ${damage * s.shooter.boltDamageMult} · ${CONFIG.spells.bolt.manaCost * s.shooter.boltManaMult} mana`;
+    case 'duel_staff_fighter':
+      return `Bolt · damage ${damage} · ${CONFIG.spells.bolt.manaCost * s.fighter.boltManaMult} mana`;
     case 'duel_staff_sproto':
       return 'Stock bolt';
     case 'duel_staff_momentum':
@@ -142,11 +156,14 @@ export function equipStaff(id: StaffId, ranked: boolean): EquippedStaff {
   const label = ranked ? 'Bolt' : 'boltLabel' in def ? def.boltLabel : 'Bolt';
   return {
     id,
+    cosmeticOnly: ranked,
     name: def.name,
     line: staffLine(id),
     slug,
     clip: `staff_${slug}_idle`,
     boltDamageMult: mult,
+    boltManaCost: CONFIG.spells.bolt.manaCost * (!ranked && 'boltManaMult' in def ? def.boltManaMult : 1),
+    boltSkin: 'boltSkin' in def ? def.boltSkin : null,
     boltKnockback: knock,
     boltLabel: label,
     boltScale: 'boltScale' in def ? def.boltScale : 1,

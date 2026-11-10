@@ -1254,7 +1254,10 @@ export class App {
           matchId: this.reportMatchId ?? undefined,
           replay: sim ? sim.log() : undefined,
         },
-        (title, sub) => this.menus.toast(title, sub, 'tickets'),
+        (title, sub) => {
+          setSessionRelics(this.hub.connected ? this.hub.relics : null);
+          this.menus.toast(title, sub, 'tickets');
+        },
       );
     }
   }

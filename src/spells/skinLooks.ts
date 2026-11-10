@@ -664,6 +664,23 @@ const BULLET: SkinDef = {
   },
 };
 
+const MISSILE: SkinDef = {
+  ...BULLET,
+  solid(n) {
+    const body: Rect = [0, 0, 32, 64], trim: Rect = [32, 0, 32, 64];
+    const parts: THREE.BufferGeometry[] = [
+      place(inRect(new THREE.CylinderGeometry(0.075, 0.075, 0.32, 12), n, body), 0, 0, -0.04, Math.PI / 2),
+      place(inRect(new THREE.ConeGeometry(0.075, 0.16, 12), n, trim), 0, 0, 0.20, Math.PI / 2),
+    ];
+    for (let i = 0; i < 4; i++) {
+      const angle = i * Math.PI / 2;
+      parts.push(place(inRect(new THREE.BoxGeometry(0.11, 0.022, 0.13), n, trim),
+        Math.cos(angle) * 0.09, Math.sin(angle) * 0.09, -0.14, 0, 0, angle));
+    }
+    return merge(parts);
+  },
+};
+
 /** An olive "pineapple" grenade with a palette band, fuse, spoon and pin ring. */
 const GRENADE: SkinDef = {
   atlas: 128,
@@ -808,6 +825,7 @@ export const SKIN_LOOKS: Record<ObjectSkin, SkinDef> = {
   floret: FLORET,
   broccoli: BROCCOLI,
   bullet: BULLET,
+  missile: MISSILE,
   grenade: GRENADE,
   hellfire: HELLFIRE,
   skull: SKULL,

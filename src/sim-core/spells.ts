@@ -398,7 +398,7 @@ export class SimSpells {
 
   private castBolt(w: SimWizard): boolean {
     if (w.cd[CD_BOLT] > 0) return false;
-    if (!w.spendMana(BOLT_MANA)) {
+    if (!w.spendMana(w.staff?.boltManaCost ?? BOLT_MANA)) {
       if (w.wants(A_BOLT)) this.noMana(w);
       w.cd[CD_BOLT] = this.boltInterval(w) * 2;
       return true;

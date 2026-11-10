@@ -1,3 +1,5 @@
+import { STAFF_IDS, SPROTO_STAFF } from '../staff/catalog';
+
 /**
  * Sproto Duel online protocol (client side of `sproto_arena` in metaverse-hub). Opcodes, message
  * shapes and validators; pure. The server constants in
@@ -47,8 +49,8 @@ export const OP = {
 export type OpCode = (typeof OP)[keyof typeof OP];
 
 /** Staff ids the server accepts in HELLO (cosmetic only online). */
-export const STAFF_WHITELIST = ['duel_staff_sproto', 'duel_staff_momentum', 'duel_staff_moonward', 'duel_staff_nobu'] as const;
-export const DEFAULT_STAFF = 'duel_staff_sproto';
+export const STAFF_WHITELIST = STAFF_IDS;
+export const DEFAULT_STAFF = SPROTO_STAFF;
 
 export interface HelloMsg { v: string; staff: string }
 export interface StartMsg { seat: 0 | 1; hostSeat: 0 | 1; names: [string, string]; staffs: [string, string]; rules: 'online1'; seed: number }

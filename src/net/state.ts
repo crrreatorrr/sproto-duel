@@ -17,7 +17,7 @@ export type CastSpell = (typeof CAST_SPELLS)[number];
 /** Cooldown keys in wire order. */
 export const COOLDOWNS = ['bolt', 'blast', 'shield', 'stun', 'dodge', 'blink'] as const;
 /** Projectile skins in wire order (index 0 = the spell orb). Unknown skins travel as the orb. */
-export const SKINS = ['orb', 'rugRoll', 'carpet', 'phone', 'pig', 'floret', 'broccoli', 'bullet', 'grenade', 'hellfire', 'skull'] as const;
+export const SKINS = ['orb', 'rugRoll', 'carpet', 'phone', 'pig', 'floret', 'broccoli', 'bullet', 'grenade', 'hellfire', 'skull', 'missile'] as const;
 /** Match phases in wire order. */
 export const PHASES = ['menu', 'intro', 'fight', 'roundEnd', 'matchEnd'] as const;
 export type NetPhase = (typeof PHASES)[number];

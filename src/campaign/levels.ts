@@ -20,7 +20,8 @@ export type ProjectileSkin =
   | 'bullet' // a tracer round
   | 'grenade' // a lobbed grenade
   | 'hellfire' // a flaming orb with a smoky tail
-  | 'skull'; // a burning skull
+  | 'skull' // a burning skull
+  | 'missile'; // a rocket with a lit exhaust
 
 /** A signature multi-shot attack: `count` bolt-skinned shots in a fan (`spreadDeg`) or a burst (`interval` s apart). */
 export interface VolleyDef {
