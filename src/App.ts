@@ -28,7 +28,7 @@ import { TitleStaffPreview } from './ui/TitleStaffPreview';
 import { titleStaffCycle } from './ui/titleStaffs';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
 import { HubLink } from './hub/link';
-import { equipStaff, isStaffId, staffCard, staffModelPath } from './staff/catalog';
+import { equipStaff, isStaffId, SPROTO_STAFF, staffCard, staffModelPath, type StaffId } from './staff/catalog';
 import { getLoadout, setSelectedStaff, setSessionRelics } from './staff/loadout';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/rewardCatalog';
 import type { Wizard } from './wizard/Wizard';
@@ -249,18 +249,20 @@ export class App {
     if (load.replaced) this.menus.toast('Gear unavailable', load.replaced);
     // Ranked flag is already on the hub session. Standalone play leaves it false. Versus and
     // online use the same starter stats (`cosmetic`), so the staff is only a look there.
-    const ranked = this.hub.ranked || cosmetic;
-    const equipped = equipStaff(load.staff, ranked);
-    const player = this.game.player;
-    player.staff = equipped;
-    if (player.visual.mountedStaffId === equipped.id) {
-      player.visual.setStaff(equipped);
+    this.mountStaff(this.game.player, load.staff, this.hub.ranked || cosmetic);
+  }
+
+  private mountStaff(wizard: Wizard, id: StaffId, cosmetic: boolean): void {
+    const equipped = equipStaff(id, cosmetic);
+    wizard.staff = equipped;
+    if (wizard.visual.mountedStaffId === id) {
+      wizard.visual.setStaff(equipped);
       return;
     }
-    const path = staffModelPath(load.staff);
+    const path = staffModelPath(id);
     const prop = this.game.assets.instantiateProp(path);
     if (!prop) console.warn(`[staff] missing ${path}, using a placeholder staff`);
-    player.visual.setStaff(equipped, prop);
+    wizard.visual.setStaff(equipped, prop);
   }
 
   private staffRack() {
@@ -801,7 +803,7 @@ export class App {
     const ctl = (this.onlineCtl = new this.net!.OnlineController(this.game, this.match, s, this.net!.realScheduler));
     ctl.begin(start);
     this.hud.setNames(['You', start.names[1 - start.seat] || 'Opponent']);
-    this.beginMatch(null, ONLINE, !s.isHost);
+    this.beginMatch(null, ONLINE, !s.isHost, start);
   }
 
   /** The server's verdict, shown on the results. Online stakes are 0 Tickets; the client does not mint. */
@@ -1068,6 +1070,10 @@ export class App {
    */
   private dressEnemy(boss: BossDef | null): void {
     const g = this.game;
+    if (g.enemy.staff) {
+      g.enemy.staff = null;
+      g.enemy.visual.setStaff(null, null);
+    }
     g.setupEnemy(boss);
     const theme = boss ? boss.theme : 'moonlit';
     if (g.arena.theme !== theme) g.arena.applyTheme(theme);
@@ -1090,7 +1096,7 @@ export class App {
     style.setProperty('--rival-lo', `#${c.clone().multiplyScalar(0.75).getHexString()}`);
   }
 
-  private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>, replica = false): void {
+  private beginMatch(boss: BossDef | null, rules?: Readonly<MatchRules>, replica = false, online?: StartMsg): void {
     const g = this.game;
     this.disposeTitleStage();
     const r = rules ?? (boss ? undefined : QUICK);
@@ -1102,7 +1108,14 @@ export class App {
     this.syncLearned();
     // Versus / online: no reward spells, and the staff is the look only (starter stats).
     if (even) g.player.learned.clear();
-    this.applyStaff(even);
+    if (online) {
+      const own = online.staffs[online.seat];
+      const rival = online.staffs[1 - online.seat];
+      this.mountStaff(g.player, isStaffId(own) ? own : SPROTO_STAFF, true);
+      this.mountStaff(g.enemy, isStaffId(rival) ? rival : SPROTO_STAFF, true);
+    } else {
+      this.applyStaff(even);
+    }
     // God mode's stats come back on the player (the menu's background duel fights without them),
     // except where the rules forbid it: then they stay held off, whatever the flag says.
     g.holdGodMode(even);

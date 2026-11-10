@@ -197,8 +197,8 @@ export class Projectile implements SkinTarget {
    * call after spawn also launches the caster's skin. Objects keep a smaller glow in the owner's
    * colour, so they still read as spells (and show who sent a reflected one back).
    */
-  refreshLook(): void {
-    if (!this.launched) this.launch();
+  refreshLook(replicaSkin?: ProjectileSkin): void {
+    if (!this.launched) this.launch(replicaSkin);
     const team = this.owner.index;
     this.mats.ensure(team, this.owner.team);
     const glow = this.slot ? CONFIG.projectileSkins.glowScale[this.kind] * this.skins.glowSize(this.slot.skin) : 1;
@@ -233,13 +233,13 @@ export class Projectile implements SkinTarget {
     this.staffSkin = staff?.boltSkin ?? null;
   }
 
-  private launch(): void {
+  private launch(replicaSkin?: ProjectileSkin): void {
     this.launched = true;
-    const skin = this.staffSkin ?? this.caster?.skins?.[this.kind] ?? 'orb';
+    const skin = replicaSkin ?? this.staffSkin ?? this.caster?.skins?.[this.kind] ?? 'orb';
     this.slot = skin === 'orb' ? null : this.skins.acquire(skin, this.caster.index, this);
     this.skin = this.slot ? skin : 'orb'; // a full batch falls back to the orb
     this.core.visible = !this.slot;
-    if (this.slot) this.skins.launched(this.slot, this);
+    if (this.slot && replicaSkin === undefined) this.skins.launched(this.slot, this);
   }
 
   /** Back to the pool: return the object instance. */

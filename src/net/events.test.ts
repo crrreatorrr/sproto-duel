@@ -30,6 +30,13 @@ describe('net events', () => {
     expect(decodeEvent(encodeEvent('suddenDeath', {}, world), world)?.payload).toEqual({});
   });
 
+  it('uses the existing gunshot event for missile launches on the wire', () => {
+    const event = encodeEvent('skinLaunch', {
+      wizard: wizards[0], kind: 'bolt', skin: 'missile', pos: { x: 0, y: 1, z: 0 },
+    }, world);
+    expect(decodeEvent(event, world)?.payload.skin).toBe('bullet');
+  });
+
   it('skips events that are not replicated, and malformed ones', () => {
     expect(encodeEvent('bossEvolve', {}, world)).toBeNull();
     expect(decodeEvent([999], world)).toBeNull();
