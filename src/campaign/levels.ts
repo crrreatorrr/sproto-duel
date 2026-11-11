@@ -203,8 +203,11 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
 
 /**
  * The boss ladder, easiest first. A gauntlet fight is one life against all three stages, each with
- * its own health bar (`stageHealth`, sized for about five minutes a stage), so a fight runs 15+
- * minutes. Bosses hit hard (`damageMultiplier`, raised again per stage by stageDamage) but pick
+ * its own health bar (`stageHealth`, sized for about five minutes a stage against the soak's
+ * reference AI: about 4.5 for Sahil, the shortest fight, rising to a little over 5 for Tinubu), so a
+ * fight runs about 13 to 16 minutes. The bars were re-sized (roughly doubled) when held fire stopped
+ * starving for mana (CONFIG.wizard), which about doubled what a player deals. A knockout in stage 2
+ * or 3 restarts that stage once (CONFIG.campaign.checkpoint). Bosses hit hard (`damageMultiplier`, raised again per stage by stageDamage) but pick
  * their moments: slow bursts, wide aim and rare big spells keep the damage per second low enough
  * for one health bar and three life packs to last. Within a fight every boss evolves twice and
  * unlocks more attacks each time; `ai` is stage 1 and CONFIG.campaign.stageAI sharpens it. Fight 1
@@ -235,7 +238,7 @@ export const BOSSES: BossDef[] = [
     ],
     skins: { bolt: 'rugRoll', blast: 'carpet' },
     transform: 'bazaar',
-    shift: { mood: 0xff9a3c, pools: { name: 'Quicksand', color: 0xd9b26a, dps: 4, look: 'sand', slow: 0.5 }, spring: { name: 'Oasis', color: 0x4fe0c8 }, vents: { name: 'Sand Geysers', color: 0xffc070, damage: 9 } },
+    shift: { mood: 0xff9a3c, pools: { name: 'Quicksand', color: 0xd9b26a, dps: 6, look: 'sand', slow: 0.5 }, spring: { name: 'Oasis', color: 0x4fe0c8 }, vents: { name: 'Sand Geysers', color: 0xffc070, damage: 14 } },
     powers: [
       { kind: 'sweep', name: 'Carpet Sweep', from: 0, cooldown: 15, damage: 7, range: 15, arc: 200, duration: 1.9, length: 15, warn: 1.1, skin: 'carpet' },
       { kind: 'barrage', name: 'Bazaar Rain', from: 1, cooldown: 17, damage: 7, range: 30, count: 7, radius: 2, spread: 5, duration: 2.4, warn: 1.15, skin: 'rugRoll' },
@@ -258,7 +261,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.4,
       preferredRange: [10, 15],
     },
-    stageHealth: [1620, 1660, 1710], // stage 1 up from 1490: the stunned-damage bonus shortened it below ~5 min
+    stageHealth: [2940, 3010, 3100],
     damageMultiplier: 0.77,
     spellDamage: 0.45,
   }),
@@ -289,7 +292,7 @@ export const BOSSES: BossDef[] = [
     ],
     skins: { bolt: 'phone', blast: 'pig' },
     transform: 'shill',
-    shift: { mood: 0xf7931a, pools: { name: 'Liquidation Pits', color: 0xff3346, dps: 11, look: 'liquid' }, spring: { name: 'Airdrop', color: 0x5dff8a }, vents: { name: 'Gas Fees', color: 0xb26bff, damage: 10 } },
+    shift: { mood: 0xf7931a, pools: { name: 'Liquidation Pits', color: 0xff3346, dps: 16, look: 'liquid' }, spring: { name: 'Airdrop', color: 0x5dff8a }, vents: { name: 'Gas Fees', color: 0xb26bff, damage: 15 } },
     powers: [
       { kind: 'march', name: 'Green Candles', from: 0, cooldown: 15, damage: 8, range: 22, count: 7, spacing: 2.6, radius: 1.5, warn: 0.95, step: 0.14 },
       { kind: 'seekers', name: 'Shill Calls', from: 1, cooldown: 17, damage: 6, range: 26, count: 3, speed: 8.5, turn: 2.2, life: 5, skin: 'phone' },
@@ -315,7 +318,7 @@ export const BOSSES: BossDef[] = [
     // As a pair: Obama is the glass cannon (smaller bars, hits hardest), The Midget the tank (bigger
     // bars, closes in). Two separate bosses: each changes stage only when its own bar empties, and
     // knocking one out leaves the other as it is; a sharp player drops Obama first.
-    stageHealth: [380, 440, 500],
+    stageHealth: [850, 985, 1120],
     damageMultiplier: 0.64,
     spellDamage: 0.5,
     partner: {
@@ -366,7 +369,7 @@ export const BOSSES: BossDef[] = [
         hopRate: 0.45,
       },
       // Much faster than anyone else (1.5x walk and sprint), but a little lighter: less health, softer hits.
-      stageHealth: [450, 515, 560],
+      stageHealth: [1010, 1150, 1250],
       damageMultiplier: 0.46,
       spellDamage: 0.5,
       speed: 1.5,
@@ -393,7 +396,7 @@ export const BOSSES: BossDef[] = [
     ],
     skins: { bolt: 'floret', blast: 'broccoli' },
     transform: 'vape',
-    shift: { mood: 0x7dff5a, pools: { name: 'Toxic Runoff', color: 0x7dff5a, dps: 12, look: 'liquid' }, spring: { name: 'Fire Hydrant', color: 0x5ab8ff }, vents: { name: 'Sewer Steam', color: 0xdfe8e0, damage: 10 } },
+    shift: { mood: 0x7dff5a, pools: { name: 'Toxic Runoff', color: 0x7dff5a, dps: 18, look: 'liquid' }, spring: { name: 'Fire Hydrant', color: 0x5ab8ff }, vents: { name: 'Sewer Steam', color: 0xdfe8e0, damage: 15 } },
     powers: [
       { kind: 'barrage', name: 'Floret Mortar', from: 0, cooldown: 14, damage: 11, range: 30, count: 8, radius: 2, spread: 5.5, duration: 2.4, warn: 1.0, skin: 'floret' },
       { kind: 'cloud', name: 'Hotbox', from: 1, cooldown: 18, damage: 8, range: 26, radius: 4.2, warn: 0.95, life: 6 },
@@ -416,7 +419,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.85,
       preferredRange: [9, 14],
     },
-    stageHealth: [880, 900, 1000],
+    stageHealth: [2110, 2160, 2400],
     damageMultiplier: 0.76,
     spellDamage: 0.97,
   }),
@@ -445,7 +448,7 @@ export const BOSSES: BossDef[] = [
     ],
     skins: { bolt: 'bullet', blast: 'grenade' },
     transform: 'glitch',
-    shift: { mood: 0x4fd8ff, pools: { name: 'Live Wires', color: 0x5ae0ff, dps: 13, look: 'electric' }, spring: { name: 'Water Cooler', color: 0x8fd8ff }, vents: { name: 'Server Meltdown', color: 0xffd04a, damage: 11 } },
+    shift: { mood: 0x4fd8ff, pools: { name: 'Live Wires', color: 0x5ae0ff, dps: 20, look: 'electric' }, spring: { name: 'Water Cooler', color: 0x8fd8ff }, vents: { name: 'Server Meltdown', color: 0xffd04a, damage: 17 } },
     powers: [
       { kind: 'strike', name: 'Drone Strike', from: 0, cooldown: 14, damage: 17, range: 40, radius: 2.6, track: 1.8, warn: 0.75, skin: 'grenade' },
       { kind: 'flash', name: 'Flashbang', from: 1, cooldown: 15, damage: 6, range: 22, radius: 7, warn: 1.15, stun: 1.6, facing: 110, skin: 'grenade' },
@@ -469,7 +472,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [8, 13],
     },
     // Retuned for the player's carpet, Pump It and vape cloud (the cloud's healing and cover especially).
-    stageHealth: [1096, 1118, 1274],
+    stageHealth: [2580, 2630, 3000],
     damageMultiplier: 0.86,
     spellDamage: 1.15,
   }),
@@ -503,7 +506,7 @@ export const BOSSES: BossDef[] = [
     ],
     skins: { bolt: 'hellfire', blast: 'skull' },
     transform: 'hellfire',
-    shift: { mood: 0xff4a1a, pools: { name: 'Magma Fissures', color: 0xff5a1a, dps: 16, look: 'magma' }, spring: { name: 'Hot Spring', color: 0x6fe8ff }, vents: { name: 'Eruptions', color: 0xff7a2a, damage: 13 } },
+    shift: { mood: 0xff4a1a, pools: { name: 'Magma Fissures', color: 0xff5a1a, dps: 24, look: 'magma' }, spring: { name: 'Hot Spring', color: 0x6fe8ff }, vents: { name: 'Eruptions', color: 0xff7a2a, damage: 20 } },
     powers: [
       { kind: 'march', name: 'Hellfire Pillars', from: 0, cooldown: 12, damage: 13, range: 24, count: 8, spacing: 2.6, radius: 1.7, warn: 0.85, step: 0.12 },
       { kind: 'seekers', name: 'Infection', from: 1, cooldown: 15, damage: 8, range: 28, count: 4, speed: 9, turn: 2.6, life: 5.5, skin: 'skull', drain: true },
@@ -528,7 +531,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [8, 13],
     },
     // Retuned for the four spells the player brings (bigger bars keep stages at ~5 minutes).
-    stageHealth: [1100, 1111, 800],
+    stageHealth: [2280, 2300, 1660],
     damageMultiplier: 0.74,
     spellDamage: 0.8,
   }),

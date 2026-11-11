@@ -14,6 +14,8 @@ export interface GoldenCase {
   styles: (BotStyle | BotStyle[])[];
   botSeeds: number[];
   forfeit?: { tick: number; seat: number };
+  /** God mode turned on or off before these ticks (as the game's mid-fight toggle does). */
+  godToggles?: { tick: number; on: boolean }[];
   maxTicks?: number;
 }
 
@@ -36,6 +38,10 @@ export const GOLDEN_CASES: GoldenCase[] = [
   { name: 'quick-god-mode', setup: { seed: 211, rules: 'quick', arena: 'moonlit', staffs: [null, null], godMode: true }, styles: [CALM], botSeeds: [31] },
   // Boss Gauntlet: a god-mode win through all three stages, and an honest loss, per boss.
   ...BOSS_LIST.map((boss, i) => ({ name: 'gauntlet-' + boss + '-god-win', setup: { seed: 300 + i, rules: 'gauntlet' as const, arena: 'moonlit' as const, staffs: ['duel_staff_fighters_might', null], bossId: boss, learned: ALL_SPELLS.slice(0, i), godMode: true }, styles: [BUSY], botSeeds: [40 + i] })),
+  // Checkpoints: god mode carries the player into a later stage, then goes off; the knockout there
+  // restarts the stage once and the next one is the defeat.
+  { name: 'gauntlet-tinubu-checkpoint', setup: { seed: 500, rules: 'gauntlet', arena: 'moonlit', staffs: [null, null], bossId: 'tinubu', learned: [], godMode: true }, styles: [BUSY], botSeeds: [60], godToggles: [{ tick: 900, on: false }] },
+  { name: 'gauntlet-obama-checkpoints', setup: { seed: 501, rules: 'gauntlet', arena: 'moonlit', staffs: ['duel_staff_sproto', null], bossId: 'obama', learned: ['carpet'], godMode: true }, styles: [BUSY], botSeeds: [61], godToggles: [{ tick: 700, on: false }, { tick: 12000, on: true }, { tick: 12400, on: false }] },
   ...BOSS_LIST.map((boss, i) => ({ name: 'gauntlet-' + boss + '-loss', setup: { seed: 400 + i, rules: 'gauntlet' as const, arena: 'moonlit' as const, staffs: [STAFF_LIST[i], null], bossId: boss, learned: ALL_SPELLS.slice(0, i) }, styles: [BUSY], botSeeds: [50 + i] })),
 ];
 
@@ -47,11 +53,14 @@ export interface GoldenFile {
 
 export function buildGolden(c: GoldenCase): GoldenFile {
   const bots = c.styles.map((s, i) => new Bot(c.botSeeds[i], i, s));
-  const rec = recordMatch(c.setup, bots, { forfeit: c.forfeit, maxTicks: c.maxTicks });
+  const rec = recordMatch(c.setup, bots, { forfeit: c.forfeit, godToggles: c.godToggles, maxTicks: c.maxTicks });
   const log = { ...rec.log, simVersion: 'any' };
   const r = replay(log, { anyVersion: true });
   if (!r.ok) throw new Error(`${c.name}: replay failed: ${r.error}`);
   const expect: Record<string, unknown> = { ok: r.ok, winnerSeat: r.winnerSeat, wins: r.wins, rounds: r.rounds, ticks: r.ticks, endHash: r.endHash, endReason: r.endReason };
-  if (r.bossId) expect.bossId = r.bossId;
+  if (r.bossId) {
+    expect.bossId = r.bossId;
+    expect.checkpoints = r.checkpoints;
+  }
   return { name: c.name, log, expect };
 }

@@ -726,6 +726,7 @@ export class Menus {
           <li>The ring of fire burns. When time runs low, it closes in.</li>
           <li>Deal damage to charge your Ultimate. It carries over between rounds.</li>
           <li>Boss Gauntlet: one life per boss. Each boss stage has its own health bar; empty it and the boss transforms. Grab the life packs (three per fight).</li>
+          <li>Checkpoints: fall in a boss's second or third stage and that stage starts over once, with a life pack back. Fall again in the same stage and the fight is lost.</li>
           <li>Every boss you beat teaches you its spell for good, in every later fight and in Quick Duel.</li>
         </ul>
         <h3 class="reward-head">Boss spells</h3>

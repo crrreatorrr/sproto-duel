@@ -55,6 +55,86 @@ describe('movement feel', () => {
   });
 });
 
+describe('roll cooldown and its input buffer', () => {
+  const idle = [null, null];
+  /** Roll once, then press again `early` s before the cooldown is over; true if a second roll came. */
+  function secondRoll(early: number): boolean {
+    const w = fight();
+    const p = w.wizards[0];
+    w.step([press(5), null]);
+    expect(p.stats.dodges).toBe(1);
+    const wait = Math.round((W.dodge.duration + W.dodge.cooldown - early) * 60) - 1;
+    for (let i = 0; i < wait; i++) w.step(idle);
+    w.step([press(5), null]);
+    for (let i = 0; i < 40; i++) w.step(idle);
+    return p.stats.dodges === 2;
+  }
+
+  it('a press up to dodge.inputBuffer before the roll is ready still rolls', () => {
+    expect(W.dodge.inputBuffer).toBeGreaterThan(CONFIG.feel.inputBuffer);
+    expect(secondRoll(W.dodge.inputBuffer - 0.05)).toBe(true);
+    // Earlier than that it is forgotten (other actions keep the shorter buffer).
+    expect(secondRoll(W.dodge.inputBuffer + 0.1)).toBe(false);
+  });
+
+  it('cannot be rolled again until duration + cooldown have passed', () => {
+    const w = fight();
+    const p = w.wizards[0];
+    let rolls = 0;
+    w.events.on('dodge', (e) => {
+      if (e.w === 0) rolls++;
+    });
+    for (let i = 0; i < 600; i++) w.step([press(5), null]);
+    const cycle = W.dodge.duration + W.dodge.cooldown;
+    expect(rolls).toBe(Math.ceil(10 / cycle));
+    // Invulnerable for under a fifth of the time when rolled on cooldown.
+    expect(W.dodge.iframes / cycle).toBeLessThan(0.2);
+    expect(p.stats.dodges).toBe(rolls);
+  });
+});
+
+describe('mana economy', () => {
+  const S = CONFIG.spells;
+  const fire: SimInput = { ...emptyInput(), held: 1, aimDist: 15 };
+
+  it('held fire drains the bar slowly instead of emptying it in a few seconds', () => {
+    const w = fight();
+    const p = w.wizards[0];
+    expect(m(p.mana)).toBe(W.maxMana);
+    // Five seconds of held fire used to leave nothing (100 mana, 29 a second, no regen while firing).
+    for (let i = 0; i < 300; i++) w.step([fire, null]);
+    expect(m(p.mana)).toBeGreaterThan(W.maxMana - 5 * 14);
+    // A full bar lasts at least ten seconds before a Blast is out of reach.
+    for (let i = 0; i < 300; i++) w.step([fire, null]);
+    expect(m(p.mana)).toBeGreaterThanOrEqual(S.blast.manaCost);
+  });
+
+  it('never locks the kit: at the floor, two seconds off the trigger buys a Blast', () => {
+    const w = fight();
+    const p = w.wizards[0];
+    for (let i = 0; i < 60 * 40; i++) w.step([fire, null]);
+    expect(m(p.mana)).toBeLessThan(S.blast.manaCost);
+    // Still firing at the regen rate: about manaRegen / cost a second.
+    const casts = p.stats.casts;
+    for (let i = 0; i < 600; i++) w.step([fire, null]);
+    const perSecond = (p.stats.casts - casts) / 10;
+    expect(perSecond).toBeGreaterThan((W.manaRegen / S.bolt.manaCost) * 0.85);
+    for (let i = 0; i < 120; i++) w.step([null, null]);
+    expect(m(p.mana)).toBeGreaterThanOrEqual(S.blast.manaCost);
+  });
+
+  it('regen does not wait after a spend', () => {
+    const w = fight();
+    const p = w.wizards[0];
+    w.step([{ ...press(1), aimDist: 15 }, null]);
+    for (let i = 0; i < 20; i++) w.step([null, null]);
+    const after = p.mana;
+    expect(m(after)).toBeLessThan(W.maxMana);
+    w.step([null, null]);
+    expect(p.mana).toBeGreaterThan(after);
+  });
+});
+
 describe('arena parity', () => {
   it('builds the same obstacles, in the same order, as the game layouts', () => {
     for (const id of ARENA_IDS) {

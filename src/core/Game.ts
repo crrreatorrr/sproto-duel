@@ -207,6 +207,18 @@ export class Game {
 
   stopSim(): void {
     this.sim = null;
+    this.checkpointReady = false;
+  }
+
+  /** A knockout now would restart the boss stage instead of ending the fight (SimDriver, from the sim). */
+  checkpointReady = false;
+
+  /** The sim restarted a boss stage at a checkpoint: clear effects and popups, and look behind the player. */
+  onSimCheckpoint(): void {
+    this.fx.clear();
+    this.popups.clear();
+    feel.reset();
+    this.rig.snap(this.player.pos, this.player.facing);
   }
 
   /** The sim began a round: clear the arena's leftovers and look behind the player, as Match.startRound did. */

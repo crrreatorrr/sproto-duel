@@ -43,7 +43,7 @@ export class WizardIntent {
   readonly presses: Record<ActionKey, number> = zeroActions();
 
   press(action: ActionKey): void {
-    this.buffered[action] = CONFIG.feel.inputBuffer;
+    this.buffered[action] = action === 'dodge' ? CONFIG.wizard.dodge.inputBuffer : CONFIG.feel.inputBuffer;
     this.presses[action]++;
   }
 

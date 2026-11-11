@@ -30,6 +30,8 @@ export interface ReplayResult {
   endHash: string;
   /** Additive: how the match ended ('ko', 'time', 'forfeit'), '' when it did not finish. */
   endReason: string;
+  /** Additive, boss fights only: stage checkpoints the player used (0..2). */
+  checkpoints?: number;
 }
 
 export interface ReplayOptions {
@@ -65,7 +67,10 @@ function summarize(w: SimWorld): ReplayResult {
     endHash: w.hash(),
     endReason: m.phase !== 'matchEnd' ? '' : m.forfeit >= 0 ? 'forfeit' : m.lastReason,
   };
-  if (w.setup.bossId) r.bossId = w.setup.bossId;
+  if (w.setup.bossId) {
+    r.bossId = w.setup.bossId;
+    r.checkpoints = w.checkpoints;
+  }
   return r;
 }
 

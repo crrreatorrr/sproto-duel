@@ -77,6 +77,18 @@ export class SimStages {
     this.owner.health = this.owner.maxHealth;
   }
 
+  /** A checkpoint restarts the current stage: its bar is full again and the boss stands idle. */
+  restart(): void {
+    const e = this.owner;
+    if (!e.alive) return;
+    e.health = e.maxHealth;
+    e.evolveTime = 0;
+    e.cast = null;
+    e.shieldTime = e.stunTime = e.dodgeTime = e.iframes = 0;
+    e.endRewardEffects();
+    e.clearIntent();
+  }
+
   update(): void {
     const e = this.owner;
     if (e.alive && !e.evolving && e.health <= 0) this.checkHealth();

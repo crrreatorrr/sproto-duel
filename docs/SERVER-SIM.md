@@ -103,7 +103,8 @@ if (!r.ok) { /* reject: r.error says why; r.endHash is still set */ }
   reporting player holds.
 - **Seats:** seat 0 always spawns on the -z mark (side 0) and seat 1 on +z, whichever client
   hosts. Online, seat numbers are the server's `OP_START` seats.
-- `endReason` is an extra field beyond the locked contract: the forfeit pay rules need it.
+- `endReason` is an extra field beyond the locked contract: the forfeit pay rules need it. So is
+  `checkpoints` (boss fights: stage checkpoints the player used, 0 to 2).
 
 ## Versioning
 
@@ -184,6 +185,14 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
   hub should check they are ones this account has earned), `godMode` (seat 0 starts in god mode)
   and `godToggles` (turned on or off mid-fight). The replay simulates both, and the hub decides
   whether such a win pays; we suggest not.
+- **Checkpoints** (`CONFIG.campaign.checkpoint`): a knockout of the player in a boss's second or
+  third stage restarts that stage instead of ending the fight, once per stage. In the same tick the
+  sim clears spells, hazards, tickets and the life pack, puts everyone standing back on the mark,
+  refills the player (the Ultimate charge is kept) and each standing boss's current bar, hands
+  back one spent life pack and runs a countdown (`introTime` + `banner` s of locked ticks, which
+  are in the log like any other). The arena, its shifts and the fight clock carry on; the stage's
+  cap clock starts over. The replay result's additive `checkpoints` (boss fights only) says how
+  many were used, so the hub can tell a clean win from one that needed them.
 - **Combat rules:** a stunned wizard takes `stunnedDamageMultiplier` (1.5×) damage, and a hit that
   lands while its caster is stunned deals 1.5× (both stack). The stun beam's own hit lands before
   its stun. Each boss transformation heals the player by `campaign.phasePotionHeal` (33%) of max
@@ -192,8 +201,9 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
   `difficulty` (`easy`, `normal`, `hard`) names the profile the sim's CPU plays; it is left out for
   `normal` and rejected under any other rules. A win's replay proves which rival was beaten, so the
   hub can weigh an Apprentice win differently if it wants to.
-- **Size**: one seat, about 1.1 KB of log per minute for the scripted bot. A 15-20 minute boss
-  fight can reach the 16 KB limit; see the PR notes.
+- **Size**: one seat, about 1.1 to 1.4 KB of log per minute for the scripted bot. A 15-20 minute
+  boss fight can reach the 16 KB limit, and a fight that uses its checkpoints runs longer still
+  (the scripted bot's long losses are 13 to 19 KB): the hub's limit needs to allow for it.
 
 ## The game on the sim (A2)
 
@@ -236,7 +246,7 @@ crosshair raycast.
   holds at most 256 toggles (`MAX_GOD_TOGGLES`); past that the game refuses further toggles in
   that fight. Any `on: true` toggle means god mode was used.
 - **Not on the sim:** the QA sandbox (`__duel.qa` scenarios and soaks) still runs the legacy
-  engine, so those scenarios test the old code paths. Online replicas run no sim at all.
+  engine, so those scenarios test the old code paths (the legacy engine has no checkpoints). Online replicas run no sim at all.
 - `node scripts/check-game-sim-e2e.mjs` plays a Quick Duel and a boss fight in the real game in
   Chromium and checks the game's own log replays, with the server bundle, to the game's own end
   hash. It takes a few minutes and is not in CI.
@@ -256,7 +266,7 @@ None of this has been playtested by people yet.
 
 ## Golden replays and tests (A4)
 
-`tests/golden/*.json` holds 23 recorded matches: `{ name, log, expect }`. `npm run gen:goldens`
+`tests/golden/*.json` holds 26 recorded matches: `{ name, log, expect }`. `npm run gen:goldens`
 rewrites them from `src/sim-core/testing/goldens.ts`. Run it only for an intended sim change, and
 review the diff. They cover:
 
@@ -264,7 +274,9 @@ review the diff. They cover:
   during the intro;
 - Quick Duel against the CPU rival with every staff, including `duel_staff_fighters_might` and
   `duel_staff_alien_ray`; with all reward spells learned; and in god mode;
-- every boss: a god-mode win through all three stages, and an honest loss.
+- every boss: a god-mode win through all three stages, and an honest loss;
+- two boss fights where god mode goes off in a later stage, so a knockout there takes the stage
+  checkpoint and the next one is the defeat.
 
 The inputs come from scripted bots (`src/sim-core/testing/bot.ts`), not people. The same logs are
 checked in four places, and each must give the frozen `endHash` and result:
@@ -281,7 +293,8 @@ and 200 random byte streams, which must be rejected without throwing.
 
 ## Performance
 
-Measured on the 23 goldens (4-core 2.8 GHz Xeon container):
+Measured on the 23 goldens of the time (4-core 2.8 GHz Xeon container; the scripted bot's boss
+losses run longer since the 2026-11 balance batch, up to about 49k ticks):
 
 | Engine | Duel (7k-19k ticks) | Boss fight, god-mode win (2k-4k ticks) | Boss fight, long loss (16k-36k ticks) |
 |---|---|---|---|

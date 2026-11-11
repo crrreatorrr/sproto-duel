@@ -440,6 +440,13 @@ export class HUD {
       g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 2), `+${Math.round(e.healed)} HP`, 'heal');
       this.healFlash = 0.6;
     });
+    // A checkpoint caught the knockout: the stage starts over.
+    events.on('checkpoint', (e) => {
+      setAccent(this.banner.parentElement!, null);
+      const packs = e.packs > 0 ? ` · ${e.packs === 1 ? 'a life pack' : `${e.packs} life packs`} restored` : '';
+      this.showBanner('Checkpoint', `Stage ${e.stage + 1} starts over${packs} · no second chance this stage`, 'lifepack', CONFIG.campaign.checkpoint.banner);
+      this.healFlash = 0.6;
+    });
     // A boss phase ended: the heal potion's "+HP" over the player.
     events.on('phasePotion', (e) => {
       const healed = Math.round(e.healed);
@@ -511,7 +518,8 @@ export class HUD {
     if (single) {
       this.set('timer', this.timer, 'text', clock(m.elapsed));
       this.set('timerc', this.timer, 'class', m.capped ? 'timer clock danger' : 'timer clock');
-      this.set('round', this.roundLabel, 'text', `Fight ${m.bossIndex + 1}/${BOSSES.length} · ${m.capped ? 'The fire closes in' : 'One life'}`);
+      const life = g.checkpointReady ? 'One life · checkpoint ready' : 'One life';
+      this.set('round', this.roundLabel, 'text', `Fight ${m.bossIndex + 1}/${BOSSES.length} · ${m.capped ? 'The fire closes in' : life}`);
     } else {
       this.set('timer', this.timer, 'text', String(Math.ceil(m.timer)));
       const danger = m.phase === 'fight' && m.timer < CONFIG.arena.suddenDeathAt;
