@@ -49,6 +49,7 @@ DuelSim.replay(log) -> { ok, error?, simVersion, winnerSeat: 0|1|null, wins: [n,
   forfeit: { tick: 3000, seat: 1 }, // optional: seat leaving before tick index `tick`
   godMode: true,                    // optional: seat 0 starts in god mode (not under even rules)
   godToggles: [{ tick: 900, on: false }], // optional: god mode set before tick index `tick`, in order
+  difficulty: 'easy',               // optional, Quick Duel only: the CPU rival ('easy' | 'normal' | 'hard'); missing = 'normal'
   claimed: { winnerSeat: 1, wins: [1, 2], rounds: 3, ticks: 13464 }
 }
 ```
@@ -187,6 +188,10 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
   lands while its caster is stunned deals 1.5× (both stack). The stun beam's own hit lands before
   its stun. Each boss transformation heals the player by `campaign.phasePotionHeal` (33%) of max
   health (the `phasePotion` event).
+- **Quick Duel rival**: the player picks Apprentice, Adept or Archmage on the main menu. The log's
+  `difficulty` (`easy`, `normal`, `hard`) names the profile the sim's CPU plays; it is left out for
+  `normal` and rejected under any other rules. A win's replay proves which rival was beaten, so the
+  hub can weigh an Apprentice win differently if it wants to.
 - **Size**: one seat, about 1.1 KB of log per minute for the scripted bot. A 15-20 minute boss
   fight can reach the 16 KB limit; see the PR notes.
 

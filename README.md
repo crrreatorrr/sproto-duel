@@ -224,8 +224,9 @@ ticket face is `textures/golden_ticket.png` (a canvas-drawn face is used without
 Five fights in a row, each in the boss's own arena: Sahil, the RugMaster (The Grand Bazaar);
 **Bitcoin Obama & The Midget** (The Blockchain Void, a double fight); Broccoli Head (Los Angeles);
 Glowie (Government Office); and Tinubu (Hellfire Caldera). Fight 1 is very easy and every fight
-after it is a clear step up; Tinubu is close to impossible. This ladder is the game's only
-difficulty setting (Quick Duel is one fixed rival, best of three). A card introduces each fight;
+after it is a clear step up; Tinubu is close to impossible. This ladder is the gauntlet's
+difficulty (Quick Duel has its own pick on the main menu: Apprentice, Adept or Archmage, best of
+three, Apprentice by default). A card introduces each fight;
 win to unlock the next, lose and you retry the same one. Progress is saved in the browser, so
 **Continue** on the main menu resumes at the next fight. Beating Tinubu clears the gauntlet.
 A gauntlet win against Sahil, Bitcoin Obama, Broccoli Head, Glowie, or Tinubu posts
@@ -485,7 +486,7 @@ stats until a match starts). Tuning: `CONFIG.debug`.
 ## Balancing
 
 Every tuning number lives in [src/config.ts](src/config.ts): movement, dodge timing, each spell's
-damage/speed/cost/cooldown, hit-stop and shake, camera, AI profiles (Quick Duel uses `normal`), round length, team
+damage/speed/cost/cooldown, hit-stop and shake, camera, AI profiles (Quick Duel uses the one picked on the main menu), round length, team
 colours. The dev server hot-reloads on save.
 
 ## Environments

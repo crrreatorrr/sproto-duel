@@ -180,3 +180,43 @@ describe('keyboard', () => {
     expect(resumed).toBe(1);
   });
 });
+
+describe('Quick Duel difficulty select', () => {
+  let parent: HTMLElement;
+
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    parent = document.createElement('div');
+    document.body.appendChild(parent);
+  });
+
+  it('starts at Apprentice, remembers the pick and tells the app', () => {
+    const settings = loadSettings();
+    expect(settings.quickDifficulty).toBe('easy');
+    const seen: string[] = [];
+    const menus = new Menus(parent, settings, { ...handlers, settingsChanged: (s) => seen.push(s.quickDifficulty) });
+    menus.showMain();
+    const picks = [...parent.querySelectorAll<HTMLButtonElement>('[data-difficulty]')];
+    expect(picks.map((b) => b.textContent)).toEqual(['Apprentice', 'Adept', 'Archmage']);
+    expect(picks.map((b) => b.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+    picks[2].click();
+    expect(picks.map((b) => b.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+    expect(parent.querySelector('[data-quick-line]')!.textContent).toContain('Archmage');
+    expect(seen).toEqual(['hard']);
+    expect(loadSettings().quickDifficulty).toBe('hard');
+  });
+
+  it('falls back to Apprentice on a bad saved value', () => {
+    localStorage.setItem('arcane-duel-settings', JSON.stringify({ quickDifficulty: 'nightmare', difficulty: 'hard' }));
+    expect(loadSettings().quickDifficulty).toBe('easy');
+  });
+
+  it('lists How to Play and Settings before the character and staff racks', () => {
+    const menus = new Menus(parent, loadSettings(), { ...handlers, characterRack: () => ({ skins: [{ id: 'a', name: 'A', line: '', accent: '#fff', locked: false }], selected: 'a' }) });
+    menus.showMain();
+    const help = parent.querySelector('.help-row')!;
+    const rack = parent.querySelector('[data-char-rack]')!;
+    expect(help.compareDocumentPosition(rack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

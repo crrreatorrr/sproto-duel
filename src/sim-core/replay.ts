@@ -7,7 +7,7 @@ import { LOG_SCHEMA, SeatReader, SeatWriter, fromBase64, type DuelLog } from './
 import { isRulesId } from './rules';
 import { staffStats } from './staffs';
 import { simVersion } from './version';
-import { SimWorld, type SimSetup } from './world';
+import { SimWorld, isDifficulty, type SimSetup } from './world';
 import type { SimInput } from './wizard';
 import { isArenaId, type ArenaId } from './arena';
 import { bossArena, isBossId } from './bosses';
@@ -96,9 +96,15 @@ export function setupFromLog(log: DuelLog): SimSetup | string {
       learned.push(id);
     }
   }
+  if (log.difficulty !== undefined && log.difficulty !== null) {
+    if (log.rules !== 'quick') return 'difficulty outside a Quick Duel';
+    if (!isDifficulty(log.difficulty)) return 'unknown difficulty';
+  }
   const arena = arenaFor(log.rules, log.bossId);
   if (!isArenaId(arena)) return 'unknown arena';
-  return { seed: log.seed | 0, rules: log.rules, arena, staffs: [log.staffs[0], log.staffs[1]], bossId: log.bossId || null, learned, godMode: !!log.godMode };
+  const setup: SimSetup = { seed: log.seed | 0, rules: log.rules, arena, staffs: [log.staffs[0], log.staffs[1]], bossId: log.bossId || null, learned, godMode: !!log.godMode };
+  if (isDifficulty(log.difficulty)) setup.difficulty = log.difficulty;
+  return setup;
 }
 
 /** Re-run `log`. Never throws. */
@@ -241,6 +247,8 @@ export class LogRecorder {
     if (s.bossId) out.bossId = s.bossId;
     if (s.learned && s.learned.length) out.learned = s.learned.slice();
     if (s.godMode) out.godMode = true;
+    // The default rival (Adept) is not written, so logs of the other modes keep their shape.
+    if (s.rules === 'quick' && s.difficulty && s.difficulty !== 'normal') out.difficulty = s.difficulty;
     if (this.forfeit) out.forfeit = this.forfeit;
     // A toggle after the last tick changed nothing.
     const gt = this.godToggles.filter((g) => g.tick < this.ticks);

@@ -80,3 +80,35 @@ describe('logs taken mid-match', () => {
     expect(r.endHash).toBe(world.hash());
   });
 });
+
+describe('Quick Duel difficulty', () => {
+  const run = (difficulty?: 'easy' | 'normal' | 'hard') =>
+    recordMatch({ seed: 77, rules: 'quick', arena: 'moonlit', staffs: [null, null], ...(difficulty ? { difficulty } : {}) }, [new Bot(8, 0, BUSY)]);
+
+  it('travels in the log and replays to the same end', () => {
+    const rec = run('easy');
+    expect(rec.log.difficulty).toBe('easy');
+    const r = replay(rec.log, any);
+    expect(r.error).toBeUndefined();
+    expect(r.endHash).toBe(rec.world.hash());
+    // The same inputs against the default rival are another fight.
+    const { difficulty: _d, ...asNormal } = rec.log;
+    const other = replay(asNormal as DuelLog, any);
+    expect(other.ok === false || other.endHash !== rec.world.hash()).toBe(true);
+  });
+
+  it('defaults to Adept and leaves the field out of the log', () => {
+    const a = run(), b = run('normal');
+    expect(a.log.difficulty).toBeUndefined();
+    expect(b.log.difficulty).toBeUndefined();
+    expect(a.world.hash()).toBe(b.world.hash());
+    expect(a.world.hash()).not.toBe(run('hard').world.hash());
+  });
+
+  it('is rejected outside Quick Duel and when unknown', () => {
+    const quick = run('hard').log;
+    expect(replay({ ...quick, difficulty: 'godlike' }, any).error).toBe('unknown difficulty');
+    const online = recordMatch({ seed: 5, rules: 'online', arena: 'moonlit', staffs: [null, null] }, [new Bot(5, 0, BUSY), new Bot(6, 1, BUSY)], { forfeit: { tick: 200, seat: 1 } }).log;
+    expect(replay({ ...online, difficulty: 'easy' }, any).error).toBe('difficulty outside a Quick Duel');
+  });
+});

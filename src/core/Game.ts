@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config';
+import { CONFIG, type Difficulty } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
 import { MODELS, type ModelKey } from '../assets/manifest';
 import { bossFighters, type BossDef, type BossPartner } from '../campaign/levels';
@@ -193,6 +193,8 @@ export class Game {
   /** The reward spells the player has earned (App: the campaign save), without god mode's extras. */
   simLearned: string[] | null = null;
   simSeats: Wizard[] | null = null;
+  /** Quick Duel: the rival profile the player chose (App, from Settings). */
+  simDifficulty: Difficulty = 'normal';
   /** Gauntlet extras a SimDriver hands over (boss powers, reward spells, shifts, life packs). */
   presentSimEvent: ((e: SimEvent, pos: THREE.Vector3, w: Wizard | null, o: Wizard | null) => void) | null = null;
 

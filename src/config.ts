@@ -1097,9 +1097,9 @@ export const CONFIG = {
       breathFacing: 25,
     },
     /**
-     * AI profiles. The game has one difficulty: Quick Duel always uses `normal` (the Rival), and the
-     * Boss Gauntlet's bosses (src/campaign/levels.ts) are the difficulty ladder. `easy` and `hard`
-     * are not selectable; they are reference opponents for QA soaks and balance probes.
+     * AI profiles. Quick Duel's rival is the one the player picks on the main menu (Settings
+     * `quickDifficulty`, Apprentice by default); the Boss Gauntlet's bosses (src/campaign/levels.ts)
+     * have their own. The QA soaks and balance probes use all three as reference opponents.
      */
     difficulty: {
       easy: {

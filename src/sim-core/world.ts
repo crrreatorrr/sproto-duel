@@ -3,7 +3,7 @@
  * ring and the round flow (src/core/Game.ts tick order + src/core/Match.ts). `step()` advances one
  * 60 Hz tick from one input frame per seat. Nothing here reads a clock, the DOM or Math.random.
  */
-import { CONFIG } from '../config';
+import { CONFIG, type Difficulty } from '../config';
 import { SimArena, isArenaId, type ArenaId, type Body } from './arena';
 import { SimEvents } from './events';
 import { DT, HALF, ONE, fx, len2, max, mul, muldiv, sec, vt } from './fixed';
@@ -48,6 +48,17 @@ export interface SimSetup {
    * five reward spells (where the rules allow them). `setGodMode` toggles it mid-fight.
    */
   godMode?: boolean;
+  /**
+   * Quick Duel: the CPU rival's profile (CONFIG.ai.difficulty), 'normal' (Adept) when missing.
+   * Ignored by every other mode.
+   */
+  difficulty?: Difficulty;
+}
+
+/** The Quick Duel rival profiles a setup may name. */
+export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+export function isDifficulty(x: unknown): x is Difficulty {
+  return x === 'easy' || x === 'normal' || x === 'hard';
 }
 
 export interface MatchState {
@@ -171,7 +182,7 @@ export class SimWorld {
         this.ais.push(ai);
       }
     } else if (!this.rules.even) {
-      this.ais.push(new SimAI(this, this.wizards[1], p, CONFIG.ai.difficulty.normal, null));
+      this.ais.push(new SimAI(this, this.wizards[1], p, CONFIG.ai.difficulty[isDifficulty(setup.difficulty) ? setup.difficulty : 'normal'], null));
     }
     this.lifePacks.reset();
     this.startMatch();

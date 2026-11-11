@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG, type TeamPalette } from './config';
+import { CONFIG, type AIProfile, type TeamPalette } from './config';
 import { AudioManager } from './audio/AudioManager';
 import { BossCinematic } from './campaign/BossCinematic';
 import { Campaign } from './campaign/Campaign';
@@ -62,8 +62,6 @@ const ONLINE_REASONS: Record<string, string> = {
   already_in_match: 'You are already in a match.',
 };
 
-/** Quick Duel has one opponent; the Boss Gauntlet is the difficulty ladder. */
-const QUICK_DUEL_AI = CONFIG.ai.difficulty.normal;
 
 /** Top-level flow: menus, match, pause, pointer lock, audio and settings. */
 export class App {
@@ -928,13 +926,20 @@ export class App {
     this.attract.reset();
   }
 
-  /** Quick Duel: the one Rival (fixed AI profile) in the moonlit arena. */
+  /** The Quick Duel rival the player chose on the main menu (Settings.quickDifficulty). */
+  private quickProfile(): AIProfile {
+    return CONFIG.ai.difficulty[this.settings.quickDifficulty];
+  }
+
+  /** Quick Duel: the Rival at the chosen difficulty, in the moonlit arena. */
   startMatch(): void {
     this.endOnline();
     this.leaveVersus();
     this.mode = 'quick';
+    // The sim plays the rival, so the choice goes into its setup (and the input log).
+    this.game.simDifficulty = this.settings.quickDifficulty;
     this.dressEnemy(null);
-    this.ai.setProfile(QUICK_DUEL_AI);
+    this.ai.setProfile(this.quickProfile());
     this.hud.setNames(['You', CONFIG.teams[1].name]);
     this.beginMatch(null);
   }
@@ -1192,7 +1197,7 @@ export class App {
     this.applySkin();
     this.enterMenuState('quick');
     this.dressEnemy(null);
-    this.ai.setProfile(QUICK_DUEL_AI);
+    this.ai.setProfile(this.quickProfile());
     this.resetAttract();
     this.menus.showMain();
   }
@@ -1288,7 +1293,7 @@ export class App {
   showCampaignComplete(): void {
     this.enterMenuState('quick');
     this.dressEnemy(null);
-    this.ai.setProfile(QUICK_DUEL_AI);
+    this.ai.setProfile(this.quickProfile());
     this.resetAttract();
     this.menus.showCampaignComplete({ clears: this.campaign.saved.clears, unsaved: this.winUnsaved }, { again: () => this.newGauntlet(), menu: () => this.toMenu() });
   }

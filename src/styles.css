@@ -380,6 +380,13 @@ html, body {
 /* Main menu modes. */
 .menu-screen.main .menu-panel.main { gap: 10px; max-height: 100cqh; overflow-y: auto; padding: 16px 4px; }
 .mode-block { display: grid; gap: 8px; }
+/* Quick Duel's rival: three segments under the button, the chosen one lit. */
+.difficulty-pick { display: flex; gap: 6px; }
+.difficulty-pick .diff-pick {
+  flex: 1; padding: 6px 4px; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  background: rgba(20, 16, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.16); color: var(--ink-dim);
+}
+.difficulty-pick .diff-pick.on { color: var(--ink); border-color: var(--gold); box-shadow: 0 0 12px rgba(255, 200, 90, 0.35) inset; }
 .mode-block h3 { margin: 4px 0 0; font-size: 15px; letter-spacing: 0.18em; color: var(--ink-dim); }
 /* A second line on a gold button (Quick Duel's blurb, Next Fight's boss, Begin's save note). */
 .menus button.primary small { color: rgba(29, 18, 6, 0.75); font-size: 13px; letter-spacing: 0.04em; text-transform: none; font-weight: 600; }

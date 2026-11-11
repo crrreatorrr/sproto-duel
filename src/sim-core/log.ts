@@ -29,6 +29,11 @@ export interface DuelLog {
   /** Seat 0 started in god mode (testing aid). The replay simulates it; the hub decides what it pays. */
   godMode?: boolean;
   /**
+   * Quick Duel: the CPU rival the player chose ('easy' Apprentice, 'normal' Adept, 'hard'
+   * Archmage). Missing means 'normal'. Not allowed under other rules.
+   */
+  difficulty?: string;
+  /**
    * God mode turned on or off mid-fight: each applied before the tick with this index (0-based),
    * in tick order. Any `on: true` means god mode was used. Ignored by even rules.
    */

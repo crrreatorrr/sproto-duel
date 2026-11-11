@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, type Difficulty } from '../config';
 import type { ExchangeView, HubStatus } from '../hub/link';
 import { padGlyph, type InputDevice, type PadStyle } from '../core/Gamepad';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
@@ -34,7 +34,16 @@ export interface Settings {
   /** Controller aim assist strength (0 = off, 1 = default). */
   aimAssist: number;
   rumble: boolean;
+  /** Quick Duel's rival: Apprentice ('easy'), Adept ('normal') or Archmage ('hard'). */
+  quickDifficulty: Difficulty;
 }
+
+const DIFFICULTY_ORDER: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+const DIFFICULTY_BLURB: Record<Difficulty, string> = {
+  easy: 'slower to react, misses more',
+  normal: 'dodges, shields and punishes',
+  hard: 'fast, accurate, reflects your spells',
+};
 
 const STORAGE_KEY = 'arcane-duel-settings';
 
@@ -51,13 +60,17 @@ export function loadSettings(): Settings {
     padInvertY: false,
     aimAssist: CONFIG.gamepad.aimAssist.strength,
     rumble: CONFIG.gamepad.rumble.enabled,
+    quickDifficulty: 'easy',
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      // Older saves carried a difficulty choice; there is only one Quick Duel opponent now.
+      // Older saves carried a `difficulty` from before the single Rival; the choice now lives in
+      // `quickDifficulty` and starts at Apprentice.
       const { difficulty: _legacy, ...saved } = JSON.parse(raw) as Partial<Settings> & { difficulty?: unknown };
-      return { ...defaults, ...saved };
+      const out = { ...defaults, ...saved };
+      if (!DIFFICULTY_ORDER.includes(out.quickDifficulty)) out.quickDifficulty = defaults.quickDifficulty;
+      return out;
     }
   } catch {
     // Storage unavailable (private mode, blocked): defaults are fine.
@@ -183,7 +196,7 @@ export interface VersusJoinView {
 }
 
 export interface MenuHandlers {
-  /** Quick Duel against the Rival (one fixed opponent). */
+  /** Quick Duel against the Rival at Settings.quickDifficulty. */
   start(): void;
   /** Local Versus: open the join screen. */
   versus?(): void;
@@ -503,16 +516,17 @@ export class Menus {
           </div>
         </div>
         <div class="mode-block">
-          <button class="primary quick-duel" data-act="start">Quick Duel<small>One best-of-three against the Rival</small></button>
+          <button class="primary quick-duel" data-act="start">Quick Duel<small data-quick-line></small></button>
+          ${this.difficultyHtml()}
           ${this.h.versus ? '<button class="ghost versus-btn" data-act="versus">Local Versus<small>Two players, one screen</small></button>' : ''}
           ${this.onlineButtonHtml()}
         </div>
-        ${this.characterRackHtml()}
-        ${this.staffRackHtml(false)}
-        <div class="row">
+        <div class="row help-row">
           <button class="ghost" data-act="howto">How to Play</button>
           <button class="ghost" data-act="settings">Settings</button>
         </div>
+        ${this.characterRackHtml()}
+        ${this.staffRackHtml(false)}
         <div class="row">
           <button class="ghost" data-act="exchange">Exchange<small>${CONFIG.hub.ticketsPerVerse} Tickets = 1 Verse</small></button>
           <button class="ghost" data-act="exit">Return to Hub<small>Sproto Duel portal</small></button>
@@ -532,7 +546,41 @@ export class Menus {
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
     this.bindCharacter(s);
     this.bindStaff(s);
+    this.bindDifficulty(s);
     this.h.titleStage?.(s.querySelector<HTMLElement>('[data-title-slot]')!);
+  }
+
+  /** Quick Duel's rival: Apprentice, Adept or Archmage (CONFIG.ai.difficulty), remembered in Settings. */
+  private difficultyHtml(): string {
+    const picks = DIFFICULTY_ORDER.map((d) => {
+      const on = d === this.settings.quickDifficulty;
+      return `<button type="button" class="diff-pick${on ? ' on' : ''}" data-difficulty="${d}" role="radio" aria-checked="${on}" title="${escapeHtml(DIFFICULTY_BLURB[d])}">${escapeHtml(CONFIG.ai.difficulty[d].label)}</button>`;
+    }).join('');
+    return `<div class="difficulty-pick" role="radiogroup" aria-label="Quick Duel rival">${picks}</div>`;
+  }
+
+  private bindDifficulty(root: ParentNode): void {
+    const paint = () => {
+      const d = this.settings.quickDifficulty;
+      root.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((btn) => {
+        const on = btn.dataset.difficulty === d;
+        btn.classList.toggle('on', on);
+        btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+      const line = root.querySelector('[data-quick-line]');
+      if (line) line.textContent = `Best of three against the ${CONFIG.ai.difficulty[d].label}: ${DIFFICULTY_BLURB[d]}`;
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const d = btn.dataset.difficulty as Difficulty;
+        if (!DIFFICULTY_ORDER.includes(d)) return;
+        this.settings.quickDifficulty = d;
+        saveSettings(this.settings);
+        this.h.settingsChanged(this.settings);
+        paint();
+      });
+    });
+    paint();
   }
 
   private onlineButtonHtml(): string {
