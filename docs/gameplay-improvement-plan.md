@@ -1,0 +1,287 @@
+# Sproto Duel: gameplay improvement plan
+
+## 1. Status
+
+Plan only. No game code has changed.
+
+- Audited 2026-11-09 at `b59fd30`. Re-read 2026-11-11 at `2d4b984`: two commits landed in between,
+  adding the relic-unlocked Fighter and Shooter staves and fixing the title staff preview. The core
+  tuning (mana, spells, roll, AI profiles, boss health) is unchanged, so the findings stand. The new
+  staves add finding F7. Line numbers below are from `2d4b984`.
+- Measurements were taken at `b59fd30` and were not re-run.
+
+## 2. How this was audited and how far to trust it
+
+| Evidence | What was done | Limits |
+| --- | --- | --- |
+| Build | Typecheck clean. The QA harness is stripped from production builds, so a dev-mode snapshot was built. | |
+| QA harness | 138 scenarios passed, 0 failed. Two timed out on a loaded machine (`arena.theme_cycle_no_leaks`, `campaign.ladder_reference_win_rates`). 124 of 264 were not run. | The harness scenarios run the legacy engine, not `src/sim-core` (F10). |
+| Live playtest | The shipping `src/sim-core` path with real key and mouse events and rendering stubbed for speed: scripted players against the Rival, a full match to the results screen, four minutes of boss 1, input timing, pause, fire ring, resize, screenshots. No console errors. | Scripted players are not people. |
+| AI against AI | Soaks on the legacy QA path at each profile. | |
+| Reading | Online, Local Versus (needs a controller), bosses 2-5, cinematics. | Not exercised. Audio was not heard. |
+
+Headless frame times (4-26 fps under load) are unusable; 134-147 draw calls and 62k triangles were
+counted. The scripts were not kept. The scripted players were: "hold fire" (aim at the opponent,
+hold bolt), "attacker" (the same with strafing, perfect aim variant included), "idle", "strafe" and
+"roll spam" (roll on cooldown), each started from the title through real input events.
+
+## 3. What already works and should be kept
+
+- Movement reaches 95% of top speed in 6 frames and stops in 7.
+- A bolt is cast on the frame after the press.
+- AI-against-AI rounds last 51-70 s and all end in a knockout, never a stalemate.
+- The HUD, boss cards and results screen are clear.
+- No console errors and no NaN after key spam.
+
+## 4. Findings
+
+Current tuning (`src/config.ts`):
+
+| Thing | Values |
+| --- | --- |
+| Mana | 100 maximum (line 396), regenerates 13 per second (397) after 0.3 s without spending (399) |
+| Bolt | 4 damage, 5 mana, one every 0.17 s while held, speed 52 (467-473) |
+| Blast | 20 damage with splash, 24 mana, 3 s cooldown, speed 20 (482-488) |
+| Shield | 12 mana, 0.8 s, 5 s cooldown, perfect window 0.2 s, reflects at 1.5x damage |
+| Stun | 6 damage, 22 mana, 8 s cooldown, 1.0 s stun, stunned targets take 1.5x |
+| Ultimate | 38 damage; charge 0.5 per damage dealt and 0.2 per damage taken, 100 to fill (525-528) |
+| Roll | 0.34 s, 0.28 s invulnerable, 0.55 s cooldown, no mana cost (422-424) |
+| Sprint | 10 mana per second; needs 18 mana to re-engage after running dry (402-404) |
+| Input buffer | 0.15 s (1050) |
+
+### F1. Mana starvation breaks the core loop (High, observed)
+
+Holding fire spends 5 mana every 0.17 s, about 29 per second, so a full bar is gone in 3.4 s. Each
+bolt restarts the 0.3 s regeneration delay, which is longer than the 0.17 s fire interval, so mana
+barely returns while the button is held: the measured result was 6 bolts per 5 s once dry. Blast
+(24), Shield (12), Stun (22) and sprint all stay locked. The scripted players sat at 0-10 mana in
+every sample. Refilling from empty takes about 8 s of not casting (0.3 s + 100 / 13). The most
+natural thing to do in a wizard duel, hold fire, removes the rest of the kit.
+
+### F2. Boss fights are long and low-threat (High, stage 1 observed, the rest read)
+
+`src/campaign/levels.ts:204-212` says each stage is "sized for about five minutes", a fight "runs
+15+ minutes", and the player has one life and three life packs. The first boss, Sahil, has 1620,
+1660 and 1710 health (line 261); the comment on that line shows stage 1 was raised from 1490 on
+purpose to keep it near five minutes. A scripted player dealt 1104 damage in 240 s (4.6 per second)
+and took 51. That is about six minutes for stage 1 and eighteen for the fight, with almost no
+danger, and a death anywhere restarts from stage 1.
+
+Stage health for the ladder, in file order:
+
+| Line | Stage health |
+| --- | --- |
+| 261 (Sahil) | 1620 / 1660 / 1710 |
+| 318 | 380 / 440 / 500 |
+| 369 | 450 / 515 / 560 |
+| 419 | 880 / 900 / 1000 |
+| 472 | 1096 / 1118 / 1274 |
+| 531 | 1100 / 1111 / 800 |
+
+The first fight has by far the most health. Later bosses were not played.
+
+### F3. Quick Duel's only opponent is too strong and there is no choice (High, observed)
+
+Quick Duel always uses the `normal` profile, the Rival (`src/App.ts:65-66`; the comment says the
+Gauntlet is the difficulty ladder). The `easy` profile ("Apprentice": reaction 0.45 s, aim error
+0.16, dodge 0.25) placed in the player's seat went 0-40 against it. Scripted attackers, including
+one with perfect aim, won 0 of 8 rounds. `easy` and `hard` exist (`src/config.ts:1104` onward) but
+cannot be selected. Quick Duel is the highlighted button on the menu, so it is most players' first
+match.
+
+### F4. Blast, Stun and the Ultimate fade as skill rises (Medium, soak)
+
+Share of damage by spell in AI-against-AI soaks:
+
+| Profile | Bolt | Blast | Stun | Ultimate |
+| --- | --- | --- | --- | --- |
+| easy | 39% | 39% | 11% | 11% |
+| normal | 55% | 31% | 5% | 10% |
+| hard | 86% | 9% | 1% | 5% |
+
+Blast travels at 20 against the bolt's 52 and is easy to sidestep. The Ultimate does 38 damage and
+needs about 200 damage dealt to charge; the hard AI jumped all six waves it faced.
+
+### F5. Roll is free and dominant (Medium, observed)
+
+Roll costs no mana and is invulnerable for 0.28 s of every 0.55 s cooldown. Time survived against
+the Rival doing nothing else: idle 31.5 s, strafing 46.9 s, rolling on cooldown 70.8 s (Rival
+accuracy 75%, 50%, 30%). Rolling while firing cost no damage output. A roll pressed during a roll
+is dropped, because the 0.15 s buffer is shorter than the 0.55 s cooldown.
+
+### F6. The Alien Ray Staff trivialises fights against the AI (Medium, observed)
+
+It triples bolt damage at the same mana cost (`src/config.ts:813`). The scripted player that lost
+with the stock staff won rounds in 31-35 s with it, and Sahil's first stage fell in about 95 s. The
+Moonward staff is 1.5x (line 776).
+
+### F7. The new staves bypass the mana economy (Medium, read at `2d4b984`, not played)
+
+The Fighter Staff sets `boltManaMult: 0` (line 833): bolts cost nothing, which removes F1 for
+whoever holds it and makes holding fire strictly correct. The Shooter Staff is 4x damage for 2x
+mana (lines 823-824), double the damage per mana of the stock staff. Both are unlocked by Relics
+from other games, so players who own them play a different game from those who do not, including
+in any mode where staves apply online.
+
+### F8. The online guest has no prediction (Medium, read)
+
+The guest's own wizard is driven by the host with a 2-tick input delay plus 100 ms interpolation
+(`README.md`, `src/config.ts:162-166`). Expect visibly late movement for the guest.
+
+### F9. Onboarding is a text page below the fold (Medium, observed)
+
+At 1280x720 the main menu is 1009 px tall; How to Play and Settings need scrolling. There is no
+tutorial, and nothing teaches mana, reflecting with the shield, or Golden Tickets.
+
+### F10. Smaller items (Low)
+
+- The boss card says Magic Carpet lasts "2.5 s"; it is 3.5 s (`src/spells/rewardCatalog.ts:32`).
+- Two "PERFECT!" callouts overlap illegibly.
+- The desert arena washed out near the fire ring in one screenshot (unverified).
+- Harness scenarios run the legacy engine while live fights run `src/sim-core`
+  (`src/core/Match.ts`, `src/core/Game.ts`), so a harness pass does not prove the shipping path.
+- All 54 sounds are synthesised placeholders.
+
+## 5. The plan
+
+Effort: S is under a day, M a few days, L a week or more. Proposed numbers are starting points.
+"Sim change" means the server bundle must be rebuilt (section 6).
+
+### Phase A: quick wins, no sim change
+
+**A1. Fix the carpet text** to 3.5 s, or read it from config. `src/spells/rewardCatalog.ts:32`.
+Effort S.
+
+**A2. Stack callouts.** Offset a second "PERFECT!" by its height instead of drawing on top.
+`src/ui/HUD.ts`. Effort S.
+
+**A3. Menu fold.** Move How to Play and Settings above the character rack, or make the rack
+collapse at heights under 800 px. `src/ui/Menus.ts`, `src/styles.css`. Effort S.
+
+**A4. Quick Duel difficulty select** (against the choice recorded at `src/App.ts:65`; decision
+8.2). Add Apprentice / Adept / Archmage to the Quick Duel setup using the existing profiles, default
+Apprentice, remembered in settings. Replace the three `setProfile(QUICK_DUEL_AI)` calls
+(`src/App.ts:937`, 1195, 1291). Check whether the match log needs to carry the profile for
+verification. Effort S.
+
+### Phase B: mana economy and core balance (sim change, one batch)
+
+**B1. Mana economy** (F1).
+
+| Value | Now | Proposed | Effect |
+| --- | --- | --- | --- |
+| `bolt.manaCost` | 5 | 3 | Held fire drains about 17.6 per second: 5.7 s from full |
+| `manaRegen` | 13 | 18 | |
+| `manaRegenDelay` | 0.3 | 0.12 | Shorter than the 0.17 s fire interval, so mana returns between bolts |
+| Refill from empty | about 8 s | about 5.7 s | |
+
+With these, held fire settles near a floor of regeneration rather than at zero, and a player who
+pauses for two seconds can afford a Blast. Acceptance: in the scripted "hold fire" run, mana is
+above 24 (one Blast) in at least a third of samples; in the "attacker" run with occasional pauses,
+all four spells are cast at least once per round.
+
+Because sustained bolt damage rises, re-tune health afterwards so AI-against-AI rounds stay at
+51-70 s.
+
+**B2. Give roll a cost** (F5). Cooldown 0.55 to 0.9 s, or a mana cost of 8. Raise the input buffer
+for roll to 0.3 s so a second press is not lost. Acceptance: roll-on-cooldown survival falls from
+70.8 s to within 15% of strafing.
+
+**B3. Make the big spells worth casting** (F4).
+
+| Value | Now | Proposed |
+| --- | --- | --- |
+| `blast.speed` | 20 | 26 |
+| `stun.manaCost` | 22 | 14 |
+| `ultimate.damage` | 38 | 55 |
+| `ultimate.chargePerDamageTaken` | 0.2 | 0.5 (a comeback mechanic) |
+
+Acceptance: at the hard profile, bolt share falls from 86% to under 70%.
+
+**B4. Bring staves inside the economy** (F6, F7; decision 8.3). Options per staff: Alien Ray 3x to
+2x; Shooter 4x for 2x mana to 3x for 2x; Fighter 0 mana to 0.5x mana. Or keep them as they are
+against the AI and normalise them in Quick Duel difficulty above Apprentice and in all player
+versus player modes.
+
+Tests for the batch: update `src/sim-core/staffs.test.ts` and any pinned numbers; add harness
+scenarios for the mana floor and the roll survival figure; re-run the AI soaks and record the
+table from F4. Effort M.
+
+### Phase C: Gauntlet pacing (sim change; decision 8.1)
+
+**C1. Per-stage checkpoints.** A death on stage 2 or 3 restarts that stage with one life pack
+restored, at most once per stage. `src/campaign/Campaign.ts`, `src/core/Match.ts`. Effort M.
+
+**C2. Re-size stage health after Phase B.** Higher sustained damage will already shorten fights
+and may undershoot the five-minute target recorded at `levels.ts:206`. Measure first, then set
+health to hit whatever target the owner chooses. Fix the ladder so the first boss is not the
+longest (F2 table). Effort S once the target is known.
+
+**C3. Raise threat instead of length.** If shorter stages are chosen, raise boss damage per second
+modestly so a stage costs the player roughly a third of a life rather than 51 health in four
+minutes.
+
+### Phase D: onboarding, harness, online, audio
+
+**D1. Practice dummy or playable tutorial** covering mana, perfect shield and reflect, roll,
+Blast and Golden Tickets. No sim change. Effort M.
+
+**D2. Point the QA harness at `src/sim-core`** so scenario passes describe the shipping path.
+Effort M.
+
+**D3. Guest-side prediction** for the guest's own wizard, with reconciliation. `src/net`. Effort L.
+
+**D4. Real audio pass** replacing the 54 placeholders. Effort L; needs assets.
+
+## 6. Order and batching
+
+1. Phase A (no sim change), with A4 once decision 8.2 is made.
+2. Phase B as one sim change, then C2 and C3 in the same or the next batch so the hub is updated
+   once or twice in total, not per number.
+3. C1, then Phase D.
+
+For each sim change: `npm run build:server-sim` rebuilds `dist/duel-sim.server.js`;
+`npm run check:server-sim` checks the bundle; `npm run test:goja` replays the goldens under
+`tests/golden`, which must be regenerated for intended behaviour changes; then metaverse-hub
+re-vendors the bundle (see `docs/SERVER-SIM.md`). Say in the pull request that the sim version
+changed.
+
+## 7. Hub integration
+
+From the hub audit of 2026-11-09 (the hub has changed a great deal since; confirm before acting):
+
+- 20 Tickets per story boss per day, up to five; player-versus-player wins pay nothing.
+- The wins leaderboard is written by the server; the Crown Relic is live.
+- Ticket-to-Verse exchange works here, but the ceiling was about 10 Verse a day, a fifth of NOBU
+  or People's Bitcoin.
+- The staves in F6 and F7 are cross-game rewards. Changing them (B4) changes what a Relic from
+  another game is worth, so agree it with the hub before shipping.
+- Shorter boss fights (Phase C) make the daily Tickets faster to earn; the daily limit bounds it.
+
+## 8. Decisions for the owner
+
+1. **Gauntlet length.** The code records about five minutes a stage as the target. Options: keep it
+   and add checkpoints (C1); shorten to two or three minutes a stage with more threat (C2, C3); or
+   change nothing until Phase B is measured. Recommendation: Phase B first, then C1, then decide.
+2. **One Quick Duel opponent or a difficulty select?** The single Rival is deliberate. The audit
+   found no scripted player could win a round against it. Recommendation: add the select and
+   default to Apprentice (A4).
+3. **May reward staves be changed?** See B4. Recommendation: normalise them in player-versus-player
+   modes at least.
+4. **Is one hub re-vendor per balance batch acceptable?**
+
+## 9. How to verify
+
+- Repeat the scripted runs: mana samples (B1), roll survival (B2), spell share by profile (B3),
+  damage per second and damage taken on Sahil stage 1 (C2).
+- AI-against-AI rounds remain 51-70 s with every round ending in a knockout.
+- A scripted Apprentice in the player seat wins 40-60% against the default Quick Duel opponent.
+- Human playtest checklist: Does a new player win a round in their first three Quick Duels? Do they
+  cast Blast, Shield and Stun without being told to? Do they run out of mana, and do they
+  understand why? Does the first boss feel like a fight or a chore? Can they explain Golden Tickets
+  afterwards?
+
+## 10. Not audited
+
+Online play, Local Versus with two controllers, bosses 2-5 in play, cinematics, audio by ear, real
+hardware performance, and the 124 harness scenarios not run.
