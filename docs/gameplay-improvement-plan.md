@@ -2,7 +2,9 @@
 
 ## 1. Status
 
-Plan only. No game code has changed.
+Implemented on 2026-11-11, except B4, D3 and D4: see section 11 for what shipped, the values used
+and the measurements after. Sections 2 to 10 are the plan as it was written, before any code
+changed; where section 11 differs from a proposed number, section 11 is what the game does.
 
 - Audited 2026-11-09 at `b59fd30`. Re-read 2026-11-11 at `2d4b984`: two commits landed in between,
   adding the relic-unlocked Fighter and Shooter staves and fixing the title staff preview. The core
@@ -285,3 +287,66 @@ From the hub audit of 2026-11-09 (the hub has changed a great deal since; confir
 
 Online play, Local Versus with two controllers, bosses 2-5 in play, cinematics, audio by ear, real
 hardware performance, and the 124 harness scenarios not run.
+
+## 11. What was implemented (2026-11-11)
+
+The owner's instruction was to implement everything with one exception: **no staff's bolt damage
+or bolt mana multiplier changes, and the bolt itself stays at 4 damage and 5 mana.** So B4 was
+skipped, and B1 met its target with the other levers.
+
+| Item | Result |
+| --- | --- |
+| A1 | Done. The carpet texts read the ride time from config. |
+| A2 | Done. A callout spawned over another sits above it. |
+| A3 | Done. How to Play and Settings (and Practice) sit above the racks: on screen at 1280x720. |
+| A4 | Done. Apprentice / Adept / Archmage under Quick Duel, Apprentice by default, saved. The rival runs in the sim, so the choice travels in the input log (`difficulty`). |
+| B1 | Done without touching the bolt: `maxMana` 100 to 160, `manaRegen` 13 to 16, `manaRegenDelay` 0.3 to 0. `maxHealth` 220 to 330 to hold round length; fixed-amount damage (fire ring, lava, pools, vents, boss powers) up by the same 1.5x. |
+| B2 | Partly. Roll cooldown 0.55 to 1.2 s and a 0.3 s roll buffer shipped. The 15% target is not met (see below). |
+| B3 | Done, with numbers scaled to the new health: blast speed 28, stun cost 14, Ultimate 65 damage, charge per damage taken 0.4. |
+| B4 | Skipped (owner). |
+| C1 | Done. One checkpoint in each of stages 2 and 3. |
+| C2 | Done. Stage bars re-sized for about five minutes a stage against the soak's reference AI; Sahil is now the shortest fight. |
+| C3 | Not applied as written (stages were not shortened). Boss stage damage was re-scaled (x1.2 / x1.4 / x1.5) to keep the reference ladder where it was. |
+| D1 | Done. Practice: eight lessons against a training dummy. |
+| D2 | Partly. Probes, `sim.*` scenarios and pinned figures run on the sim; the older scenarios, `soak` and `campaignSoak` still run the legacy engine. |
+| D3 | Skipped: guest-side prediction with reconciliation is a netcode change that needs two-client latency testing to do properly. |
+| D4 | Skipped: needs recorded audio assets; none were generated. |
+
+Measured on the sim with scripted players rebuilt for this pass (`src/qa/simProbe.ts`, `npm run
+probe:sim`; the same numbers in the dev build as `__duel.qa.sim.balanceReport()`), and with the
+legacy `soak` / `campaignSoak` in the dev build:
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Hold fire: samples with a Blast's mana (24) | 9% | 34% |
+| Hold fire: samples at 10 mana or less | 86% | 55% |
+| Attacker with pauses: rounds with all four spells cast | 15 of 15 | 14 of 14 |
+| Survival doing nothing else: idle / strafing / rolling on cooldown (60 rounds each) | 31.7 / 59.3 / 76.1 s | 25.3 / 48.0 / 63.5 s |
+| Rolling on cooldown against strafing | +28% | +32% |
+| AI against AI round length, sim: easy / normal / hard | 60.5 / 60.7 / 67.3 s | 62.0 / 53.4 / 50.6 s |
+| The same on the legacy engine (30 rounds each after) | 59.2 / 55.8 / 66.9 s | 66.2 / 60.7 / 51.0 s |
+| Bolt share of spell damage, hard profile: sim / legacy | 83% / 88% | 69% / 72% |
+| Scripted attacker on Sahil: damage a second dealt / damage taken in four minutes | 4.55 / 40 | 10.25 / 69 |
+| Sahil stage 1 for that attacker (bar / damage a second) | 1620 / 4.55 = 5.9 min | 2940 / 10.25 = 4.8 min |
+| Reference AI, minutes per stage, Sahil | 4.8 / 5.1 / 4.9 | 4.5 / 4.5 / 4.5 |
+| Reference ladder win rates (Sahil to Tinubu) | 100 / 67 / 33 / 25 / 0% | 100 / 50 / 42 / 8 / 0% (12 fights each, about +-15 points) |
+
+What did not reach its target, and why:
+
+- **B2.** Rolling on cooldown survives 63.5 s instead of 76.1 s, but strafing fell by as much (the
+  rival hits harder now), so the gap did not close: it is still about 30% (the figure moves a few
+  points with the sample). Most of a roll's value is the sidestep, not the invulnerability, so
+  cutting the invulnerable share from 31% to 18% of the time moved it little. A cooldown of about
+  2.4 s reaches 15%, but the Archmage relies on its roll and its rounds against itself fall to
+  about 42 s, outside the 51-70 s band. A mana cost was
+  tried and dropped: at the new regen it only binds while the player is also firing, where it shows
+  up as "no mana" on a dodge.
+- **Round length, hard profile.** 50.6 s on the sim and 51.0 s on the legacy engine sit at the
+  bottom of the band; easy sits near the top with a few rounds going to time (as before). The
+  spread comes from the mana change itself: profiles that fire continuously gain the most.
+
+Hub: the sim changed twice (A4, then the balance batch). `DUEL_SIM_VERSION` is `4f7f69b4961a6169`;
+old logs do not verify against it. Boss-fight logs and goja replay times are longer than before
+(the scripted bot's losses reach 19 KB and 67 s on goja), and a fight that uses its checkpoints
+runs longer still: see `docs/SERVER-SIM.md`.
+

@@ -216,7 +216,9 @@ export class Game {
   checkpointReady = false;
 
   /** The sim restarted a boss stage at a checkpoint: clear effects and popups, and look behind the player. */
-  onSimCheckpoint(): void {
+  onSimCheckpoint(packs: number): void {
+    // The hearts and the pack on the floor follow the sim: `packs` spent ones are back.
+    this.lifePacks.restore(packs);
     this.fx.clear();
     this.popups.clear();
     feel.reset();

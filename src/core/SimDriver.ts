@@ -529,7 +529,7 @@ export class SimDriver {
         break;
       case 'checkpoint':
         // The stage restarts: the sim has put everyone back; drop the leftovers on screen.
-        this.game.onSimCheckpoint();
+        this.game.onSimCheckpoint(CONFIG.campaign.checkpoint.lifePacks);
         emit('checkpoint', { stage: e.n, packs: CONFIG.campaign.checkpoint.lifePacks });
         break;
       default:

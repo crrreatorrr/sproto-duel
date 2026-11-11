@@ -82,7 +82,7 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
     const roll = scripted('rollSpam', 'normal', 24, { firstRoundOnly: true }).survival.mean;
     c.note(`survival: idle ${idle} s, strafing ${strafe} s, rolling on cooldown ${roll} s (+${Math.round((roll / strafe - 1) * 100)}%)`);
     c.expect(idle < strafe, `standing still (${idle} s) outlasts strafing (${strafe} s)`);
-    // The plan's goal is within 15% of strafing; the shipped cooldown gets to about 25-30%.
+    // The plan's goal is within 15% of strafing; the shipped cooldown leaves it at about 25-30% (see the plan, section 11).
     c.expect(roll < strafe * 1.4, `rolling on cooldown survives ${roll} s against ${strafe} s strafing`);
     c.expect(W.dodge.iframes / (W.dodge.duration + W.dodge.cooldown) < 0.2, 'a roll on cooldown is invulnerable a fifth of the time or more');
   });
@@ -236,13 +236,22 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
         ticks(game, 5);
         c.expect(game.checkpointReady, 'no checkpoint ready in stage 2');
         const sp = w.wizards[0];
+        // All three life packs are spent (in the sim and on the HUD's hearts) before the knockout.
+        w.lifePacks.spawned = game.lifePacks.spawned = CONFIG.lifePacks.maxPerFight;
         w.spells.dealDamage(sp, null, sp.maxHealth * 2, { x: sp.pos.x, y: 65536, z: sp.pos.z }, 'fire', null, 0);
         ticks(game, 2);
         c.expect(game.player.alive && game.player.health === game.player.maxHealth, `after the checkpoint: alive ${game.player.alive}, health ${game.player.health}`);
         c.expect(!game.checkpointReady && game.actionsLocked, 'the stage did not restart with a countdown');
         c.expect(banners.includes('Checkpoint'), `no Checkpoint banner (${banners.join(', ')})`);
-        c.expect(app.state === 'playing' && !app.match.decided, 'the checkpoint ended the fight');
+        const back = CONFIG.lifePacks.maxPerFight - CONFIG.campaign.checkpoint.lifePacks;
+        c.expect(w.lifePacks.spawned === back && game.lifePacks.spawned === back, `life packs after the checkpoint: sim ${w.lifePacks.spawned}, hearts ${game.lifePacks.spawned}`);
+        // The returned pack shows up on the floor when the sim spawns it.
         ticks(game, 600, () => !game.actionsLocked);
+        const spot = [sp.pos.x + 6 * 65536, sp.pos.z] as const;
+        c.expect(w.lifePacks.spawnAt(spot[0], spot[1]) !== null, 'the sim refused the returned pack');
+        ticks(game, 2);
+        c.expect(game.lifePacks.pack.active && game.lifePacks.spawned === CONFIG.lifePacks.maxPerFight, 'the returned life pack is not on screen');
+        c.expect(app.state === 'playing' && !app.match.decided, 'the checkpoint ended the fight');
         w.spells.dealDamage(sp, null, sp.maxHealth * 2, { x: sp.pos.x, y: 65536, z: sp.pos.z }, 'fire', null, 0);
         ticks(game, 2);
         c.expect(!game.player.alive && app.match.decided, 'a second knockout in the stage did not end the fight');

@@ -869,13 +869,28 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
     }
   });
 
-  qa.add('campaign.single_difficulty_menu', (c) => {
+  qa.add('campaign.quick_duel_difficulty_menu', (c) => {
+    // Quick Duel's rival is picked on the main menu (Apprentice / Adept / Archmage); the gauntlet has no such choice.
     app.toMenu();
     const menu = app.menus.root;
-    c.expect(menu.querySelectorAll('[data-diff], .diff').length === 0, 'main menu still offers a difficulty choice');
-    const text = menu.textContent ?? '';
-    for (const p of Object.values(CONFIG.ai.difficulty)) c.expect(!text.includes(p.label), `menu mentions "${p.label}"`);
-    c.expect(!('difficulty' in loadSettings()), 'settings still carry a difficulty');
+    const picks = [...menu.querySelectorAll<HTMLButtonElement>('[data-difficulty]')];
+    c.expect(picks.map((b) => b.dataset.difficulty).join() === 'easy,normal,hard', `difficulty picks: ${picks.map((b) => b.dataset.difficulty).join()}`);
+    c.expect(picks.map((b) => b.textContent).join() === Object.values(CONFIG.ai.difficulty).map((p) => p.label).join(), 'the picks are not the profile labels');
+    const saved = loadSettings();
+    c.expect(!('difficulty' in saved), 'settings still carry the old difficulty key');
+    c.expect(picks.filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.dataset.difficulty).join() === saved.quickDifficulty, 'the saved rival is not the one marked');
+    const raw = localStorage.getItem('arcane-duel-settings');
+    try {
+      picks[2].click();
+      c.expect(loadSettings().quickDifficulty === 'hard', 'the pick was not saved');
+      button(app, 'start')!.click();
+      c.expect(app.ai.profile === CONFIG.ai.difficulty.hard && game.simDifficulty === 'hard', 'Quick Duel did not start against the picked rival');
+    } finally {
+      app.toMenu();
+      (app.menus.root.querySelector<HTMLButtonElement>(`[data-difficulty="${saved.quickDifficulty}"]`))?.click();
+      if (raw === null) localStorage.removeItem('arcane-duel-settings');
+      else localStorage.setItem('arcane-duel-settings', raw);
+    }
     c.expect(!!button(app, 'start') && !!button(app, 'gauntlet'), 'Quick Duel / Boss Gauntlet buttons missing');
   });
 
@@ -892,7 +907,7 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       c.expect(e.name === team.name && e.team === team && e.visual.team === team, `rival look not restored (${e.name})`);
       c.expect(e.maxHealth === W.maxHealth && e.health === W.maxHealth && e.damageMultiplier === 1, `rival stats ${e.health}/${e.maxHealth} x${e.damageMultiplier}`);
       c.expect(game.arena.theme === 'moonlit', `theme ${game.arena.theme}`);
-      c.expect(app.ai.profile === CONFIG.ai.difficulty.normal, 'Quick Duel AI is not the fixed rival profile');
+      c.expect(app.ai.profile === CONFIG.ai.difficulty[loadSettings().quickDifficulty], 'Quick Duel AI is not the rival picked on the main menu');
       c.expect(app.match.boss === null && game.boss === null, 'match still has a boss');
       const want = new THREE.Color(team.spell).multiplyScalar(1.8);
       const got = game.spells.pool.teamBoltColor(1);
