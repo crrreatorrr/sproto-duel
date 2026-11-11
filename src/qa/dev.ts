@@ -27,6 +27,8 @@ import { registerMenuScenarios } from './menuScenarios';
 import { registerVersusScenarios } from './versusScenarios';
 import { registerNetScenarios } from './netScenarios';
 import { campaignSoak, soak, type CampaignSoakOptions } from './soak';
+import { registerSimScenarios } from './simScenarios';
+import * as simProbe from './simProbe';
 import { CONFIG, type Difficulty } from '../config';
 import { BOSSES } from '../campaign/levels';
 import type { ArenaThemeId } from '../arena/themes';
@@ -59,7 +61,15 @@ export function installDevTools(game: Game, app: App): void {
   registerFeelScenarios(qa, game);
   registerVersusScenarios(qa, game, app);
   registerNetScenarios(qa, game, app);
+  registerSimScenarios(qa, game, app);
   const qaApi = Object.assign(qa, {
+    /**
+     * Balance probes on the shipping simulation (src/sim-core), no rendering, deterministic:
+     * `__duel.qa.sim.balanceReport()`, `.scripted('holdFire')`, `.simSoak('hard', 12)`,
+     * `.bossProbe('sahil', 'attackerPaused', { immortal: true })`. The `soak` and `campaignSoak`
+     * below run the legacy engine. Also `npm run probe:sim` in Node.
+     */
+    sim: simProbe,
     /**
      * `await __duel.qa.soak('normal', 6)`: headless AI-vs-AI rounds for pacing and balance.
      * Add a theme to fight in that environment: `await __duel.qa.soak('normal', 6, 'office')`.

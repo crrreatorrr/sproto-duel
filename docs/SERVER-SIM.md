@@ -245,8 +245,9 @@ crosshair raycast.
   holds only the spells the player brought, and they come back when god mode turns off. A log
   holds at most 256 toggles (`MAX_GOD_TOGGLES`); past that the game refuses further toggles in
   that fight. Any `on: true` toggle means god mode was used.
-- **Not on the sim:** the QA sandbox (`__duel.qa` scenarios and soaks) still runs the legacy
-  engine, so those scenarios test the old code paths (the legacy engine has no checkpoints). Online replicas run no sim at all.
+- **Not on the sim:** the QA sandbox's older scenarios and its `soak` / `campaignSoak` still run
+  the legacy engine, so they test the old code paths (the legacy engine has no checkpoints).
+  `__duel.qa.sim`, the `sim.*` scenarios and `npm run probe:sim` run the sim itself (README, QA). Online replicas run no sim at all.
 - `node scripts/check-game-sim-e2e.mjs` plays a Quick Duel and a boss fight in the real game in
   Chromium and checks the game's own log replays, with the server bundle, to the game's own end
   hash. It takes a few minutes and is not in CI.

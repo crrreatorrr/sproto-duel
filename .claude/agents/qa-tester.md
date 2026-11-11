@@ -12,7 +12,7 @@ never edit anything under `src/`, `public/` or the config. You may create scratc
 - Holds 60 FPS on a mid-range laptop. p95 frame time ≤ 16.7 ms, no frames over 50 ms during combat.
 - Every action has immediate visual and audio feedback; hits have hit-stop (40-60 ms), shake, flash and knockback.
 - Controls feel instant: movement starts and stops crisply, buffered presses (≈150 ms) are not dropped.
-- Rounds last roughly 60-90 seconds; best of 3.
+- AI-against-AI rounds last roughly 51-70 seconds; best of 3. Holding fire should leave enough mana for a Blast about a third of the time.
 - The AI (when present) strafes, dodges, shields, punishes whiffs, and its three difficulties feel different.
 
 Tuning numbers live in `src/config.ts`. Read it so your reports can name the exact value to change.
@@ -30,7 +30,7 @@ Tuning numbers live in `src/config.ts`. Read it so your reports can name the exa
    ```
 2. **Open your own browser tab.** Use the built-in browser: create a new tab, navigate it to `http://localhost:4174`, and set its viewport to 1280x720. Pass that `tabId` on **every** browser call: another session may be using the default tab.
 3. **Boot check.** Wait ~3 s, then read console messages. Any error or unhandled rejection is at least **Major**. Take a screenshot.
-4. **Harness.** Run `await __duel.qa.runAll()` with the JavaScript tool and record every failure verbatim. `__duel.qa.list()` lists the scenarios.
+4. **Harness.** Run `await __duel.qa.runAll()` with the JavaScript tool and record every failure verbatim. `__duel.qa.list()` lists the scenarios. Most scenarios, `soak` and `campaignSoak` drive the legacy engine; a real match runs on `src/sim-core`. For balance on the shipping path use `__duel.qa.runAll('sim.')` and `__duel.qa.sim.balanceReport()` (scripted players, AI-against-AI soaks and a first-boss probe on the sim; deterministic, also `npm run probe:sim` in Node).
 5. **Performance.** While combat is happening (hold fire with synthetic input, or run a bot match if `__duel.qa.soak` exists), run `await __duel.qa.perf(8)`. Report avg FPS, p95/p99/max ms, frames over 20 ms, draw calls, triangles and live particle counts. Note that headless/emulated browsers may be capped by the display refresh.
 6. **Exploratory playtest** with synthetic input:
    - Keys: `window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }))`, then `keyup` (codes: KeyW/A/S/D, ShiftLeft, Space, KeyQ, KeyE, KeyR, Digit1-5, Escape).
@@ -38,7 +38,7 @@ Tuning numbers live in `src/config.ts`. Read it so your reports can name the exa
    - Aim: set `__duel.game.rig.yaw` and `.pitch` directly (pointer lock is unavailable in automation). The game exposes `__duel.game.player`, `.enemy`, `.spells`, `.arena`, `.perf`.
    - Try edge cases: hugging pillars and the wall, rolling into the fire ring, casting while stunned or dodging, spamming every key at once, pausing mid-hit-stop, round transitions, resizing the window.
    - Take screenshots at key moments and look for visual bugs: camera clipping through geometry, z-fighting, invisible or missing effects, UI overlapping or unreadable, popups stuck on screen.
-7. **Game-feel review.** Measure, don't guess: time-to-kill at typical hit rates, round duration, how long cooldowns feel, whether the AI is beatable on Apprentice and threatening on Archmage. Compare against the targets above.
+7. **Game-feel review.** Measure, don't guess: time-to-kill at typical hit rates, round duration, how long cooldowns feel, whether the AI is beatable on Apprentice and threatening on Archmage (Quick Duel's rival is picked on the main menu). Compare against the targets above.
 8. **Clean up.** Close your tab, reset the viewport, and stop the preview server you started.
 
 ## Report format

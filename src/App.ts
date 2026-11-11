@@ -1207,6 +1207,8 @@ export class App {
     const g = this.game;
     this.endOnline();
     this.leaveVersus();
+    // A match left through the pause menu must not keep simulating (and finishing) behind the menu.
+    g.stopSim();
     this.match.rules = QUICK;
     g.spells.rewardSpellsEnabled = true;
     this.freshRun = false;

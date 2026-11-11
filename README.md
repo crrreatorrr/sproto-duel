@@ -681,6 +681,25 @@ await __duel.qa.perf(8)             // real frame-time stats while you play
 
 `?nolock` in the URL runs the game without pointer lock (for automation).
 
+**Which engine a check runs.** A real match runs on the deterministic sim (`src/sim-core`). Most
+scenarios, `soak` and `campaignSoak` still drive the legacy engine (the game's own gameplay
+classes, which only present a match now), so they say little about balance on the shipping path.
+These run the sim:
+
+```js
+await __duel.qa.runAll('sim.')              // balance figures on the sim, and real matches started through the app
+__duel.qa.sim.balanceReport()               // mana samples, roll survival, spell share and round length by profile, first-boss pace
+__duel.qa.sim.scripted('holdFire')          // a scripted player against the rival: holdFire, attacker, attackerPaused, idle, strafe, rollSpam
+__duel.qa.sim.simSoak('hard', 12)           // AI against AI at a profile
+__duel.qa.sim.bossProbe('sahil', 'attackerPaused', { immortal: true })
+```
+
+They are deterministic (seeded) and need no rendering, so the same report comes from Node:
+`npm run probe:sim` (`-- soak hard 20`, `-- boss sahil attacker`, `-- holdFire easy`).
+`src/qa/simProbe.test.ts` pins the figures the balance pass was tuned to (mana while holding fire,
+round lengths, spell share). `sim.live_*` scenarios start a Quick Duel and a boss fight through the
+app with a scripted player and tick them as the game does.
+
 Headless, with no extra dependencies (Chrome with SwiftShader, driven over CDP):
 
 ```bash
