@@ -16,11 +16,9 @@ npm run dev
 
 Open http://localhost:5173 and pick **Boss Gauntlet**, **Quick Duel** or **Local Versus** (the game captures the mouse).
 
-Right of the main menu, a big live Wizard Sproto (the in-game rig and staff models, on its own small
-canvas) holds up each staff you own in turn, swapping every few seconds with a flash and a pop.
-Without a hub session it cycles every staff and shows the ones you don't own as locked dark
-silhouettes. It is display only, pauses while hidden, and is freed when a fight starts
-(`src/ui/TitleStaffPreview.ts`; the list is `titleStaffCycle` in `src/ui/titleStaffs.ts`).
+Right of the main menu, a live Wizard Sproto holds the equipped staff and plays its idle animation.
+Picking a different staff in the rack changes the preview with a flash and a pop. The preview pauses
+while hidden and is freed when a fight starts (`src/ui/TitleStaffPreview.ts`).
 
 **Alien Ray Staff.** Beat Bront, Sproto Arcade's first boss: the hub grants the Breakwater Coin,
 which unlocks this staff here (`src/staff/loadout.ts`). Its bolt, the Alien Ray, deals 3x damage
