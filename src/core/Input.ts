@@ -59,6 +59,16 @@ export class Input {
     });
   }
 
+  /** Forget every held key and button (an overlay took the keyboard: no key-up will arrive). */
+  clearHeld(): void {
+    this.down.clear();
+    this.pressed.clear();
+    this.mouseDown = [false, false, false];
+    this.mousePressed = [false, false, false];
+    this.dx = 0;
+    this.dy = 0;
+  }
+
   requestLock(): void {
     if (this.locked) return;
     const req = this.element.requestPointerLock() as unknown as Promise<void> | undefined;

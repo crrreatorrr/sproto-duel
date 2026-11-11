@@ -12,6 +12,9 @@ interface ImportMetaEnv {
   readonly VITE_BASE?: string;
 }
 
+/** `<package version>+<short commit>` (vite.config.ts `buildId`). */
+declare const __BUILD_ID__: string;
+
 declare module 'virtual:asset-index' {
   const files: string[];
   export default files;

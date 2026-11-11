@@ -1,3 +1,4 @@
+import type { FeedbackAccess, FeedbackSubmission } from './feedback';
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
 export declare const GAME_IDS: readonly ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle"];
 export type GameId = (typeof GAME_IDS)[number];
@@ -160,6 +161,18 @@ export interface HubSdk {
      * (`bad_save`, `save_too_large`). Standalone resolves `{ data: null, updatedAt: 0 }`.
      */
     writeSave?(data: Record<string, unknown>): Promise<SaveResult>;
+    /**
+     * May this player send in-game feedback (`feedback.can`)? Signed-in hub accounts only:
+     * standalone play answers `{ ok: false, reason: 'standalone' }`, a guest `sign_in_required`.
+     */
+    feedbackAccess?(): Promise<FeedbackAccess>;
+    /**
+     * Send one feedback note (`feedback.submit`) and get its id, e.g. `SHOOTER-0042`. Errors throw
+     * `HubSdkError` (`standalone`, `sign_in_required`, `rate_limited`, `empty`, `bad_image`).
+     */
+    submitFeedback?(input: FeedbackSubmission): Promise<{
+        id: string;
+    }>;
 }
 /**
  * One cloud save per player per game (`save.get` / `save.put`). The server stores the

@@ -2,6 +2,8 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
+Version 0.7.0 adds in-game feedback: `installFeedback` (the N-N feedback window), `feedbackTransportFromSdk`, and two optional `HubSdk` methods, `feedbackAccess` and `submitFeedback` (`feedback.can`, `feedback.submit`). See `docs/feedback.md` in metaverse-hub. Nothing else changes; games re-vendor and add a small adapter.
+
 Version 0.6.4 adds two Relics: `marina_anchor` (Sproto Coop Battle) and `dragon_scale` (Sproto Shooter), with `RELIC_BY_GAME` entries for both games and two events, `HubEvent.CoopStageClear` (`coop.stage_clear`, grant with `{ stage: 1 }` when stage 1, Tidebreak Marina, is cleared) and `HubEvent.ShooterWaveClear` (`shooter.wave_clear`, grant with `{ wave: 1 }` when wave 1 of Wave Mode is cleared). God Mode counts: extra fields such as `godMode: true` do not block either grant. Neither pays Tickets or counts toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server. Games must re-vendor to see the new Relics, because the SDK drops relic ids it does not know. Nothing else changes.
 
 Version 0.6.3 is a fix release. No method, type, or option changes.
