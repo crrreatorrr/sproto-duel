@@ -350,3 +350,41 @@ old logs do not verify against it. Boss-fight logs and goja replay times are lon
 (the scripted bot's losses reach 19 KB and 67 s on goja), and a fight that uses its checkpoints
 runs longer still: see `docs/SERVER-SIM.md`.
 
+## 12. Follow-up after QA (2026-11-11)
+
+The owner kept the health and mana change and lifted the staff freeze for the two staves that lost
+standing. Sections 11's tables predate this; where they differ, this section is current.
+
+- **Staves.** Fighter Staff: bolt damage x2.5 (10 a bolt, still free). Shooter Staff: bolt damage
+  x4 to x6 (24 a bolt, still 10 mana). Stock, Moonward and Alien Ray are untouched. Held fire with
+  a person's aim on Sahil (`bossProbe('sahil', 'holdFire', { aim: 'human', staff })`):
+
+  | Staff | Damage a second | Stage 1 (1870) | Against stock (before the pass) |
+  | --- | --- | --- | --- |
+  | Stock | 3.87 | 8.1 min | 1 (1) |
+  | Moonward | 6.02 | 5.2 min | 1.6 (1.5) |
+  | Shooter | 12.35 | 2.5 min | 3.2 (3.1) |
+  | Alien Ray | 12.87 | 2.4 min | 3.3 (3.2) |
+  | Fighter | 17.96 | 1.7 min | 4.6 (4.2) |
+
+  Fighter's held-fire damage in a Quick Duel round: 262 of 330 against the old Adept profile (it
+  was 168 of 220), 309 against the softened Adept, where every staff deals more (stock 173).
+- **Stage health** x0.636 for every boss (Sahil 1870 / 1910 / 1970): about five minutes a stage
+  for the human-aim script with Moonward. Five minutes with the stock staff would have meant 1160,
+  which the Fighter Staff clears in about a minute.
+- **Adept** is a middle step: the scripted attacker wins about a third of its rounds (39% with
+  perfect aim, 29-34% with a person's), against about three in four against the Apprentice and none
+  against the Archmage. The profile is also the campaign soak's reference player and the default
+  when a Quick Duel log names no rival; online play has no AI. Adept-against-Adept rounds average
+  about 61 s.
+- **Mana figure.** Holding fire against the softened Adept shows a Blast's mana in 21% of samples,
+  not 34%: the bar empties as before (about 12 s), but a player who only stands and fires now
+  lives 67 s instead of 43 s. Against the Archmage it is 45%. The pinned check uses the Archmage.
+- **Roll.** The roll buffer is back to 0.15 s (no late rolls), the ROLL bar is larger, dim while
+  it refills and bright when ready, and a press that is refused flashes it red with NOT READY.
+- **Practice.** "Let it refill" completes when the bar is full, so skipping "Mana" cannot strand it.
+- **Logs.** The unused 16 KB constant is gone; real sizes are in `docs/SERVER-SIM.md` (boss fights
+  12.6 to 21.9 KB for the scripted bot).
+- **Ladder.** With the softened Adept as the reference player and the smaller bars the soak reads
+  100 / 92 / 83 / 58 / 0%: the middle is easier than before. Boss damage was not re-tuned for it.
+

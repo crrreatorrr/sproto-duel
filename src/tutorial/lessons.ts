@@ -78,7 +78,9 @@ export const LESSONS: readonly Lesson[] = [
     id: 'recover',
     title: 'Let it refill',
     text: () => `Now let go. Mana returns at ${W.manaRegen} a second, so two seconds off the trigger pays for a Blast. Out of mana, Bolts only trickle out and nothing else casts.`,
-    progress: (f) => clamp01((f.mana - f.lowMana) / RECOVER),
+    // Done once a Blast's worth has come back, or the bar is as good as full (a player who skipped
+    // the lesson before arrives with nothing to refill).
+    progress: (f) => (f.mana >= W.maxMana - 1 ? 1 : clamp01((f.mana - f.lowMana) / RECOVER)),
     status: (f) => `Mana ${Math.round(f.mana)} / ${W.maxMana}`,
   },
   {

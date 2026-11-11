@@ -13,7 +13,7 @@ import { events } from '../core/events';
 import { BOSSES } from '../campaign/levels';
 import type { HubLink } from './link';
 
-const MODE_LABEL = { quick: 'Quick Duel', gauntlet: 'Boss Gauntlet', versus: 'Local Versus', online: 'Online Duel' } as const;
+const MODE_LABEL = { quick: 'Quick Duel', gauntlet: 'Boss Gauntlet', versus: 'Local Versus', online: 'Online Duel', practice: 'Practice' } as const;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const xyz = (w: Wizard) => ({ x: round1(w.pos.x), y: round1(w.pos.y), z: round1(w.pos.z) });
@@ -34,7 +34,7 @@ export function feedbackContext(game: Game, app: App): FeedbackContext {
     opponentHealth: Math.round(e.health),
     opponentMaxHealth: Math.round(e.maxHealth),
     opponentPosition: xyz(e),
-    difficulty: boss ? `gauntlet fight ${m.bossIndex + 1} of ${BOSSES.length}` : 'normal',
+    difficulty: boss ? `gauntlet fight ${m.bossIndex + 1} of ${BOSSES.length}` : app.mode === 'quick' ? game.simDifficulty : 'normal',
     wins: [...m.wins],
     godMode: app.godUsed,
     inputDevice: game.input.pad.device,

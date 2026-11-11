@@ -71,7 +71,8 @@ describe('roll cooldown and its input buffer', () => {
   }
 
   it('a press up to dodge.inputBuffer before the roll is ready still rolls', () => {
-    expect(W.dodge.inputBuffer).toBeGreaterThan(CONFIG.feel.inputBuffer);
+    // No longer than any other action's buffer: a buffered roll never fires noticeably late.
+    expect(W.dodge.inputBuffer).toBeLessThanOrEqual(CONFIG.feel.inputBuffer);
     expect(secondRoll(W.dodge.inputBuffer - 0.05)).toBe(true);
     // Earlier than that it is forgotten (other actions keep the shorter buffer).
     expect(secondRoll(W.dodge.inputBuffer + 0.1)).toBe(false);

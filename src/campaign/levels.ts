@@ -203,10 +203,12 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
 
 /**
  * The boss ladder, easiest first. A gauntlet fight is one life against all three stages, each with
- * its own health bar (`stageHealth`, sized for about five minutes a stage against the soak's
- * reference AI: about 4.5 for Sahil, the shortest fight, rising to a little over 5 for Tinubu), so a
- * fight runs about 13 to 16 minutes. The bars were re-sized (roughly doubled) when held fire stopped
- * starving for mana (CONFIG.wizard), which about doubled what a player deals. A knockout in stage 2
+ * its own health bar (`stageHealth`). The bars are sized so a stage takes about five minutes for a
+ * player with a person's aim holding fire with a mid staff (Moonward: 6.2 damage a second on Sahil
+ * with the human-aim script in src/qa/simProbe.ts). The stock staff takes about eight (under the
+ * nine-minute stage cap), the strongest reward staves two to three, and the soak's reference AI
+ * (the Adept profile) four to five. Sizing for five minutes with the stock staff would have
+ * let the reward staves clear a stage in about a minute. A knockout in stage 2
  * or 3 restarts that stage once (CONFIG.campaign.checkpoint). Bosses hit hard (`damageMultiplier`, raised again per stage by stageDamage) but pick
  * their moments: slow bursts, wide aim and rare big spells keep the damage per second low enough
  * for one health bar and three life packs to last. Within a fight every boss evolves twice and
@@ -261,7 +263,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.4,
       preferredRange: [10, 15],
     },
-    stageHealth: [2940, 3010, 3100],
+    stageHealth: [1870, 1910, 1970],
     damageMultiplier: 0.77,
     spellDamage: 0.45,
   }),
@@ -318,7 +320,7 @@ export const BOSSES: BossDef[] = [
     // As a pair: Obama is the glass cannon (smaller bars, hits hardest), The Midget the tank (bigger
     // bars, closes in). Two separate bosses: each changes stage only when its own bar empties, and
     // knocking one out leaves the other as it is; a sharp player drops Obama first.
-    stageHealth: [850, 985, 1120],
+    stageHealth: [540, 630, 710],
     damageMultiplier: 0.64,
     spellDamage: 0.5,
     partner: {
@@ -369,7 +371,7 @@ export const BOSSES: BossDef[] = [
         hopRate: 0.45,
       },
       // Much faster than anyone else (1.5x walk and sprint), but a little lighter: less health, softer hits.
-      stageHealth: [1010, 1150, 1250],
+      stageHealth: [640, 730, 800],
       damageMultiplier: 0.46,
       spellDamage: 0.5,
       speed: 1.5,
@@ -419,7 +421,7 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.85,
       preferredRange: [9, 14],
     },
-    stageHealth: [2110, 2160, 2400],
+    stageHealth: [1340, 1370, 1530],
     damageMultiplier: 0.76,
     spellDamage: 0.97,
   }),
@@ -472,7 +474,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [8, 13],
     },
     // Retuned for the player's carpet, Pump It and vape cloud (the cloud's healing and cover especially).
-    stageHealth: [2580, 2630, 3000],
+    stageHealth: [1640, 1670, 1910],
     damageMultiplier: 0.86,
     spellDamage: 1.15,
   }),
@@ -531,7 +533,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [8, 13],
     },
     // Retuned for the four spells the player brings (bigger bars keep stages at ~5 minutes).
-    stageHealth: [2280, 2300, 1660],
+    stageHealth: [1450, 1460, 1060],
     damageMultiplier: 0.74,
     spellDamage: 0.8,
   }),

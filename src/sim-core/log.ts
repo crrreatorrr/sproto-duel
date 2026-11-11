@@ -331,8 +331,6 @@ export class SeatReader {
 
 /** Most bytes per socket message (hub). */
 export const CHUNK_BYTES = 4096;
-/** Most bytes per whole log (hub). */
-export const LOG_MAX_BYTES = 16 * 1024;
 
 /**
  * Split a log's JSON into socket messages of at most CHUNK_BYTES each: `"<id>:<i>:<n>:" + part`.

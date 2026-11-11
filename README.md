@@ -267,8 +267,9 @@ and comes back with the next stage's full bar (the hit that emptied the bar lose
 and the boss is immune while it transforms). Only emptying the last stage's bar knocks it out.
 Each stage hits harder (`stageDamage`), thinks faster and sharper (`stageAI`), and unlocks more
 attacks (Blast, Stun, the Ultimate, a signature volley). Stages are sized to last about five
-minutes each against a competent player (about 4.5 for Sahil, the shortest fight), so a fight runs
-13 to 16 minutes. The boss plate shows
+minutes each for a player with a person's aim and a mid staff (about eight with the stock staff,
+two to three with the strongest reward staves, four to five for the soak's reference AI), so a
+fight runs roughly 6 to 25 minutes. The boss plate shows
 the current stage's bar, its stage pips and name; the bar sweeps up as the boss transforms.
 
 **Life packs.** Up to three health pickups per fight (a red potion with a light beam): one comes
@@ -476,19 +477,20 @@ telegraphs; single-life fights):
 
 | Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Boss damage/s per stage | Power share of damage |
 |---|---|---|---|---|---|---|---|
-| Sahil | none | 100% (12/12) | 13.5 min | 3 | 4.5 / 4.5 / 4.5 | 0.18 / 0.43 / 0.84 | 27% |
-| Bitcoin Obama & The Midget | carpet | 50% (6/12) | 14.5 min | 3 / 3 | 5.3 / 5.7 / 3.6 | 0.33 / 0.78 / 1.04 | 31% |
-| Broccoli Head | carpet, pump | 42% (5/12) | 14.7 min | 3 | 4.8 / 5.0 / 4.9 | 0.60 / 0.98 / 1.51 | 14% (toxic cloud 7%) |
-| Glowie | carpet, pump, vape | 8% (1/12) | 13.7 min | 2.9 | 5.1 / 5.3 / 4.9 | 0.78 / 1.03 / 2.09 | 11% |
-| Tinubu | carpet, pump, vape, lock-on | 0% (0/12) | 9.1 min | 2 | 4.9 / - / - | 0.65 / 1.68 / - | 25% |
+| Sahil | none | 100% (12/12) | 14.8 min | 3 | 5.3 / 4.9 / 4.6 | 0.20 / 0.50 / 0.85 | 31% |
+| Bitcoin Obama & The Midget | carpet | 92% (11/12) | 14.6 min | 2.9 / 3 | 6.5 / 4.8 / 3.7 | 0.36 / 0.81 / 0.79 | - |
+| Broccoli Head | carpet, pump | 83% (10/12) | 12.1 min | 3 | 4.0 / 3.8 / 4.3 | 0.38 / 0.91 / 1.53 | - |
+| Glowie | carpet, pump, vape | 58% (7/12) | 13.2 min | 3 | 4.7 / 4.2 / 4.5 | 0.60 / 0.89 / 1.81 | - |
+| Tinubu | carpet, pump, vape, lock-on | 0% (0/12) | 10.8 min | 2.2 | 4.7 / 6.9 / - | 0.62 / 1.31 / 2.19 | - |
 
-Measured 2026-11-11, after the mana and health retune: a wizard has 330 health (was 220) and held
-fire no longer starves for mana, so the reference AI deals about twice the damage it did. The
-stage bars were re-sized to keep about five minutes a stage (Sahil the shortest at 4.5), and the
-bosses' damage was re-scaled to keep the ladder where it was (it read 100% / 67% / 33% / 25% / 0%
-before): stage damage is now x1.2 / x1.4 / x1.5 (it was x1 / x1.25 / x1.5 against 220 health), powers
-deal `CONFIG.powers.damageScale` (0.6) of their listed damage, and pools, vents, the fire ring and
-lava went up by half with the health. The soak runs the legacy engine, which has no stage
+Measured 2026-11-11 after the balance pass and its follow-up. A wizard has 330 health (was 220)
+and held fire no longer starves for mana. Stage damage is x1.2 / x1.4 / x1.5 (it was x1 / x1.25 /
+x1.5 against 220 health), powers deal `CONFIG.powers.damageScale` (0.6) of their listed damage,
+and pools, vents, the fire ring and lava went up by half with the health. The stage bars are sized
+for a person's aim with a mid staff (see Three stages above). The reference AI is the Adept
+profile, which was softened in the follow-up, so this table is not comparable with the one before
+it (100% / 67% / 33% / 25% / 0%): the middle of the ladder reads easier than it did, and the boss
+damage has not been re-tuned for that. The soak runs the legacy engine, which has no stage
 checkpoints: a player gets one restart in each of stages 2 and 3 on top of this.
 
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between

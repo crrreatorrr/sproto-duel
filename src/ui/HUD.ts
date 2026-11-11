@@ -130,6 +130,9 @@ export class HUD {
   private readonly packRow: HTMLElement;
   private readonly dodge: HTMLElement;
   private readonly dodgeLabel: HTMLElement;
+  /** Roll presses seen so far, and seconds left of the "not ready" flash for a refused one. */
+  private rollPresses = 0;
+  private rollDenied = 0;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
   /** Online: the round-trip time chip (null hides it). */
@@ -561,8 +564,18 @@ export class HUD {
     } else {
       const dodgeReady = 1 - p.cd.dodge / (W.dodge.duration + W.dodge.cooldown);
       this.set('dodge', this.dodge, 'transform', `scaleX(${dodgeReady.toFixed(3)})`);
-      this.set('dodgelabel', this.dodgeLabel, 'text', 'ROLL');
+      this.set('dodgelabel', this.dodgeLabel, 'text', this.rollDenied > 0 ? 'NOT READY' : 'ROLL');
     }
+    // A roll pressed too early to be buffered is refused: say so on the bar instead of nothing happening.
+    const rollPresses = p.intent.presses.dodge;
+    if (rollPresses !== this.rollPresses) {
+      this.rollPresses = rollPresses;
+      const blinkReady = !!blink && p.intent.sprint && p.cd.blink <= 0;
+      if (!blinkReady && !p.dodging && p.cd.dodge > W.dodge.inputBuffer && this.match.phase === 'fight') this.rollDenied = 0.4;
+    }
+    this.rollDenied = Math.max(0, this.rollDenied - dt);
+    const bar = this.dodge.parentElement!;
+    this.set('dodgebar', bar, 'class', `dodge-bar${this.rollDenied > 0 ? ' denied' : p.cd.dodge <= 0 && !blink ? ' ready' : ''}`);
 
     // Crosshair hit marker.
     this.hitMarker = Math.max(0, this.hitMarker - dt);

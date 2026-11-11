@@ -31,8 +31,8 @@ describe('staff bolt damage', () => {
   });
 
   it.each([
-    ['duel_staff_fighter', 0, 4],
-    ['duel_staff_shooter', 10, 16],
+    ['duel_staff_fighter', 0, 10],
+    ['duel_staff_shooter', 10, 24],
   ])('%s fires for %i mana and deals %i damage', (staff, mana, damage) => {
     const w = new SimWorld({ seed: 3, rules: 'quick', arena: 'moonlit', staffs: [staff, null] });
     w.ais.length = 0;

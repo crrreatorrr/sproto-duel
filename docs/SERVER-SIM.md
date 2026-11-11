@@ -30,8 +30,10 @@ DuelSim.replay(log) -> { ok, error?, simVersion, winnerSeat: 0|1|null, wins: [n,
   `endHash` is always present.
 - `bossId` strings: `sahil`, `obama`, `broccoli`, `agent`, `tinubu`.
 - The seed is server-issued and travels in the log (online: the `OP_START` seed).
-- Targets: a full match replays in under 50 ms; a log is at most 16 KB and is sent in socket chunks
-  of at most 4096 bytes.
+- Targets: a full match replays in under 50 ms; a log is sent in socket chunks of at most 4096
+  bytes. A duel log stays under 16 KB; a boss-fight log does not (see Sizes: allow 32 KB). The
+  client and the bundle enforce no size limit themselves: `replay` bounds a log by ticks
+  (`MAX_TICKS`, 45 minutes), and the hub should cap the bytes it accepts.
 - CI fails if the bundle changes without its version header changing.
 
 ## Input log (schema 1)
@@ -82,8 +84,12 @@ read.
 
 The scripted bots in `src/sim-core/testing/bot.ts` play busier than most people do: they change
 direction constantly and fire in bursts. A full three-round online match (13 464 ticks, both seats
-logged) takes 10.0 KB of JSON, against the hub's 16 KB limit. Gauntlet and Quick Duel logs carry
-one seat. `chunkLog(json, id)` splits a log into socket messages of at most 4096 bytes
+logged) takes about 7 to 12 KB of JSON. Gauntlet and Quick Duel logs carry one seat, but a boss
+fight is much longer: the scripted bot's losses in the golden set are 12.6 KB (31 400 ticks, 8.7
+minutes) to 21.9 KB (52 000 ticks, 14.4 minutes), about 1.5 KB a minute, and a fight that uses both
+checkpoints and runs to its caps can be longer still. A hub limit of 16 KB rejects honest boss
+fights. At the bot's rate 32 KB is a 21-minute fight and the 45-minute tick bound is about 68 KB;
+people press less than the bot, but that has not been measured, so size the limit from the bot. `chunkLog(json, id)` splits a log into socket messages of at most 4096 bytes
 (`id:i:n:part`), and `joinChunks` reassembles them in any order (both are exported by the bundle
 too).
 
@@ -201,9 +207,8 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
   `difficulty` (`easy`, `normal`, `hard`) names the profile the sim's CPU plays; it is left out for
   `normal` and rejected under any other rules. A win's replay proves which rival was beaten, so the
   hub can weigh an Apprentice win differently if it wants to.
-- **Size**: one seat, about 1.1 to 1.4 KB of log per minute for the scripted bot. A 15-20 minute
-  boss fight can reach the 16 KB limit, and a fight that uses its checkpoints runs longer still
-  (the scripted bot's long losses are 13 to 19 KB): the hub's limit needs to allow for it.
+- **Size**: one seat, about 1.5 KB of log per minute for the scripted bot; the bot's long losses
+  are 13 to 22 KB (see Sizes above for what the hub should allow).
 
 ## The game on the sim (A2)
 

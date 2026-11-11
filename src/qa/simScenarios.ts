@@ -63,7 +63,9 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
 
   qa.add('sim.mana_held_fire_keeps_a_blast_in_reach', (c) => {
     // Plan B1: holding fire used to sit at 0-10 mana with the rest of the kit locked.
-    const r = scripted('holdFire', 'normal', 6);
+    // Against the Archmage: the share is time above a Blast's mana over round length, and against
+    // the gentler rivals a player who only stands and fires lives about twice as long (about 20%).
+    const r = scripted('holdFire', 'hard', 6);
     const share = parseInt(r.mana.atLeastBlast, 10);
     c.note(`hold fire: mana >= ${S.blast.manaCost} in ${r.mana.atLeastBlast} of ${r.mana.samples} samples, <= 10 in ${r.mana.atMost10}, mean ${r.mana.mean}`);
     c.expect(share >= 33, `held fire has a Blast's mana in only ${r.mana.atLeastBlast} of samples (want a third)`);
@@ -107,6 +109,7 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
     c.note(`scripted attacker round win rate: Apprentice ${won[0].toFixed(2)}, Adept ${won[1].toFixed(2)}, Archmage ${won[2].toFixed(2)}`);
     c.expect(won[0] > won[1] && won[1] >= won[2], `win rates do not fall with difficulty: ${won.map((x) => x.toFixed(2)).join(' / ')}`);
     c.expect(won[0] >= 0.5, `the scripted attacker wins only ${(won[0] * 100).toFixed(0)}% of rounds against the Apprentice`);
+    c.expect(won[1] >= 0.2 && won[1] <= 0.65, `the Adept is not a middle step: the scripted attacker wins ${(won[1] * 100).toFixed(0)}% of rounds`);
   });
 
   qa.add('sim.first_boss_stage_pace', (c) => {

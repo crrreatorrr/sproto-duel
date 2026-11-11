@@ -430,7 +430,7 @@ export class App {
     });
     window.addEventListener('keydown', (e) => {
       // Practice: Enter skips the lesson on screen.
-      if (!e.repeat && e.code === 'Enter' && this.state === 'playing' && this.mode === 'practice') this.tutorial.skip();
+      if (!e.repeat && e.code === 'Enter' && this.state === 'playing' && this.mode === 'practice' && !this.feedbackOpen) this.tutorial.skip();
     });
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -1552,7 +1552,8 @@ export class App {
   private frame(dt: number): void {
     const g = this.game;
     const lessons = this.tutorial.result;
-    if (lessons && this.mode === 'practice' && this.state === 'playing') this.finishPractice(lessons.earned, lessons.count);
+    // (A frozen Practice waits for the feedback window to close, like a fight's results.)
+    if (lessons && this.mode === 'practice' && this.state === 'playing' && !this.feedbackOpen) this.finishPractice(lessons.earned, lessons.count);
     if (this.state === 'playing' || this.state === 'paused') this.hud.update(dt);
     const session = this.onlineSession;
     if (session?.active && !this.onlineCtl?.active) session.update();

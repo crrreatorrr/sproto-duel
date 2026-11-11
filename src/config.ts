@@ -440,10 +440,11 @@ export const CONFIG = {
        */
       cooldown: 1.2,
       /**
-       * Seconds a roll press is remembered (other actions: CONFIG.feel.inputBuffer). Longer, so a
-       * press late in a roll or early in its cooldown still gives the next roll.
+       * Seconds a roll press is remembered, the same as other actions (CONFIG.feel.inputBuffer): a
+       * press that cannot roll yet either rolls within this or is refused at once, and the HUD's
+       * ROLL bar flashes for a refused one. (0.3 was tried: rolls fired up to a quarter second late.)
        */
-      inputBuffer: 0.3,
+      inputBuffer: 0.15,
     },
     jump: {
       /** Takeoff speed (m/s). Apex = velocity^2 / (2 * gravity), airtime = 2 * velocity / gravity. */
@@ -843,7 +844,7 @@ export const CONFIG = {
     shooter: {
       name: 'Shooter Staff',
       boltLabel: 'Missile',
-      boltDamageMult: 4,
+      boltDamageMult: 6,
       boltManaMult: 2,
       boltSkin: 'missile' as const,
       bolt: 0xff942b,
@@ -853,6 +854,7 @@ export const CONFIG = {
     },
     fighter: {
       name: 'Fighter Staff',
+      boltDamageMult: 2.5,
       boltManaMult: 0,
       bolt: 0x56eaff,
       trail: 0x9262ff,
@@ -1141,20 +1143,22 @@ export const CONFIG = {
         strafeSpeed: 0.65,
         preferredRange: [10, 15],
       },
+      // The middle step: a scripted attacker wins about a third of its rounds against it (it won
+      // one in twenty against the sharper profile this replaced, and wins most against easy).
       normal: {
         label: 'Adept',
-        reactionTime: 0.27,
-        aimError: 0.09,
-        leadFactor: 0.45,
-        dodgeChance: 0.5,
-        shieldPreference: 0.4,
-        perfectShieldChance: 0.25,
-        burst: [3, 5],
-        burstPause: [0.6, 1.2],
-        blastChance: 0.45,
-        stunChance: 0.35,
-        punishChance: 0.6,
-        strafeSpeed: 0.85,
+        reactionTime: 0.32,
+        aimError: 0.15,
+        leadFactor: 0.15,
+        dodgeChance: 0.4,
+        shieldPreference: 0.35,
+        perfectShieldChance: 0.12,
+        burst: [2, 3],
+        burstPause: [1.0, 1.7],
+        blastChance: 0.3,
+        stunChance: 0.2,
+        punishChance: 0.35,
+        strafeSpeed: 0.8,
         preferredRange: [9, 15],
       },
       hard: {

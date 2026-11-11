@@ -11,6 +11,6 @@ export { STAFFS, STAFF_IDS, staffStats } from './staffs';
 export { simRules, RULES_IDS, isRulesId, type RulesId, type SimRules } from './rules';
 export { SimWorld, DIFFICULTIES, isDifficulty, type SimSetup, type MatchState, type Phase } from './world';
 export { replay, LogRecorder, MAX_TICKS, type ReplayResult } from './replay';
-export { LOG_SCHEMA, SeatReader, SeatWriter, chunkLog, joinChunks, toBase64, fromBase64, CHUNK_BYTES, LOG_MAX_BYTES, type DuelLog } from './log';
+export { LOG_SCHEMA, SeatReader, SeatWriter, chunkLog, joinChunks, toBase64, fromBase64, CHUNK_BYTES, type DuelLog } from './log';
 export { simVersion, setSimVersion } from './version';
 export { AIM_DIST, moveVector } from './wizard';

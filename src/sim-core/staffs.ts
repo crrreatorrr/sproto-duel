@@ -22,7 +22,7 @@ export const STAFFS: Readonly<Record<string, StaffStats>> = {
   duel_staff_fighters_might: { id: 'duel_staff_fighters_might', boltDamage: fx(2), boltInterval: fx(1.85), boltKnockback: -1, blink: null },
   duel_staff_alien_ray: { id: 'duel_staff_alien_ray', boltDamage: fx(S.alien_ray.boltDamageMult), boltInterval: ONE, boltKnockback: -1, blink: null },
   duel_staff_shooter: { id: 'duel_staff_shooter', boltDamage: fx(S.shooter.boltDamageMult), boltManaCost: fx(CONFIG.spells.bolt.manaCost * S.shooter.boltManaMult), boltInterval: ONE, boltKnockback: -1, blink: null },
-  duel_staff_fighter: { id: 'duel_staff_fighter', boltDamage: ONE, boltManaCost: fx(CONFIG.spells.bolt.manaCost * S.fighter.boltManaMult), boltInterval: ONE, boltKnockback: -1, blink: null },
+  duel_staff_fighter: { id: 'duel_staff_fighter', boltDamage: fx(S.fighter.boltDamageMult), boltManaCost: fx(CONFIG.spells.bolt.manaCost * S.fighter.boltManaMult), boltInterval: ONE, boltKnockback: -1, blink: null },
 };
 
 export const STAFF_IDS = Object.keys(STAFFS);

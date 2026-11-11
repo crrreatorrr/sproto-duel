@@ -61,6 +61,27 @@ describe('Practice lessons', () => {
     expect(step(100)).toBe(false);
   });
 
+  it('every lesson can be finished from wherever the one before was skipped', () => {
+    // Skip "Mana" with a full bar: "Let it refill" has nothing to refill and must not hang.
+    const run = new LessonRun(W.maxMana);
+    run.skip(W.maxMana);
+    run.skip(W.maxMana);
+    expect(run.lesson?.id).toBe('recover');
+    expect(run.update(DT, W.maxMana)).toBe(true);
+    expect(run.lesson?.id).toBe('blast');
+    // Entered a little short of full: it completes as the bar tops up.
+    const b = new LessonRun(W.maxMana);
+    b.skip(W.maxMana);
+    b.skip(W.maxMana - 10);
+    expect(b.update(DT, W.maxMana - 10)).toBe(false);
+    expect(b.update(DT, W.maxMana)).toBe(true);
+    // Entered already below half: "Mana" is done at once.
+    const c = new LessonRun(W.maxMana);
+    c.skip(W.maxMana * 0.3);
+    expect(c.lesson?.id).toBe('mana');
+    expect(c.update(DT, W.maxMana * 0.3)).toBe(true);
+  });
+
   it('skipping and the perfect lesson\'s time limit move on without counting as done', () => {
     const run = new LessonRun(W.maxMana);
     for (let i = 0; i < 6; i++) run.skip(W.maxMana);
