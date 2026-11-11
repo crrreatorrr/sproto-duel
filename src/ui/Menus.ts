@@ -196,6 +196,8 @@ export interface MenuHandlers {
   continueGauntlet(): void;
   gauntletStatus(): GauntletStatus;
   resume(): void;
+  /** Open the hub feedback window (the pause menus' Send Feedback). */
+  feedback?(): void;
   restart(): void;
   quit(): void;
   settingsChanged(s: Settings): void;
@@ -792,6 +794,7 @@ export class Menus {
         <button data-act="restart">${restartLabel}</button>
         <button data-act="howto">How to Play</button>
         <button data-act="settings">Settings</button>
+        <button data-act="feedback">Send Feedback</button>
         <button class="ghost" data-act="quit">Quit to Menu</button>
         <button class="ghost" data-act="exit">Return to Hub</button>
       </div>`, 'pause');
@@ -799,6 +802,7 @@ export class Menus {
     this.on(s, '[data-act="restart"]', () => this.h.restart());
     this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stages, restartLabel)));
     this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stages, restartLabel)));
+    this.on(s, '[data-act="feedback"]', () => this.h.feedback?.());
     this.on(s, '[data-act="quit"]', () => this.h.quit());
     this.on(s, '[data-act="exit"]', () => this.showExitConfirm(() => this.showPause(subtitle, stages, restartLabel)));
   }
@@ -1175,9 +1179,11 @@ export class Menus {
         <h2>Online Duel</h2>
         <p class="note">The fight keeps going while this is open.</p>
         <button class="primary" data-act="resume" data-autofocus>Resume</button>
+        <button data-act="feedback">Send Feedback</button>
         <button class="ghost" data-act="forfeit">Forfeit</button>
       </div>`, 'online-pause');
     this.on(s, '[data-act="resume"]', () => h.resume());
+    this.on(s, '[data-act="feedback"]', () => this.h.feedback?.());
     this.on(s, '[data-act="forfeit"]', () => h.forfeit());
   }
 

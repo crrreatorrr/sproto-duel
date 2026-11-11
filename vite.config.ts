@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -61,7 +62,22 @@ function resolveBase(mode: string): string {
   return raw.endsWith('/') ? raw : `${raw}/`;
 }
 
+/** `<package version>+<short commit>` for feedback notes: CI's GITHUB_SHA, else git, else `dev`. */
+function buildId(): string {
+  const version = (JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0';
+  let commit = (process.env.GITHUB_SHA ?? '').trim().slice(0, 7);
+  if (!commit) {
+    try {
+      commit = execSync('git rev-parse --short HEAD', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch {
+      commit = '';
+    }
+  }
+  return `${version}+${commit || 'dev'}`;
+}
+
 export default defineConfig(({ mode }) => ({
+  define: { __BUILD_ID__: JSON.stringify(buildId()) },
   base: resolveBase(mode),
   plugins: [assetIndex()],
   build: {

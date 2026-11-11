@@ -13,7 +13,7 @@ export const PB_SHOP = {
     'shop_terminal:contract_recruit': { shopId: 'shop_terminal', itemId: 'contract_recruit', packSize: 1, price: 25, sellPrice: 11 },
     'shop_terminal:contract_sniper': { shopId: 'shop_terminal', itemId: 'contract_sniper', packSize: 1, price: 123, sellPrice: 26 },
     'shop_terminal:gun_ballot_blaster': { shopId: 'shop_terminal', itemId: 'gun_ballot_blaster', packSize: 1, price: 155, sellPrice: 69 },
-    'shop_terminal:gun_campaign_pistol': { shopId: 'shop_terminal', itemId: 'gun_campaign_pistol', packSize: 1, price: 25, sellPrice: 11 },
+    'shop_terminal:gun_campaign_pistol': { shopId: 'shop_terminal', itemId: 'gun_campaign_pistol', packSize: 1, price: 2, sellPrice: 1 },
     'shop_terminal:gun_confetti_shotgun': { shopId: 'shop_terminal', itemId: 'gun_confetti_shotgun', packSize: 1, price: 65, sellPrice: 29 },
     'shop_terminal:gun_diamond_minigun': { shopId: 'shop_terminal', itemId: 'gun_diamond_minigun', packSize: 1, price: 471, sellPrice: 150 },
     'shop_terminal:gun_flippening_railgun': { shopId: 'shop_terminal', itemId: 'gun_flippening_railgun', packSize: 1, price: 1236, sellPrice: 150 },

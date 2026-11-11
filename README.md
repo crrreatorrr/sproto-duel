@@ -66,6 +66,7 @@ Hub** leaves at once from the main menu; from the pause screen mid-fight it asks
 | R / 5 | **Ultimate**: charged by dealing damage. An arena-wide shockwave. Roll through it, hide behind a pillar, or shield to reduce it |
 | Z X V G T | **Boss spells** once learned: Magic Carpet, Pump It, Vape Cloud, Lock-On, Hellfire Breath (see [Boss spells](#boss-spells)) |
 | Esc / P | Pause |
+| N twice | Send feedback: the game pauses and a small window takes a note and a screenshot (hub accounts only; an online fight keeps running). Also on the pause menu |
 | Arrows / W S, Enter / Space, Esc | Menus: move, select, back (Esc on the pause menu resumes) |
 
 The keyboard follows the layout every Sproto game and the hub share: WASD or the arrows move, Space
