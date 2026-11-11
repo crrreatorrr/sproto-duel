@@ -16,7 +16,17 @@ interface Popup {
   maxLife: number;
   scale: number;
   active: boolean;
+  /** A word callout (PERFECT!, STUNNED, a spell name...), not a damage number. */
+  callout: boolean;
+  /** Screen offset (px, negative is up) that keeps this callout clear of the ones under it. */
+  stackY: number;
 }
+
+/** Damage numbers scatter; every other style is a word callout and stacks instead of overlapping. */
+const isCallout = (style: PopupStyle) => style !== 'dmg' && style !== 'dmgBig' && style !== 'dmgSelf' && style !== 'burn';
+/** Callouts closer than this (m) share a stack, and each takes this much height (px at scale 1). */
+const STACK_RADIUS = 2.5;
+const STACK_LINE = 38;
 
 const tmp = new THREE.Vector3();
 
@@ -41,7 +51,7 @@ export class DamageNumbers {
       el.className = 'popup';
       el.style.opacity = '0';
       this.root.appendChild(el);
-      this.items.push({ el, pos: new THREE.Vector3(), vx: 0, vy: 0, life: 0, maxLife: 1, scale: 1, active: false });
+      this.items.push({ el, pos: new THREE.Vector3(), vx: 0, vy: 0, life: 0, maxLife: 1, scale: 1, active: false, callout: false, stackY: 0 });
     }
   }
 
@@ -56,8 +66,28 @@ export class DamageNumbers {
     p.vy = -70 - Math.random() * 20;
     p.maxLife = p.life = style === 'perfect' || style === 'stun' || style === 'boss' || style === 'mana' || style === 'heal' || style === 'spell' ? CONFIG.ui.damageNumberLife * 1.6 : CONFIG.ui.damageNumberLife;
     p.scale = style === 'dmgBig' || style === 'perfect' || style === 'boss' || style === 'mana' || style === 'heal' || style === 'spell' ? 1.5 : style === 'info' || style === 'burn' || style === 'manaFoe' ? 0.85 : 1;
+    p.callout = isCallout(style);
+    p.stackY = 0;
+    if (p.callout) {
+      // A second callout at the same spot (two PERFECT!s from a volley) sits above the first by its
+      // height instead of being drawn on top of it; they then rise together.
+      p.vx = 0;
+      let top = 0;
+      for (const o of this.items) {
+        if (o === p || !o.active || !o.callout || o.pos.distanceTo(pos) > STACK_RADIUS) continue;
+        const age = 1 - o.life / o.maxLife;
+        // Where that callout's top edge is now, relative to a fresh one's baseline.
+        top = Math.min(top, o.stackY + o.vy * age + 60 * age * age - STACK_LINE * o.scale);
+      }
+      p.stackY = Math.max(top, -STACK_LINE * 6);
+    }
     p.el.textContent = text;
     p.el.className = `popup popup-${style}`;
+  }
+
+  /** Active popups (tests, QA): text, style class and stack offset. */
+  get active(): { text: string; className: string; stackY: number }[] {
+    return this.items.filter((p) => p.active).map((p) => ({ text: p.el.textContent ?? '', className: p.el.className, stackY: p.stackY }));
   }
 
   /** Show or hide the whole layer (a split view's layer is hidden outside Local Versus). */
@@ -83,7 +113,7 @@ export class DamageNumbers {
         p.el.style.opacity = '0';
         continue;
       }
-      const offY = p.vy * age + 60 * age * age;
+      const offY = p.vy * age + 60 * age * age + p.stackY;
       const x = (tmp.x * 0.5 + 0.5) * w + p.vx * age;
       const y = (-tmp.y * 0.5 + 0.5) * h + offY;
       // Pop in big, settle, fade out.
