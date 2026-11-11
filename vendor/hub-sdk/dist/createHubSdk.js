@@ -367,6 +367,22 @@ function createMockHubSdk(env) {
             resolved.local.setItem(`hub:save:${active.playerId}:${active.game}`, JSON.stringify(stored));
             return stored;
         },
+        async feedbackAccess() {
+            return active ? { ok: true, username: active.playerId } : { ok: false, reason: 'standalone' };
+        },
+        async submitFeedback(input) {
+            if (!active)
+                throw new HubSdkError('standalone', 'Feedback needs a hub session');
+            if (!input.categories.length && !input.note.trim())
+                throw new HubSdkError('empty', 'Pick an option or write a note');
+            const key = `hub:feedback:${active.game}`;
+            const list = JSON.parse(resolved.local.getItem(key) ?? '[]');
+            const id = `MOCK-${String(list.length + 1).padStart(4, '0')}`;
+            // The mock keeps the note without its screenshot: localStorage is small.
+            list.push({ id, username: active.playerId, ...input, image: input.image ? '(image)' : '' });
+            resolved.local.setItem(key, JSON.stringify(list.slice(-50)));
+            return { id };
+        },
         async earnTickets(amount, reason, key) {
             if (!key)
                 throw new HubSdkError('bad_key', 'Idempotency key is required');

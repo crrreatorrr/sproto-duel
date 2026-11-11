@@ -34,6 +34,13 @@ import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from './spells/r
 import type { Wizard } from './wizard/Wizard';
 
 type AppState = 'menu' | 'playing' | 'paused' | 'results';
+
+/** What the feedback window froze, so closing it puts back exactly that (App.holdForFeedback). */
+export interface FeedbackHold {
+  state: AppState;
+  simulating: boolean;
+  locked: boolean;
+}
 /**
  * Quick Duel (one fixed rival), the Boss Gauntlet campaign (the difficulty ladder), Local Versus
  * (two players, split-screen) or an online 1v1.
@@ -158,6 +165,15 @@ export class App {
   private skinToken = 0;
   /** When the last pause happened (ms); the Esc that released pointer lock must not also resume. */
   private pausedAt = 0;
+  /**
+   * The hub feedback window is open (src/hub/feedback.ts). It owns the keyboard and the mouse: the
+   * game's own pause and resume, the pad's Start and menu navigation wait until it closes.
+   */
+  feedbackOpen = false;
+  /** Online only: the mouse was captured when the window opened, so capture it again on close. */
+  private feedbackRelock = false;
+  /** Opens the feedback window (the pause menu's button). Set once the window is installed. */
+  onFeedback: (() => void) | null = null;
   /** Hub idempotency id for the fight in progress. One per start, reused if the win handler runs again. */
   private reportMatchId: string | null = null;
 
@@ -211,6 +227,7 @@ export class App {
         return { canContinue: c.canContinue, next: c.canContinue ? BOSSES[c.saved.next] : null, nextIndex: c.saved.next, clears: c.saved.clears };
       },
       resume: () => this.resume(),
+      feedback: () => this.onFeedback?.(),
       restart: () => this.restart(),
       quit: () => this.toMenu(),
       settingsChanged: (s) => this.applySettings(s),
@@ -456,7 +473,7 @@ export class App {
     pad.onDeviceChange((device) => {
       relabel();
       // Picked up a pad while the game waits for the mouse to be captured: just play.
-      if (device === 'gamepad' && this.state === 'playing' && !g.simulating && !g.qaMode && (!this.menus.visible || this.menus.awaitingClick)) {
+      if (device === 'gamepad' && !this.feedbackOpen && this.state === 'playing' && !g.simulating && !g.qaMode && (!this.menus.visible || this.menus.awaitingClick)) {
         this.menus.hide();
         g.simulating = true;
       }
@@ -476,6 +493,8 @@ export class App {
     pad.update();
     const split = this.game.split;
     if (split) this.p2Pad.update();
+    // The feedback window is up: Start and pad menu navigation would act on what is under it.
+    if (this.feedbackOpen) return;
     const pause = CONFIG.gamepad.bindings.pause;
     if (pad.wasPressed(pause) || (split && this.p2Pad.wasPressed(pause))) {
       if (this.state === 'playing') return this.pause();
@@ -1204,7 +1223,7 @@ export class App {
   }
 
   pause(): void {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.feedbackOpen) return;
     if (this.mode === 'online') {
       // Online never pauses: an overlay over the running fight (Resume / Forfeit).
       this.state = 'paused';
@@ -1233,7 +1252,7 @@ export class App {
   }
 
   resume(): void {
-    if (this.state !== 'paused') return;
+    if (this.state !== 'paused' || this.feedbackOpen) return;
     this.state = 'playing';
     this.menus.hide();
     if (this.mode === 'online') {
@@ -1248,6 +1267,60 @@ export class App {
     } else {
       this.game.simulating = true;
     }
+  }
+
+  /**
+   * The feedback window is opening. Freeze the game where it stands, without the pause menu (the
+   * window is the overlay) and without changing `state`, and return what to put back. An online
+   * match cannot pause: this returns false, the fight runs on, and only the mouse is let go.
+   */
+  holdForFeedback(): FeedbackHold | false {
+    const g = this.game;
+    const locked = g.input.locked;
+    this.feedbackOpen = true;
+    g.input.clearHeld();
+    if (this.mode === 'online' || this.onlineSession || this.onlineCtl) {
+      this.feedbackRelock = locked && this.state === 'playing';
+      g.input.releaseLock();
+      return false;
+    }
+    const hold: FeedbackHold = { state: this.state, simulating: g.simulating, locked };
+    g.simulating = false;
+    if (this.state === 'playing') {
+      g.input.releaseLock();
+      this.audio.setPaused(true);
+    }
+    return hold;
+  }
+
+  /** The feedback window closed over a frozen game: back to exactly what `holdForFeedback` found. */
+  releaseFeedback(hold: FeedbackHold): void {
+    const g = this.game;
+    this.feedbackOpen = false;
+    g.input.clearHeld();
+    // Something else moved the game on meanwhile (it should not: the sim was stopped). Leave it.
+    if (this.state !== hold.state) return;
+    if (hold.state !== 'playing') {
+      g.simulating = hold.simulating;
+      return;
+    }
+    this.audio.setPaused(false);
+    if (hold.locked && this.requireLock) {
+      // Stay frozen until the mouse is captured again (pointerlockchange starts the sim; if the
+      // browser refuses, pointerlockerror shows "Click to resume").
+      g.simulating = false;
+      g.input.requestLock();
+    } else {
+      g.simulating = hold.simulating;
+    }
+  }
+
+  /** The feedback window is gone, paused or not (online: take the mouse back). Safe to call twice. */
+  endFeedback(): void {
+    this.feedbackOpen = false;
+    const relock = this.feedbackRelock;
+    this.feedbackRelock = false;
+    if (relock && this.state === 'playing' && this.requireLock) this.game.input.requestLock();
   }
 
   toMenu(): void {
@@ -1486,7 +1559,8 @@ export class App {
     this.hud.setPing(this.onlineCtl?.active ? session?.rttMs ?? -1 : null);
     if (this.onlineMenuOpen() && performance.now() - this.onlineCountAt >= 10_000) void this.refreshCounts();
     this.tickOnlineScreens();
-    if (this.resultsTimer > 0) {
+    // A frozen fight's results wait for the feedback window to close (online runs on).
+    if (this.resultsTimer > 0 && !(this.feedbackOpen && !g.simulating)) {
       this.resultsTimer -= dt;
       if (this.resultsTimer <= 0 && this.state === 'playing') this.showResults();
     }

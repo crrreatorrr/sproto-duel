@@ -45,6 +45,11 @@ export class HubLink {
 
   constructor(private readonly api: HubSdk = createBrowserSdk()) {}
 
+  /** The SDK behind this visit (the feedback window sends through it). */
+  get sdk(): HubSdk {
+    return this.api;
+  }
+
   private rt: HubRealtime | null = null;
   /** Device-auth session for a visit that has no portal ticket. Ranked stays 0. */
   private guestRt: HubRealtime | null = null;

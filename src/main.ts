@@ -5,6 +5,7 @@ import { Campaign } from './campaign/Campaign';
 import { connectHub } from './hub/link';
 import { crashGuard } from './core/crash';
 import { showCrashPanel } from './ui/CrashPanel';
+import { installGameFeedback } from './hub/feedback';
 
 // Uncaught errors and rejections share the loop's counter; the panel opens once the game pauses.
 crashGuard.install(window, document);
@@ -24,6 +25,8 @@ async function boot() {
   const hub = await hubPromise;
   loading.remove();
   const app = new App(game, new Campaign(), hub);
+  // N twice (or the pause menu's button) opens the hub feedback window.
+  installGameFeedback(game, app, hub);
   game.start();
 
   if (import.meta.env.DEV) {

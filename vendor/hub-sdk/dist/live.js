@@ -649,6 +649,25 @@ export function createLiveHubSdk(env, client) {
                 return { ...EMPTY_SAVE };
             return readSaveResult(await client.rpc('save.put', { data }, { token: active.token }));
         },
+        async feedbackAccess() {
+            if (!active)
+                return { ok: false, reason: 'standalone' };
+            try {
+                const result = await client.rpc('feedback.can', {}, { token: active.token });
+                return { ok: true, username: result.username };
+            }
+            catch (error) {
+                if (error instanceof HubSdkError && error.code !== 'rpc_failed')
+                    return { ok: false, reason: error.code };
+                return { ok: false, reason: 'offline' };
+            }
+        },
+        async submitFeedback(input) {
+            if (!active)
+                throw new HubSdkError('standalone', 'Feedback needs a hub session');
+            const result = await client.rpc('feedback.submit', input, { token: active.token });
+            return { id: result.id };
+        },
         async earnTickets(amount, reason, key) {
             if (!key)
                 throw new HubSdkError('bad_key', 'Idempotency key is required');
