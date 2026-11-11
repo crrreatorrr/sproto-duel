@@ -371,6 +371,10 @@ export class HUD {
         this.showBanner(`Fight ${this.match.bossIndex + 1}`, bossLine(), 'round', CONFIG.match.introTime);
         return;
       }
+      if (g.practice) {
+        this.showBanner('Practice', 'Nobody gets hurt here', 'round', CONFIG.match.introTime);
+        return;
+      }
       const last = this.match.wins.some((w) => w === CONFIG.match.roundsToWin - 1) && this.match.wins[0] === this.match.wins[1];
       this.showBanner(last ? 'Final Round' : `Round ${e.round}`, bossLine(), 'round', CONFIG.match.introTime);
     });

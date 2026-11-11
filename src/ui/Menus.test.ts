@@ -220,3 +220,50 @@ describe('Quick Duel difficulty select', () => {
     expect(help.compareDocumentPosition(rack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe('Practice on the menus', () => {
+  let parent: HTMLElement;
+
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    parent = document.createElement('div');
+    document.body.appendChild(parent);
+  });
+
+  it('the main menu offers Practice beside How to Play, pointed out until it has been done', () => {
+    let started = 0;
+    const settings = loadSettings();
+    expect(settings.practiceDone).toBe(false);
+    const menus = new Menus(parent, settings, { ...handlers, practice: () => started++ });
+    menus.showMain();
+    const btn = parent.querySelector<HTMLButtonElement>('.help-row [data-act="practice"]')!;
+    expect(btn.classList.contains('suggest')).toBe(true);
+    expect(btn.textContent).toContain('New here');
+    btn.click();
+    expect(started).toBe(1);
+    menus.updateSettings({ practiceDone: true });
+    expect(loadSettings().practiceDone).toBe(true);
+    menus.showMain();
+    const again = parent.querySelector<HTMLButtonElement>('[data-act="practice"]')!;
+    expect(again.classList.contains('suggest')).toBe(false);
+    expect(again.textContent).toBe('Practice');
+  });
+
+  it('is left out when the app does not provide it', () => {
+    const menus = new Menus(parent, loadSettings(), handlers);
+    menus.showMain();
+    expect(parent.querySelector('[data-act="practice"]')).toBeNull();
+  });
+
+  it('the finish screen leads into a Quick Duel against the chosen rival', () => {
+    const menus = new Menus(parent, loadSettings(), handlers);
+    const picked: string[] = [];
+    menus.showPracticeDone({ earned: 6, count: 8, rival: '<b>x</b>' }, { duel: () => picked.push('duel'), again: () => picked.push('again'), menu: () => picked.push('menu') });
+    expect(menus.current).toBe('practice-done');
+    expect(parent.textContent).toContain('6 of 8 lessons done');
+    expectNoInjected(parent);
+    for (const act of ['duel', 'again', 'menu']) parent.querySelector<HTMLButtonElement>(`[data-act="${act}"]`)!.click();
+    expect(picked).toEqual(['duel', 'again', 'menu']);
+  });
+});

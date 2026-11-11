@@ -68,6 +68,12 @@ Hub** leaves at once from the main menu; from the pause screen mid-fight it asks
 | Esc / P | Pause |
 | Arrows / W S, Enter / Space, Esc | Menus: move, select, back (Esc on the pause menu resumes) |
 
+**Practice.** The main menu's Practice is a playable tutorial against a training dummy: eight
+short lessons (Bolt, mana, letting it refill, Blast, the roll, the Shield, the perfect reflect and
+Golden Tickets), each finished by doing it. Nobody can be knocked out and there is no clock; Enter
+skips a lesson, and the last one leads into a Quick Duel. It runs on the same sim as a real match
+(Local Versus rules, the dummy's seat scripted by `src/tutorial`), and nothing is reported to the hub.
+
 **Mana.** You have 160 and it comes back at 16 a second, without pausing when you spend. Holding
 fire spends faster than that: a full bar is down to less than a Blast in about 12 seconds, and from
 then on bolts leave at the regen rate (about three a second). Let go of fire for two seconds and

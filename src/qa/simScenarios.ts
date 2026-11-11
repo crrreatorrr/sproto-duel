@@ -151,6 +151,63 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
     c.expect(game.sim === null, 'the finished match keeps simulating behind the menu');
   });
 
+  qa.add('sim.live_practice_runs_every_lesson', (c) => {
+    // The Practice tutorial, played by a script that does what each lesson asks.
+    const saved = localStorage.getItem('arcane-duel-settings');
+    let menu = '';
+    live(game, app, () => {
+      app.startPractice();
+      const d = game.sim, tut = app.tutorial;
+      c.expect(!!d && d.world.setup.rules === 'versus' && tut.active && game.practice, 'Practice did not start on the sim');
+      if (!d) return;
+      const w = d.world;
+      const p = game.player;
+      const seen: string[] = [];
+      const lessonEl = game.ui.querySelector('.lesson') as HTMLElement;
+      script(game, () => {
+        const id = tut.run?.lesson?.id;
+        if (id && seen[seen.length - 1] !== id) seen.push(id);
+        const it = p.intent;
+        it.holdBolt = id === 'bolt' || id === 'mana';
+        it.move.set(0, 0, 0);
+        if (id === 'blast') it.press('blast');
+        if (id === 'roll') it.press('dodge');
+        if (id === 'shield' || id === 'perfect') {
+          // The dummy's bolt: raise the shield early for a plain block, at the last moment for a perfect one.
+          const bolt = w.spells.active.find((b) => b.owner.index === 1);
+          if (bolt) {
+            const dist = Math.hypot(bolt.pos.x - w.wizards[0].pos.x, bolt.pos.z - w.wizards[0].pos.z) / 65536;
+            const eta = dist / S.bolt.speed;
+            if (id === 'shield' ? eta < 0.5 : eta < S.shield.perfectWindow * 0.6) it.press('shield');
+          }
+        }
+        if (id === 'ticket') {
+          const t = w.tickets.list[0];
+          if (t) {
+            const dx = t.x / 65536 - p.pos.x, dz = t.z / 65536 - p.pos.z;
+            const len = Math.hypot(dx, dz) || 1;
+            it.move.set(dx / len, 0, dz / len);
+          }
+        }
+      });
+      const n = ticks(game, 60 * 150, () => tut.result !== null);
+      c.note(`lessons ${seen.join(' > ')} in ${(n / 60).toFixed(0)} s`);
+      c.expect(seen.join(',') === 'bolt,mana,recover,blast,roll,shield,perfect,ticket', `lessons seen: ${seen.join(', ')}`);
+      c.expect(tut.result !== null && tut.result.earned === tut.result.count, `Practice did not finish by doing every lesson: ${JSON.stringify(tut.result)} at "${lessonEl.textContent?.trim().slice(0, 80)}"`);
+      // Nobody fell, the clock never ran down, and the dummy took real hits.
+      c.expect(!d.over && w.match.round === 1 && w.match.timer > w.rules.roundTime - 6000, `the lesson fight moved on: round ${w.match.round}, over ${d.over}, clock ${w.match.timer / 6000}`);
+      c.expect(game.enemy.alive && p.alive && game.enemy.stats.casts > 0, 'the dummy never fired, or someone fell');
+      // The app's next frame shows the "Ready to duel" screen and remembers the lessons were done.
+      game.advance(1 / 60);
+      menu = app.menus.current ?? '';
+      c.expect(menu === 'practice-done', `after the last lesson the menu is "${menu}"`);
+      c.expect(game.sim === null && !game.practice && lessonEl.classList.contains('hidden'), 'Practice was not torn down');
+      c.expect(JSON.parse(localStorage.getItem('arcane-duel-settings') ?? '{}').practiceDone === true, 'practiceDone was not saved');
+    });
+    if (saved === null) localStorage.removeItem('arcane-duel-settings');
+    else localStorage.setItem('arcane-duel-settings', saved);
+  });
+
   qa.add('sim.live_boss_checkpoint_restarts_the_stage', (c) => {
     live(game, app, () => {
       app.campaign.index = 0;

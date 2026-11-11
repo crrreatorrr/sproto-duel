@@ -380,6 +380,33 @@ html, body {
 /* Main menu modes. */
 .menu-screen.main .menu-panel.main { gap: 10px; max-height: 100cqh; overflow-y: auto; padding: 16px 4px; }
 .mode-block { display: grid; gap: 8px; }
+/* Practice (src/tutorial): the lesson card under the top bar, and no round furniture. */
+.lesson {
+  position: absolute; top: 118px; left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 32px)); padding: 12px 16px 10px;
+  border: 1px solid rgba(255, 210, 122, 0.45); border-radius: 10px; background: rgba(14, 10, 30, 0.78); backdrop-filter: blur(4px);
+  color: var(--ink); text-align: center; pointer-events: none; transition: border-color 0.3s, box-shadow 0.3s;
+}
+.lesson.hidden { display: none; }
+.lesson.flash { border-color: #8dffb0; box-shadow: 0 0 22px rgba(90, 255, 150, 0.5); }
+.lesson-step { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-dim); }
+.lesson-title { margin: 2px 0 4px; font-family: var(--display); font-size: 24px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.lesson-text { margin: 0; font-size: 16px; line-height: 1.35; }
+.lesson-bar { height: 5px; margin: 9px 0 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.lesson-bar i { display: block; height: 100%; background: linear-gradient(90deg, #b8860b, var(--gold)); transform-origin: left; transform: scaleX(0); transition: transform 0.15s; }
+.lesson-status { min-height: 18px; font-size: 14px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.lesson-hint { margin-top: 2px; font-size: 12px; letter-spacing: 0.08em; color: var(--ink-dim); opacity: 0.8; }
+#ui.menu-open .lesson, #ui.cinematic .lesson { visibility: hidden; }
+#ui.practice .hud-center { visibility: hidden; }
+.practice-btn.suggest { border-color: var(--gold); box-shadow: 0 0 14px rgba(255, 200, 90, 0.35); }
+.menu-panel.practice-done {
+  width: min(560px, calc(100cqw - 32px)); padding: 22px 24px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(14, 10, 30, 0.84); backdrop-filter: blur(6px);
+}
+@media (max-height: 640px) {
+  .lesson { top: 84px; padding: 8px 12px 6px; }
+  .lesson-title { font-size: 18px; }
+  .lesson-text { font-size: 14px; }
+}
 /* Quick Duel's rival: three segments under the button, the chosen one lit. */
 .difficulty-pick { display: flex; gap: 6px; }
 .difficulty-pick .diff-pick {

@@ -42,6 +42,12 @@ export const VERSUS: Readonly<MatchRules> = Object.freeze({
 /** Online 1v1: Versus rules, never paused. Stake is 0 Tickets; the client never mints for a win. */
 export const ONLINE: Readonly<MatchRules> = Object.freeze({ ...VERSUS, kind: 'online', pause: false });
 
+/**
+ * Practice (src/tutorial): Local Versus rules against a scripted training dummy. Even stats, no
+ * reward spells, life packs or god mode, and nothing is reported to the hub.
+ */
+export const PRACTICE: Readonly<MatchRules> = Object.freeze({ ...VERSUS });
+
 export function rulesFor(kind: MatchRules['kind']): Readonly<MatchRules> {
   return kind === 'gauntlet' ? GAUNTLET : kind === 'versus' ? VERSUS : kind === 'online' ? ONLINE : QUICK;
 }

@@ -210,6 +210,8 @@ export class Game {
     this.checkpointReady = false;
   }
 
+  /** The Practice tutorial is running (the HUD drops the round furniture). */
+  practice = false;
   /** A knockout now would restart the boss stage instead of ending the fight (SimDriver, from the sim). */
   checkpointReady = false;
 
