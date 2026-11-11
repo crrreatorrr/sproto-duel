@@ -15,7 +15,7 @@ height, radius and the base colour's green (the rim aliens), splits and fits the
 material and bakes the animation, then exports at full detail (staff_alien_ray-src.glb, ~70 MB).
 finish-staff.mjs simplifies each part with meshoptimizer (seam-aware, unlike Blender's collapse
 decimate on this mesh) and resizes the textures. Both results carry:
-- nodes staff_alien_ray (grip at the origin, shaft along +Y, 1.894 m like the other staffs)
+- nodes staff_alien_ray (grip at the origin, shaft along +Y, fitted to the Sproto Staff)
   > _shaft, _beam (spins, carries the cow), _saucer (spins the other way)
   > _saucer > _alien_0.._alien_5 (stadium-wave hop, rock, squash) and _fx_anchor (dome top);
 - staff_alien_ray_mat, and staff_alien_ray_glow_mat (green emissive mask; the game pulses it);
@@ -27,9 +27,10 @@ from mathutils import Vector, Quaternion, Matrix
 argv = sys.argv[sys.argv.index('--') + 1:]
 SRC, OUT = argv[0], argv[1]
 SLUG = 'staff_alien_ray'
-LENGTH = 1.894          # matches the delivered staffs (y -1.093 .. 0.801)
-BOTTOM = -1.093
-HEAD_SCALE = 0.62       # the saucer is 0.83 m wide at the source proportions; this keeps it clear of the hat
+BOTTOM = -1.092         # Sproto Staff's rendered extents relative to the grip
+TOP = 0.795
+HEAD_SCALE = 0.372     # ~31 cm wide across the saucer
+SHAFT_WIDTH_SCALE = 0.82
 FPS, LOOP = 24, 8       # seconds
 ALIEN_ANGLES = [30, 90, 150, 210, 270, 330]
 TEXTURE = 2048          # finish-staff.mjs resizes per output
@@ -119,11 +120,11 @@ def build():
     cen, col, px = face_data(src, base_img)
     lab = classify(cen, col)
 
-    # Fit: source z 0..0.98 -> staff y BOTTOM..BOTTOM+LENGTH, grip at the origin.
+    # Fit the source to the staff's bottom and top; the socket is at the origin.
     zmin, zmax = cen[:, 2].min(), cen[:, 2].max()
     zmin = min(zmin, min((src.matrix_world @ Vector(c)).z for c in src.bound_box))
     zmax = max(zmax, max((src.matrix_world @ Vector(c)).z for c in src.bound_box))
-    s = LENGTH / (zmax - zmin)
+    s = (TOP - BOTTOM) / (zmax - zmin)
     fit = Matrix.Translation((0, 0, BOTTOM)) @ Matrix.Scale(s, 4) @ Matrix.Translation((0, 0, -zmin))
 
     parts = {'shaft': src}
@@ -139,13 +140,15 @@ def build():
     assert len(src.data.polygons) == len(lab_left) and (lab_left == 0).all(), 'split bookkeeping'
 
     allp = list(parts.values()) + aliens
-    # The head (beam, saucer, aliens) shrinks about the beam's foot, where it meets the shaft.
+    # Keep the head's top at staff height as it shrinks. Extend the narrower shaft to meet it.
     foot = (fit @ Vector((0, 0, float(cen[lab == 1][:, 2].min())))).z
-    head = Matrix.Translation((0, 0, foot)) @ Matrix.Scale(HEAD_SCALE, 4) @ Matrix.Translation((0, 0, -foot))
+    head_offset = TOP * (1 - HEAD_SCALE)
+    head = Matrix.Translation((0, 0, head_offset)) @ Matrix.Scale(HEAD_SCALE, 4)
+    shaft_stretch = (head_offset + foot * HEAD_SCALE - BOTTOM) / (foot - BOTTOM)
+    shaft_scale = Matrix.Diagonal((SHAFT_WIDTH_SCALE, SHAFT_WIDTH_SCALE, shaft_stretch, 1))
+    shaft = Matrix.Translation((0, 0, BOTTOM)) @ shaft_scale @ Matrix.Translation((0, 0, -BOTTOM))
     for o in allp:
-        o.data.transform(fit)
-        if o is not parts['shaft']:
-            o.data.transform(head)
+        o.data.transform((shaft if o is src else head) @ fit)
         o.matrix_world = Matrix.Identity(4)
 
     # Pivots.
@@ -162,11 +165,12 @@ def build():
 
     root = bpy.data.objects.new(SLUG, None); sc.collection.objects.link(root)
     anchor = bpy.data.objects.new(SLUG + '_fx_anchor', None); sc.collection.objects.link(anchor)
-    anchor.location = (0, 0, smx[2])
     for o in [parts['shaft'], parts['beam'], parts['saucer']]:
         o.parent = root
-    for o in aliens + [anchor]:
+    for o in aliens:
         mw = o.matrix_world.copy(); o.parent = parts['saucer']; o.matrix_parent_inverse = parts['saucer'].matrix_world.inverted(); o.matrix_world = mw
+    anchor.parent = parts['saucer']
+    anchor.location = (0, 0, smx[2] - smn[2])
 
     # ------------------------------------------------------------ materials
     mat = src.data.materials[0]

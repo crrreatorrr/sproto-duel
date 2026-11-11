@@ -3,32 +3,22 @@ import { CONFIG } from '../config';
 import type { AssetLoader } from '../assets/AssetLoader';
 import { skinScale, type SkinDef } from '../campaign/skins';
 import { glowTexture } from '../fx/textures';
-import { staffModelPath, staffSlug, type StaffId } from '../staff/catalog';
-import type { TitleStaff } from './titleStaffs';
+import { staffCard, staffModelPath, staffSlug, type StaffId } from '../staff/catalog';
 
-/** Seconds each staff is held up before the swap. */
-const HOLD = 2.8;
-/** The old staff shrinks into the hand for this long, then the new one pops out. */
-const SWAP_OUT = 0.22;
-const SWAP_IN = 0.5;
+/** Seconds for a newly shown staff to pop into view. */
+const POP_DURATION = 0.5;
 /** Peak scale of the pop (easeOutBack overshoot). */
 const POP = 1.18;
 /** Frames are drawn at most this often (the arena behind the menu renders at full rate). */
 const MIN_FRAME = 1 / 30;
 /** Largest drawing buffer side, in device pixels. */
 const MAX_BUFFER = 900;
-/** Flat material of a locked staff: a dark silhouette against the glow. */
-const LOCKED_COLOR = 0x07050f;
 
 interface StaffProp {
   root: THREE.Object3D;
-  meshes: THREE.Mesh[];
-  materials: (THREE.Material | THREE.Material[])[];
   mixer: THREE.AnimationMixer | null;
-  locked: boolean;
 }
 
-const easeIn = (t: number) => t * t * t;
 /** easeOutBack scaled so it peaks at about POP. */
 const easeOutBack = (t: number) => {
   const c = (POP - 1) * 9.5;
@@ -37,8 +27,8 @@ const easeOutBack = (t: number) => {
 };
 
 /**
- * The title screen's big live Wizard Sproto: the in-game player rig (its idle clip) holding each
- * staff of a cycle in turn, swapped with a shrink, a flash and a scale pop. Its own small canvas and
+ * The title screen's live Wizard Sproto plays its idle clip while holding the equipped staff.
+ * Newly selected staffs appear with a flash and a scale pop. Its own small canvas and
  * renderer; geometry, textures and materials are the loaded templates' (shared with the game), so
  * nothing new is loaded and `dispose` frees only what this view created.
  *
@@ -59,16 +49,12 @@ export class TitleStaffPreview {
   /** The character on show when it holds no staff (a boss skin). */
   private readonly character: SkinDef | null;
   private readonly flash: THREE.Sprite;
-  private readonly lockedMat = new THREE.MeshBasicMaterial({ color: LOCKED_COLOR });
   private readonly props = new Map<StaffId, StaffProp | null>();
   private readonly skeletons: THREE.Skeleton[] = [];
   private readonly resize: ResizeObserver;
   private readonly onVisibility = () => this.wake();
-  private cycle: TitleStaff[] = [];
-  private index = 0;
-  /** Time in the current staff's hold (then SWAP_OUT, then SWAP_IN of the next). */
-  private t = 0;
-  private phase: 'hold' | 'out' | 'in' = 'in';
+  private selected: StaffId | null = null;
+  private popTime = POP_DURATION;
   private time = 0;
   private raf = 0;
   private last = 0;
@@ -89,7 +75,7 @@ export class TitleStaffPreview {
     this.canvas.className = 'title-stage-canvas';
     this.label = document.createElement('div');
     this.label.className = 'title-staff';
-    this.label.innerHTML = '<b></b><small></small><span class="title-lock">Locked</span>';
+    this.label.innerHTML = '<b></b><small></small>';
     this.el.append(this.canvas, this.label);
 
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true, powerPreference: 'low-power', stencil: false });
@@ -134,7 +120,7 @@ export class TitleStaffPreview {
   /**
    * The preview of `skin` (Wizard Sproto by default), or null when its model, or Sproto's staff
    * socket, is missing (the title then shows the menu alone) or WebGL is unavailable. A boss skin
-   * stands at Sproto's height and shows its name instead of the staff cycle.
+   * stands at Sproto's height and shows its name.
    */
   static create(assets: AssetLoader, skin: SkinDef | null = null): TitleStaffPreview | null {
     const key = skin?.model ?? 'wizardPlayer';
@@ -152,35 +138,39 @@ export class TitleStaffPreview {
     }
   }
 
-  /** Put the stage into `host` (the main menu's slot) and run the cycle. */
-  mount(host: HTMLElement, cycle: TitleStaff[]): void {
+  /** Put the stage into the main menu's slot and show the equipped staff. */
+  mount(host: HTMLElement, id: StaffId): void {
     if (this.disposed) return;
     if (this.character) {
-      // A boss skin: its name, no staff cycle.
-      if (!this.characterShown) this.showCharacter(this.character);
-      host.appendChild(this.el);
-      this.fit();
-      this.wake();
-      return;
-    }
-    const same = cycle.length === this.cycle.length && cycle.every((s, i) => s.id === this.cycle[i]?.id && s.locked === this.cycle[i]?.locked);
-    if (!same) {
-      this.cycle = cycle;
-      this.index = 0;
-      this.show(this.cycle[0] ?? null);
+      if (!this.characterShown) {
+        this.characterShown = true;
+        this.showLabel(this.character.name, 'Character skin · look only', this.character.accent);
+      }
+    } else {
+      this.select(id);
     }
     host.appendChild(this.el);
     this.fit();
     this.wake();
   }
 
-  /** Jump to `id` (the rack equipped it) with the usual pop. */
-  focus(id: StaffId): void {
-    if (this.character) return;
-    const i = this.cycle.findIndex((s) => s.id === id);
-    if (i < 0 || i === this.index) return;
-    this.index = i;
-    this.show(this.cycle[i]);
+  /** Update the prop when the rack equips a different staff. */
+  select(id: StaffId): void {
+    if (this.disposed || this.character || id === this.selected) return;
+    const previous = this.selected && this.props.get(this.selected);
+    if (previous) previous.root.visible = false;
+    this.selected = id;
+    const prop = this.prop(id);
+    if (prop) {
+      prop.root.scale.setScalar(0.001);
+      prop.root.visible = true;
+    }
+    const card = staffCard(id);
+    this.popTime = 0;
+    this.flash.material.color.set(card.accent);
+    this.flash.material.opacity = 1;
+    this.flash.visible = true;
+    this.showLabel(card.name, card.line, card.accent);
   }
 
   dispose(): void {
@@ -195,42 +185,17 @@ export class TitleStaffPreview {
     for (const p of this.props.values()) p?.mixer?.stopAllAction();
     // Geometry, textures and model materials belong to the loaded templates the game still uses.
     for (const s of this.skeletons) s.dispose();
-    this.lockedMat.dispose();
     this.flash.material.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.props.clear();
   }
 
-  private show(staff: TitleStaff | null): void {
-    for (const [id, p] of this.props) if (p) p.root.visible = id === staff?.id;
-    if (!staff) return;
-    const prop = this.prop(staff.id);
-    if (prop) {
-      this.setLocked(prop, staff.locked);
-      prop.root.visible = true;
-    }
-    this.phase = 'in';
-    this.t = 0;
-    this.flashAt(staff);
-    this.el.style.setProperty('--staff-accent', staff.locked ? '#5d5578' : staff.accent);
-    this.el.classList.toggle('locked', staff.locked);
-    this.label.querySelector('b')!.textContent = staff.name;
-    this.label.querySelector('small')!.textContent = staff.locked ? 'Enter from the hub to unlock' : staff.line;
+  private showLabel(name: string, line: string, accent: string): void {
+    this.el.style.setProperty('--staff-accent', accent);
+    this.label.querySelector('b')!.textContent = name;
+    this.label.querySelector('small')!.textContent = line;
     // Restart the label's pop.
-    this.label.classList.remove('swap');
-    void this.label.offsetWidth;
-    this.label.classList.add('swap');
-  }
-
-  private showCharacter(skin: SkinDef): void {
-    this.characterShown = true;
-    this.phase = 'hold';
-    this.t = 0;
-    this.el.style.setProperty('--staff-accent', skin.accent);
-    this.el.classList.remove('locked');
-    this.label.querySelector('b')!.textContent = skin.name;
-    this.label.querySelector('small')!.textContent = 'Character skin · look only';
     this.label.classList.remove('swap');
     void this.label.offsetWidth;
     this.label.classList.add('swap');
@@ -242,37 +207,19 @@ export class TitleStaffPreview {
     const inst = this.assets.instantiateProp(staffModelPath(id));
     let prop: StaffProp | null = null;
     if (inst) {
-      const meshes: THREE.Mesh[] = [];
-      inst.root.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
-      });
       const clip = inst.animations.find((c) => c.name === `staff_${staffSlug(id)}_idle`);
       let mixer: THREE.AnimationMixer | null = null;
       if (clip) {
         mixer = new THREE.AnimationMixer(inst.root);
         mixer.clipAction(clip).play();
       }
-      inst.root.visible = false;
       this.socket.add(inst.root);
-      prop = { root: inst.root, meshes, materials: meshes.map((m) => m.material), mixer, locked: false };
+      prop = { root: inst.root, mixer };
     } else {
       console.warn(`[title] missing ${staffModelPath(id)}`);
     }
     this.props.set(id, prop);
     return prop;
-  }
-
-  private setLocked(p: StaffProp, locked: boolean): void {
-    if (p.locked === locked) return;
-    p.locked = locked;
-    p.meshes.forEach((m, i) => (m.material = locked ? this.lockedMat : p.materials[i]));
-  }
-
-  private flashAt(staff: TitleStaff): void {
-    const m = this.flash.material;
-    m.color.set(staff.locked ? 0x8a80b0 : staff.accent);
-    m.opacity = 1;
-    this.flash.visible = true;
   }
 
   private fit(): void {
@@ -313,29 +260,14 @@ export class TitleStaffPreview {
 
   private step(dt: number): void {
     this.time += dt;
-    this.t += dt;
-    const staff = this.cycle[this.index];
-    const prop = staff ? this.props.get(staff.id) : null;
-    let scale = 1;
-    if (this.phase === 'in') {
-      const k = Math.min(1, this.t / SWAP_IN);
-      scale = Math.max(0.001, easeOutBack(k));
-      if (k >= 1) this.toPhase('hold');
-    } else if (this.phase === 'hold') {
-      if (this.t >= HOLD && this.cycle.length > 1) this.toPhase('out');
-    } else {
-      const k = Math.min(1, this.t / SWAP_OUT);
-      scale = Math.max(0.001, 1 - easeIn(k));
-      if (k >= 1) {
-        this.index = (this.index + 1) % this.cycle.length;
-        this.show(this.cycle[this.index]);
-        scale = 0.001;
-      }
+    const prop = this.selected && this.props.get(this.selected);
+    if (this.popTime < POP_DURATION) {
+      this.popTime = Math.min(POP_DURATION, this.popTime + dt);
+      if (prop) prop.root.scale.setScalar(Math.max(0.001, easeOutBack(this.popTime / POP_DURATION)));
     }
-    if (prop) prop.root.scale.setScalar(scale);
 
     this.mixer.update(dt);
-    if (prop?.mixer) prop.mixer.update(dt);
+    prop?.mixer?.update(dt);
     // A slow sway so the rig reads as 3D, turned a little toward the staff hand.
     this.turntable.rotation.y = -0.32 + Math.sin(this.time * 0.45) * 0.28;
 
@@ -343,15 +275,10 @@ export class TitleStaffPreview {
     const m = this.flash.material;
     if (this.flash.visible && this.socket) {
       this.socket.getWorldPosition(this.flash.position);
-      const fade = this.phase === 'in' ? 1 - Math.min(1, this.t / (SWAP_IN * 0.9)) : 0;
+      const fade = 1 - Math.min(1, this.popTime / (POP_DURATION * 0.9));
       m.opacity = fade;
       this.flash.scale.setScalar(0.5 + 1.6 * (1 - fade));
       if (fade <= 0) this.flash.visible = false;
     }
-  }
-
-  private toPhase(p: 'hold' | 'out' | 'in'): void {
-    this.phase = p;
-    this.t = 0;
   }
 }

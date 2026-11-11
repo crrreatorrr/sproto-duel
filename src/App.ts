@@ -25,7 +25,6 @@ import { LocalHumanSource } from './player/PlayerController';
 import { AIController } from './enemy/AIController';
 import { HUD } from './ui/HUD';
 import { TitleStaffPreview } from './ui/TitleStaffPreview';
-import { titleStaffCycle } from './ui/titleStaffs';
 import { Menus, loadSettings, saveSettings, type MenuAction, type ResultData, type Settings, type StageInfo, type UnsavedReason } from './ui/Menus';
 import { HubLink } from './hub/link';
 import { equipStaff, isStaffId, SPROTO_STAFF, staffCard, staffModelPath, type StaffId } from './staff/catalog';
@@ -283,7 +282,7 @@ export class App {
     }
     if (this.onlineSession) this.onlineSession.staffId = id;
     this.applyStaff();
-    if (isStaffId(id)) this.titlePreview?.focus(id);
+    if (isStaffId(id)) this.titlePreview?.select(id);
   }
 
   /** Character skins unlocked: Sproto, every fighter beaten in a saved gauntlet win, all of them in god mode. */
@@ -357,8 +356,8 @@ export class App {
   }
 
   /**
-   * Main menu: the live Wizard Sproto cycling the owned staffs (every staff, unowned ones locked,
-   * without a hub session). Built on first use and again after a fight freed it.
+   * Main menu: the live Wizard Sproto holding the equipped staff.
+   * Built on first use and again after a fight freed it.
    */
   private showTitleStage(slot: HTMLElement): void {
     const skin = this.currentSkin();
@@ -370,7 +369,7 @@ export class App {
     this.titlePreview ??= TitleStaffPreview.create(this.game.assets, skin.id === DEFAULT_SKIN ? null : skin);
     this.titlePreviewSkin = skin.id;
     const load = getLoadout();
-    this.titlePreview?.mount(slot, titleStaffCycle(this.hub.connected, load.owned, load.staff));
+    this.titlePreview?.mount(slot, load.staff);
   }
 
   private disposeTitleStage(): void {
