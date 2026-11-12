@@ -4839,9 +4839,13 @@ var HubSDK = (() => {
         onCloneEachNode: (cloned) => {
           if (cloned instanceof HTMLElement && cloned.hasAttribute(UNDER)) cloned.style.setProperty("background", "none", "important");
         },
-        filter: (node) => !(node instanceof Element) || !skip.includes(node) && node.checkVisibility()
+        filter: (node) => !(node instanceof Element) || !skip.includes(node) && visible(node)
       })
     ).catch(() => null).finally(done);
+  }
+  function visible(node) {
+    if (typeof node.checkVisibility === "function") return node.checkVisibility();
+    return getComputedStyle(node).display !== "none";
   }
   function pageBackground() {
     for (const node of [document.body, document.documentElement]) {
@@ -4974,14 +4978,14 @@ ${theme.css}`;
   function captureCanvases(list, maxWidth, page = false) {
     const vw = Math.max(1, window.innerWidth);
     const vh = Math.max(1, window.innerHeight);
-    const visible = list.map((canvas) => ({ canvas, rect: canvas.getBoundingClientRect() })).filter(({ canvas, rect }) => canvas.width > 0 && canvas.height > 0 && rect.width > 1 && rect.height > 1 && rect.right > 0 && rect.bottom > 0 && rect.left < vw && rect.top < vh);
-    if (!visible.length && !page) return null;
+    const visible2 = list.map((canvas) => ({ canvas, rect: canvas.getBoundingClientRect() })).filter(({ canvas, rect }) => canvas.width > 0 && canvas.height > 0 && rect.width > 1 && rect.height > 1 && rect.right > 0 && rect.bottom > 0 && rect.left < vw && rect.top < vh);
+    if (!visible2.length && !page) return null;
     let left = 0;
     let top = 0;
     let width = vw;
     let height = vh;
-    if (visible.length === 1 && !page) {
-      const r = visible[0].rect;
+    if (visible2.length === 1 && !page) {
+      const r = visible2[0].rect;
       left = r.left;
       top = r.top;
       width = r.width;
@@ -4996,7 +5000,7 @@ ${theme.css}`;
     g.fillStyle = page ? pageBackground() : "#000";
     g.fillRect(0, 0, out.width, out.height);
     let drawn = 0;
-    for (const { canvas, rect } of visible) {
+    for (const { canvas, rect } of visible2) {
       try {
         g.imageSmoothingEnabled = getComputedStyle(canvas).imageRendering !== "pixelated";
         g.drawImage(canvas, (rect.left - left) * scale, (rect.top - top) * scale, rect.width * scale, rect.height * scale);

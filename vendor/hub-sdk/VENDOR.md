@@ -1,12 +1,12 @@
 # Vendored @metaverse/hub-sdk
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
-- branch: claude/sproto-duel-screenshot-scope-qer4am
-- sha: cf9de90
+- branch: claude/nifty-einstein-ptgr08
+- sha: 2a6a4bc
 - package: packages/hub-sdk @ 0.7.2
 - built with: `node scripts/vendor-sdk.mjs`
 - iife: dist/hub-sdk.iife.js (global HubSDK; classic script, not a CDN import)
-- iife sha256: a8108285c9ee17234067c4b0107fb60080be5e104c0bcd9c5583100b1c707052
+- iife sha256: 25b989eb2cda2227e4395c84965c7a4bea5f937c3df442c08aad8ab8c40e5a35
 - source src/createHubSdk.ts: 4ae184ef8b4a6e97192769a4118ea855fcd4463176ee7bac295a884e449ebcdf
 - source src/env.ts: c3a8eb38ea73539fa4d971da705e004355bed8258079a73a2ecbda912c35ef46
 - source src/errors.ts: 4eaba836a4dfad994b3926d90b66a158c4384ce6f100bf8a0791877c0646b541
@@ -15,7 +15,7 @@
 - source src/index.ts: 4f1d93041a8b2fb275e4a25761a2c4ed465e88ac4692c2fc856c704b3cd90767
 - source src/live.ts: 9272fe0acd8c0b8171028f163df42f7e9545408d28194da7de19e037f0417527
 - source src/nakama.ts: 67a701b47178244f1a63b433f8d715aea824b1599a49f140b35b401950ee266a
-- source src/pageShot.ts: 686f72840830e1848f26991802aa0fd16254203bc381c0351f476e1b3a039630
+- source src/pageShot.ts: 349f3196a47b9582dca4201437145b662c2d4216f2ca94c186bb9c304062fc26
 - source src/pbShop.ts: 3bbeff5bcf3b6e2c724409eadce9907432e1e52b02988938ff5e6f2ebdfe0faf
 - source src/realtime/chatRules.ts: 26913facb5c4c28c0a3529a4ecb6a3a50fadfe067736c74fb571184a9aa81b0e
 - source src/realtime/client.ts: 09b799cc261ae06eb36a3141722e7752b603c58eac66fdb2b2a4f88f4ae08b79
