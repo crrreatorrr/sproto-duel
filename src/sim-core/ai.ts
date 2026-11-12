@@ -103,6 +103,7 @@ const K = {
   maxMana: fx(WZ.maxMana),
   sprintRecover: fx(WZ.sprintRecoverMana),
   punishTime: sec(AI.punishTime),
+  rollPunishWindow: sec(AI.rollPunishWindow),
   retreatCooldown: sec(AI.retreatCooldown),
   retreatHealth: fx(AI.retreatHealth),
   lowMana: fx(AI.lowMana),
@@ -158,6 +159,8 @@ export class SimAI {
   private pauseTimer = 0;
   private decisionTimer = 0;
   private punishTimer = 0;
+  /** When the target last rolled with nothing of ours to dodge (-1: not yet). */
+  private emptyRollAt = -1;
   private losTimer = 0;
   private hasLos = true;
   private lost = false;
@@ -201,6 +204,14 @@ export class SimAI {
     });
     ev.on('stunned', (e) => {
       if (e.w === this.target.index) this.tryPunish();
+    });
+    ev.on('dodge', (e) => {
+      // A roll with nothing of ours on its way is a whiff too (rolling on cooldown, not a dodge).
+      if (e.w !== this.target.index || me.cast !== null || this.world.powers.channeling(me)) return;
+      for (const s of this.world.spells.active) if (s.owner.side === me.side) return;
+      const again = this.emptyRollAt >= 0 && this.time - this.emptyRollAt < K.rollPunishWindow;
+      this.emptyRollAt = this.time;
+      if (again) this.tryPunish();
     });
     ev.on('ultWave', (e) => {
       if (e.w === this.target.index) this.ultWatch = me.health;
@@ -246,6 +257,7 @@ export class SimAI {
     this.burstLeft = 0;
     this.pauseTimer = this.rand(sec(0.3), sec(0.8));
     this.punishTimer = 0;
+    this.emptyRollAt = -1;
     this.comboBlastAt = -1;
     this.ultWatch = -1;
     this.retreatCooldown = 0;

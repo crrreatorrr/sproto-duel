@@ -3,7 +3,8 @@
 ## 1. Status
 
 Implemented on 2026-11-11, except B4, D3 and D4: see section 11 for what shipped, the values used
-and the measurements after. Sections 2 to 10 are the plan as it was written, before any code
+and the measurements after, section 12 for the follow-up, and section 13 for the independent check
+of 2026-11-12, which is the current state where the three differ. Sections 2 to 10 are the plan as it was written, before any code
 changed; where section 11 differs from a proposed number, section 11 is what the game does.
 
 - Audited 2026-11-09 at `b59fd30`. Re-read 2026-11-11 at `2d4b984`: two commits landed in between,
@@ -388,3 +389,85 @@ standing. Sections 11's tables predate this; where they differ, this section is 
 - **Ladder.** With the softened Adept as the reference player and the smaller bars the soak reads
   100 / 92 / 83 / 58 / 0%: the middle is easier than before. Boss damage was not re-tuned for it.
 
+## 13. Independent check and retune (2026-11-12)
+
+Section 12 merged without review. It was re-measured with separate scripts (the probes of
+`src/qa/simProbe.ts` driven from outside, the pre-pass commit `2d4b984` checked out beside it, and
+the legacy `campaignSoak` in headless Chromium, 24 to 36 seeded fights a boss), and the misses were
+fixed. `DUEL_SIM_VERSION` is `8f68aa09e9873540`; where this section differs from 11 or 12, this one
+is current.
+
+- **Staves.** Held fire with a person's aim on Sahil (12 fights of 5 minutes each, immortal), as
+  damage a second against the stock staff:
+
+  | Staff | Before the pass (`2d4b984`) | Section 12 | Now | Damage a second now | Stage 1 (1870) |
+  | --- | --- | --- | --- | --- | --- |
+  | Stock | 1 (1.74 a second) | 1 | 1 | 3.90 | 8.0 min |
+  | Moonward | 1.55 | 1.52 | 1.52 | 5.93 | 5.3 min |
+  | Shooter | 2.80 | 3.27 | 2.78 | 10.84 | 2.9 min |
+  | Alien Ray | 3.19 | 3.25 | 3.25 | 12.69 | 2.5 min |
+  | Fighter | 3.77 | 4.55 | 3.71 | 14.45 | 2.2 min |
+
+  Section 12's "before" ratios (3.1 and 4.2) could not be reproduced: at `2d4b984` the Shooter
+  Staff measured 2.8 and the Fighter Staff 3.8. At x6 the Shooter had also overtaken the Alien
+  Ray, which changes the old order. So Shooter is x5.25 (21 a bolt, 10 mana) and Fighter x2.1
+  (8.4 a bolt, free). Stock, Moonward and Alien Ray are untouched. Held fire in a Quick Duel round
+  against the Archmage (the one profile that kept its aim) deals 50 / 77 / 103 / 148 / 130 of 330
+  health for the five staves, against 28 / 38 / 52 / 72 / 99 of 220 before the pass. The order and
+  the band are pinned in `src/qa/simProbe.test.ts`.
+- **Quick Duel.** The scripted attacker (strafes, holds fire, casts what it can afford; 400 rounds
+  a rival, perfect and human aim) won 70% / 58% of rounds against the Apprentice, 27% / 25% against
+  the Adept and none against the Archmage, so the Adept was still too sharp for a middle step.
+  Adept: reaction 0.32 to 0.34 s, aim error 0.15 to 0.16, dodge chance 0.4 to 0.3, shield
+  preference 0.35 to 0.28. Apprentice: aim error 0.16 to 0.17. Now 68% / 62%, 37% / 41%, 0% / 0%
+  (65%, 39% and 0% over both aims). With pauses to let mana return the same script wins 78%, 50%
+  and 0%.
+- **Roll.** The gentler rivals take most of the 80 s round to knock out anything that moves, so
+  the gap only shows against the Archmage: strafing lived 24.7 s and rolling on cooldown 32.0 s,
+  30% longer (180 rounds each). The roll's own numbers move it little (cooldown 2.0 s: 21%, with
+  Archmage rounds down to 46 s), because half of what the roll saves is shots aimed where the
+  roller no longer is. The rivals now treat rolling on cooldown as the whiff it is: a roll with
+  none of the AI's spells in the air and no cast winding up, within 4 s of the last such roll
+  (`CONFIG.ai.rollPunishWindow`), opens the profile's ordinary punish window. One roll to
+  reposition, and any roll that dodges something, is never punished. Now 24.3 s against 27.7 s
+  (14%, 240 rounds each); against the Adept 68.6 s against 66.8 s. Archmage rounds against itself
+  fell from 50.3 to 48.8 s with that, so its dodge chance went from 0.78 to 0.84: 50.8 s (311
+  rounds; Apprentice 65.4 s, Adept 59.0 s). The same rule is in the legacy `AIController`.
+- **ROLL cue**, checked in Chromium: the bar is bright with ROLL when ready, dim while it
+  refills, and a press too early to be buffered turns it red with NOT READY for 0.4 s; a press
+  within 0.15 s of ready rolls with no flash. Two gaps were closed: a press during a roll, and a
+  press that the buffer could not turn into a roll (in the air, stunned), did nothing and showed
+  nothing. Both flash now, and the label no longer lags the colour by a frame.
+- **Ladder.** The reference soak on the tree as merged (and with the softer Adept) read
+  100 / 75-88 / 92 / 67 / 0%. Stage health stays: with Moonward and a person's aim a stage takes 5.3
+  minutes standing still on Sahil and 3.4 to 5.3 minutes across the ladder for a player who also
+  strafes and casts. The stock staff's longest stage is 8.1 minutes standing still on Sahil and 7.5
+  minutes for the strafing script anywhere on the ladder, under the nine-minute cap; standing still
+  and only holding fire against Tinubu it is 10 to 11 minutes (the cap's closing ring then ends it),
+  which no living player does.
+  Boss damage was raised instead (`damageMultiplier`): Bitcoin Obama 0.64 to 0.73 and The Midget
+  0.46 to 0.53, Broccoli Head 0.76 to 0.93, Glowie 0.86 to 1.0. Sahil and Tinubu are unchanged.
+  The ladder reads 100% (48/48), 69% (25/36), 39% (14/36), 21% (5/24), 0% (0/48); Broccoli Head
+  moved between 29% and 58% across 24-fight runs near this value, so read it as about 45%.
+- **Practice**, played in Chromium with key and mouse events: all eight lessons complete when
+  started fresh, with the bar drained and every cooldown running, with fire held through the
+  skips, and from beside the fire ring; Restart, Quit, Practice Again and a Quick Duel straight
+  after all leave nothing behind. One wrinkle fixed: a lesson whose goal was already met when it
+  came up ("Let it refill" on a full bar, "Mana" on a bar already run down) completed on its first
+  tick, unseen, and counted as done, so skipping everything ended on "1 of 8 lessons done". It now
+  stays on screen for 3 s and moves on uncounted.
+- **Feedback window** (N twice, and the pause menu's button) in a Quick Duel, Practice and a boss
+  fight: the sim does not advance while it is open (tick, clock, health and the lesson's own timer
+  unchanged over 240 frames; Enter does not skip a lesson; a roll press does nothing), Escape closes
+  it and the game resumes where it was, or stays paused if it was. Opened over a boss win, the
+  results wait and the win is reported once.
+- **Rewards**, with a hub double counting calls: a boss win posts `sproto.boss_defeated` once,
+  with its replay, with no checkpoint used and with both used; a loss posts nothing; Practice makes
+  no report; a Quick Duel win posts no event (a ranked portal session still posts its one
+  `sproto_wins` score, as before).
+- **Logs.** The scripted bot's losses are now 5.9 to 26.4 KB (the first boss, 21 minutes): the hub
+  should allow 64 KB (`docs/SERVER-SIM.md`).
+
+Not tested: frame times (the container renders about one frame a second, on a machine shared with
+other jobs, so the browser checks ran on the game's own frame path at a fixed 60 Hz without
+drawing), audio, a real controller, Local Versus, online play, and people.

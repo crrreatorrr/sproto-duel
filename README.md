@@ -477,26 +477,30 @@ telegraphs; single-life fights):
 
 | Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Boss damage/s per stage | Power share of damage |
 |---|---|---|---|---|---|---|---|
-| Sahil | none | 100% (12/12) | 14.8 min | 3 | 5.3 / 4.9 / 4.6 | 0.20 / 0.50 / 0.85 | 31% |
-| Bitcoin Obama & The Midget | carpet | 92% (11/12) | 14.6 min | 2.9 / 3 | 6.5 / 4.8 / 3.7 | 0.36 / 0.81 / 0.79 | - |
-| Broccoli Head | carpet, pump | 83% (10/12) | 12.1 min | 3 | 4.0 / 3.8 / 4.3 | 0.38 / 0.91 / 1.53 | - |
-| Glowie | carpet, pump, vape | 58% (7/12) | 13.2 min | 3 | 4.7 / 4.2 / 4.5 | 0.60 / 0.89 / 1.81 | - |
-| Tinubu | carpet, pump, vape, lock-on | 0% (0/12) | 10.8 min | 2.2 | 4.7 / 6.9 / - | 0.62 / 1.31 / 2.19 | - |
+| Sahil | none | 100% (24/24) | 15.3 min | 3 | 5.4 / 5.1 / 4.7 | 0.20 / 0.56 / 0.99 | - |
+| Bitcoin Obama & The Midget | carpet | 69% (25/36) | 13.4 min | 3 / 3 | 6.0 / 4.6 / 2.8 | 0.43 / 1.02 / 1.27 | - |
+| Broccoli Head | carpet, pump | 39% (14/36) | 12.3 min | 3 | 4.5 / 4.0 / 4.0 | 0.53 / 1.14 / 2.03 | - |
+| Glowie | carpet, pump, vape | 21% (5/24) | 12.6 min | 3 | 4.5 / 4.4 / 4.7 | 0.68 / 0.96 / 2.34 | - |
+| Tinubu | carpet, pump, vape, lock-on | 0% (0/24) | 9.2 min | 2 | 4.5 / 4.2 / - | 0.70 / 1.70 / 2.10 | - |
 
-Measured 2026-11-11 after the balance pass and its follow-up. A wizard has 330 health (was 220)
-and held fire no longer starves for mana. Stage damage is x1.2 / x1.4 / x1.5 (it was x1 / x1.25 /
-x1.5 against 220 health), powers deal `CONFIG.powers.damageScale` (0.6) of their listed damage,
-and pools, vents, the fire ring and lava went up by half with the health. The stage bars are sized
-for a person's aim with a mid staff (see Three stages above). The reference AI is the Adept
-profile, which was softened in the follow-up, so this table is not comparable with the one before
-it (100% / 67% / 33% / 25% / 0%): the middle of the ladder reads easier than it did, and the boss
-damage has not been re-tuned for that. The soak runs the legacy engine, which has no stage
-checkpoints: a player gets one restart in each of stages 2 and 3 on top of this.
+Measured 2026-11-12 (24 or 36 seeded fights a boss), after the balance pass, its follow-up and
+the ladder retune. A wizard has 330 health (was 220) and held fire no longer starves for mana.
+Stage damage is x1.2 / x1.4 / x1.5 (it was x1 / x1.25 / x1.5 against 220 health), powers deal
+`CONFIG.powers.damageScale` (0.6) of their listed damage, and pools, vents, the fire ring and lava
+went up by half with the health. The stage bars are sized for a person's aim with a mid staff (see
+Three stages above). The reference AI is the Adept profile, which is a softer player than the one
+the ladder was first tuned with (100% / 67% / 33% / 25% / 0% then). With the smaller stage bars the
+middle of the ladder had become easy (100% / 92% / 83% / 58% / 0%), so the damage of fights 2 to 4
+was raised until it is a climb again: about 100 / 70 / 45 / 20 / 0%. The soak runs the legacy
+engine, which has no stage checkpoints: a player gets one restart in each of stages 2 and 3 on top
+of this.
 
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
-fights), so a 12-fight rate moves by roughly ±15 points between runs. Each boss's spell damage is
-also scaled on its own: Sahil ×0.77, Bitcoin Obama ×0.64 and The Midget ×0.46, Broccoli Head ×0.76,
-Glowie ×0.86, Tinubu ×0.74. A player who stands still takes far more than the reference AI.
+fights), so a 12-fight rate moves by roughly ±15 points between runs (Broccoli Head read 29% to
+58% across 24-fight runs within 0.03 of this multiplier). Each boss's spell damage is
+also scaled on its own (`damageMultiplier`): Sahil ×0.77, Bitcoin Obama ×0.73 and The Midget ×0.53,
+Broccoli Head ×0.93, Glowie ×1.0, Tinubu ×0.74 (fights 2 to 4 were ×0.64 and ×0.46, ×0.76, ×0.86
+before the retune). A player who stands still takes far more than the reference AI.
 Tinubu is almost impossible: the reference AI dies in his second form.
 
 ## God mode (testing)

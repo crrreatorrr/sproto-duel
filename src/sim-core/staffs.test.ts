@@ -31,9 +31,9 @@ describe('staff bolt damage', () => {
   });
 
   it.each([
-    ['duel_staff_fighter', 0, 10],
-    ['duel_staff_shooter', 10, 24],
-  ])('%s fires for %i mana and deals %i damage', (staff, mana, damage) => {
+    ['duel_staff_fighter', 0, 8.4],
+    ['duel_staff_shooter', 10, 21],
+  ])('%s fires for %i mana and deals %f damage', (staff, mana, damage) => {
     const w = new SimWorld({ seed: 3, rules: 'quick', arena: 'moonlit', staffs: [staff, null] });
     w.ais.length = 0;
     while (w.actionsLocked) w.step([null]);
@@ -48,7 +48,7 @@ describe('staff bolt damage', () => {
       w.step([FIRE]);
     }
     expect(player.mana).toBe(0);
-    expect(w.spells.active[0]?.damage).toBe(fx(damage));
+    expect((w.spells.active[0]?.damage ?? 0) / ONE).toBeCloseTo(damage, 3);
   });
 
   it('is a look only under even rules (Local Versus and online)', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
-import { LESSONS, LessonRun, type LessonKeys } from './lessons';
+import { LESSONS, LessonRun, MET_ON_ENTRY_SHOW, type LessonKeys } from './lessons';
 
 const W = CONFIG.wizard;
 const KEYS: LessonKeys = { bolt: 'left click', blast: 'Right click', dodge: 'C', shield: 'Q', move: 'W A S D' };
@@ -67,8 +67,12 @@ describe('Practice lessons', () => {
     run.skip(W.maxMana);
     run.skip(W.maxMana);
     expect(run.lesson?.id).toBe('recover');
-    expect(run.update(DT, W.maxMana)).toBe(true);
+    // Already met when it came up: shown for a moment, then on, and not counted as done.
+    expect(run.update(DT, W.maxMana)).toBe(false);
+    expect(run.update(MET_ON_ENTRY_SHOW / 2, W.maxMana)).toBe(false);
+    expect(run.update(MET_ON_ENTRY_SHOW / 2, W.maxMana)).toBe(true);
     expect(run.lesson?.id).toBe('blast');
+    expect(run.earned).toBe(0);
     // Entered a little short of full: it completes as the bar tops up.
     const b = new LessonRun(W.maxMana);
     b.skip(W.maxMana);
@@ -79,7 +83,10 @@ describe('Practice lessons', () => {
     const c = new LessonRun(W.maxMana);
     c.skip(W.maxMana * 0.3);
     expect(c.lesson?.id).toBe('mana');
-    expect(c.update(DT, W.maxMana * 0.3)).toBe(true);
+    expect(c.update(DT, W.maxMana * 0.3)).toBe(false);
+    expect(c.update(MET_ON_ENTRY_SHOW, W.maxMana * 0.3)).toBe(true);
+    expect(c.lesson?.id).toBe('recover');
+    expect(c.earned).toBe(0);
   });
 
   it('skipping and the perfect lesson\'s time limit move on without counting as done', () => {

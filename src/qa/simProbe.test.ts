@@ -38,6 +38,49 @@ describe('AI against AI (plan section 9)', () => {
   }, 30000);
 });
 
+describe('roll (plan B2)', () => {
+  it('rolling on cooldown outlasts strafing by about 15% at most', () => {
+    // Against the Archmage (the gentler rivals run into the round clock). About 14% over 240 rounds.
+    const strafe = scripted('strafe', 'hard', 48, { firstRoundOnly: true }).survival.mean;
+    const roll = scripted('rollSpam', 'hard', 48, { firstRoundOnly: true }).survival.mean;
+    expect(roll).toBeLessThan(strafe * 1.25);
+  }, 60000);
+});
+
+describe('Quick Duel rivals', () => {
+  it('a simple attacker beats the Apprentice most rounds, the Adept some, the Archmage almost never', () => {
+    // 'attacker': strafes, holds fire, casts what it can afford. About 65% / 39% / 0% over 400 rounds.
+    const won = (['easy', 'normal', 'hard'] as const).map((d) => {
+      const r = scripted('attacker', d, 16, { seed: 31000 });
+      return r.roundsWon / r.rounds;
+    });
+    expect(won[0]).toBeGreaterThan(0.5);
+    expect(won[0]).toBeLessThan(0.9);
+    expect(won[1]).toBeGreaterThan(0.22);
+    expect(won[1]).toBeLessThan(0.55);
+    expect(won[1]).toBeLessThan(won[0]);
+    expect(won[2]).toBeLessThan(0.15);
+  }, 60000);
+});
+
+describe('staff standing', () => {
+  it('held fire with a person\'s aim on Sahil keeps the staves in order and near their old ratios', () => {
+    // Damage a second against stock before the mana pass: Moonward 1.55, Shooter 2.8, Alien Ray 3.2, Fighter 3.8.
+    const dps = (staff: string | null) => bossProbe('sahil', 'holdFire', { aim: 'human', staff, immortal: true, seconds: 300, fights: 4 }).dpsDealt;
+    const stock = dps(null);
+    const [moonward, shooter, alien, fighter] = ['moonward', 'shooter', 'alien_ray', 'fighter'].map((id) => dps(`duel_staff_${id}`) / stock);
+    expect(moonward).toBeGreaterThan(1.3);
+    expect(moonward).toBeLessThan(1.8);
+    expect(shooter).toBeGreaterThan(moonward);
+    expect(shooter).toBeGreaterThan(2.4);
+    expect(shooter).toBeLessThan(3.15);
+    expect(alien).toBeGreaterThan(shooter);
+    expect(alien).toBeLessThan(3.7);
+    expect(fighter).toBeGreaterThan(alien);
+    expect(fighter).toBeLessThan(4.2);
+  }, 120000);
+});
+
 describe('probes', () => {
   it('the Quick Duel world plays the rival asked for', () => {
     expect(quickWorld(1, 'easy').setup.difficulty).toBe('easy');
