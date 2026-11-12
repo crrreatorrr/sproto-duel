@@ -323,6 +323,7 @@ export class AudioManager {
     on('phasePotion', (e) => {
       if (isPlayer(e.wizard)) this.play('lifePackPickup', { exactPitch: true });
     });
+    on('checkpoint', () => this.play('lifePackSpawn', { exactPitch: true }));
     on('lifePackExpire', (e) => this.play('ticketExpire', { pos: e.pos, rate: 0.8, volume: 0.6 }));
     on('ultReady', (e) => {
       if (isPlayer(e.wizard)) this.play('ultReady', { exactPitch: true });

@@ -204,6 +204,14 @@ export class LifePacks {
     return Math.max(0, L.maxPerFight - this.spawned);
   }
 
+  /** A gauntlet checkpoint handed back `n` spent packs (the sim's SimLifePacks.restore): the hearts follow. */
+  restore(n: number): void {
+    this.clearPack();
+    this.spawned = Math.max(0, this.spawned - n);
+    this.sinceLast = 1e9;
+    this.retry = 0;
+  }
+
   /** A new fight: the full budget again, nothing on the floor. */
   reset(): void {
     this.spawned = this.collected = this.expired = 0;

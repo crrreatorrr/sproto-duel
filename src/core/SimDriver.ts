@@ -198,6 +198,7 @@ export class SimDriver {
       m.clock.elapsed = sec(sw.rules.single ? sw.clock.elapsed : sm.elapsed);
     }
     g.actionsLocked = sw.actionsLocked;
+    g.checkpointReady = sw.checkpointStage() >= 0;
     if (sw.boss) this.applyBossFight();
     this.applied = sw.tick;
   }
@@ -525,6 +526,11 @@ export class SimDriver {
         break;
       case 'lifePackExpire':
         emit('lifePackExpire', { id: e.o, pos });
+        break;
+      case 'checkpoint':
+        // The stage restarts: the sim has put everyone back; drop the leftovers on screen.
+        this.game.onSimCheckpoint(CONFIG.campaign.checkpoint.lifePacks);
+        emit('checkpoint', { stage: e.n, packs: CONFIG.campaign.checkpoint.lifePacks });
         break;
       default:
         this.game.presentSimEvent?.(e, pos, w, o);

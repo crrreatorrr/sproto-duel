@@ -194,7 +194,7 @@ export const CONFIG = {
     /** Inner edge of the fire ring. Touching it burns. */
     fireRadius: 27.8,
     fireWidth: 1.8,
-    fireDps: 26,
+    fireDps: 39,
     fireTickInterval: 0.25,
     /** Inward knockback speed applied while burning. */
     firePush: 11,
@@ -262,7 +262,7 @@ export const CONFIG = {
       ceilingHeight: 12,
     },
     /** Lava pools (volcano): burn per second while standing in one (feet on the floor). */
-    lavaDps: 22,
+    lavaDps: 33,
     /** The AI keeps this far from the edge of a lava pool. */
     lavaMargin: 1.2,
     /** Golden tickets keep this far from hazards, vape clouds and mover rails. */
@@ -392,11 +392,24 @@ export const CONFIG = {
   wizard: {
     radius: 0.42,
     height: 1.85,
-    maxHealth: 220,
-    maxMana: 100,
-    manaRegen: 13,
-    /** Seconds after spending mana before regen resumes. */
-    manaRegenDelay: 0.3,
+    /**
+     * 330, up from 220 when held fire stopped starving (see the mana notes below): sustained
+     * damage about doubled, and this keeps AI-against-AI rounds at 51-70 s. Everything that hurts a
+     * wizard by a fixed amount (fire ring, lava, boss damage, hazards) went up by the same 1.5x.
+     */
+    maxHealth: 330,
+    /**
+     * Mana. Held fire spends about 27 mana a second, more than regen pays for: the bar drains at
+     * about 11 a second, from full to under one Blast in roughly 12 s, and from then on shots
+     * leave at the regen rate (about 3 a second). Regen never pauses for spending
+     * (`manaRegenDelay` 0), so letting go of fire for two seconds buys a Blast. Before: 100 mana,
+     * regen 13 with a 0.3 s delay that every shot restarted, which left a player holding fire at
+     * 0-10 mana with the rest of the kit locked.
+     */
+    maxMana: 160,
+    manaRegen: 16,
+    /** Seconds after spending mana before regen resumes (sprinting still stops regen). */
+    manaRegenDelay: 0,
     moveSpeed: 6.6,
     sprintSpeed: 9.6,
     sprintManaPerSecond: 10,
@@ -421,7 +434,17 @@ export const CONFIG = {
       speed: 16.5,
       duration: 0.34,
       iframes: 0.28,
-      cooldown: 0.55,
+      /**
+       * Seconds after a roll ends before the next one can start. 1.2, up from 0.55: rolling on
+       * cooldown used to be invulnerable a third of the time for free; now it is under a fifth.
+       */
+      cooldown: 1.2,
+      /**
+       * Seconds a roll press is remembered, the same as other actions (CONFIG.feel.inputBuffer): a
+       * press that cannot roll yet either rolls within this or is refused at once, and the HUD's
+       * ROLL bar flashes for a refused one. (0.3 was tried: rolls fired up to a quarter second late.)
+       */
+      inputBuffer: 0.15,
     },
     jump: {
       /** Takeoff speed (m/s). Apex = velocity^2 / (2 * gravity), airtime = 2 * velocity / gravity. */
@@ -483,7 +506,7 @@ export const CONFIG = {
       splashRadius: 3.6,
       /** Fraction of damage dealt at the edge of the splash. */
       splashFalloff: 0.35,
-      speed: 20,
+      speed: 28,
       radius: 0.5,
       manaCost: 24,
       cooldown: 3,
@@ -513,7 +536,7 @@ export const CONFIG = {
       /** A stunned wizard takes this much more damage, and its hits that land while it is stunned deal this much more. */
       stunnedDamageMultiplier: 1.5,
       cooldown: 8,
-      manaCost: 22,
+      manaCost: 14,
       castTime: 0.2,
       range: 34,
       damage: 6,
@@ -523,9 +546,10 @@ export const CONFIG = {
     ultimate: {
       chargeMax: 100,
       chargePerDamageDealt: 0.5,
-      chargePerDamageTaken: 0.2,
+      /** A comeback mechanic: being hit charges it nearly as fast as hitting. */
+      chargePerDamageTaken: 0.4,
       castTime: 0.3,
-      damage: 38,
+      damage: 65,
       waveSpeed: 30,
       maxRadius: 40,
       /** Damage multiplier if the target is shielding when the wave hits. */
@@ -546,7 +570,7 @@ export const CONFIG = {
     /** A stage's first use of each power comes after this share of its recharge. */
     firstDelay: 0.4,
     /** Every power's damage is scaled by this (balance against the boss's spells: README ladder). */
-    damageScale: 0.4,
+    damageScale: 0.6,
     /** Seconds between any two powers of the fight's bosses (a double fight takes turns). */
     gap: 4,
     /** A boss only starts a power with the target in sight (or a strike, barrage, cloud from the air). */
@@ -625,8 +649,8 @@ export const CONFIG = {
        * Health per second to whoever stands in it, `charge` in all; then it is dry until the next
        * stage's shift fills it again (so it gives at most two fills a fight).
        */
-      heal: 9,
-      charge: 40,
+      heal: 14,
+      charge: 60,
     },
     vent: {
       count: 3,
@@ -697,7 +721,7 @@ export const CONFIG = {
       radius: 2.5,
       height: 3.2,
       /** HP per second while the caster stands inside its own cloud... */
-      healPerSecond: 2,
+      healPerSecond: 3,
       /** ...except for this long after it attacks from inside (Wizard.sinceAttack): no hiding and healing while shooting. */
       castHealPause: 1,
       /** Seconds the cloud takes to billow out, and to thin away at the end. */
@@ -820,7 +844,7 @@ export const CONFIG = {
     shooter: {
       name: 'Shooter Staff',
       boltLabel: 'Missile',
-      boltDamageMult: 4,
+      boltDamageMult: 6,
       boltManaMult: 2,
       boltSkin: 'missile' as const,
       bolt: 0xff942b,
@@ -830,6 +854,7 @@ export const CONFIG = {
     },
     fighter: {
       name: 'Fighter Staff',
+      boltDamageMult: 2.5,
       boltManaMult: 0,
       bolt: 0x56eaff,
       trail: 0x9262ff,
@@ -1097,9 +1122,9 @@ export const CONFIG = {
       breathFacing: 25,
     },
     /**
-     * AI profiles. The game has one difficulty: Quick Duel always uses `normal` (the Rival), and the
-     * Boss Gauntlet's bosses (src/campaign/levels.ts) are the difficulty ladder. `easy` and `hard`
-     * are not selectable; they are reference opponents for QA soaks and balance probes.
+     * AI profiles. Quick Duel's rival is the one the player picks on the main menu (Settings
+     * `quickDifficulty`, Apprentice by default); the Boss Gauntlet's bosses (src/campaign/levels.ts)
+     * have their own. The QA soaks and balance probes use all three as reference opponents.
      */
     difficulty: {
       easy: {
@@ -1118,20 +1143,22 @@ export const CONFIG = {
         strafeSpeed: 0.65,
         preferredRange: [10, 15],
       },
+      // The middle step: a scripted attacker wins about a third of its rounds against it (it won
+      // one in twenty against the sharper profile this replaced, and wins most against easy).
       normal: {
         label: 'Adept',
-        reactionTime: 0.27,
-        aimError: 0.09,
-        leadFactor: 0.45,
-        dodgeChance: 0.5,
-        shieldPreference: 0.4,
-        perfectShieldChance: 0.25,
-        burst: [3, 5],
-        burstPause: [0.6, 1.2],
-        blastChance: 0.45,
-        stunChance: 0.35,
-        punishChance: 0.6,
-        strafeSpeed: 0.85,
+        reactionTime: 0.32,
+        aimError: 0.15,
+        leadFactor: 0.15,
+        dodgeChance: 0.4,
+        shieldPreference: 0.35,
+        perfectShieldChance: 0.12,
+        burst: [2, 3],
+        burstPause: [1.0, 1.7],
+        blastChance: 0.3,
+        stunChance: 0.2,
+        punishChance: 0.35,
+        strafeSpeed: 0.8,
         preferredRange: [9, 15],
       },
       hard: {
@@ -1187,6 +1214,14 @@ export const CONFIG = {
      *   (`capMinRadius`) over `capCloseTime`, so the fight always ends.
      */
     fight: { stageCap: 9 * 60, stageCapRadius: 14, safetyCap: 35 * 60, capMinRadius: 0, capCloseTime: 60, reopenSpeed: 6 },
+    /**
+     * Checkpoints: a knockout in a boss's second or third stage restarts that stage instead of
+     * ending the fight, once per stage (stage 1 has none: a loss there costs little). The player is
+     * back on the mark at full health, every boss still standing gets its current bar back,
+     * `lifePacks` of the fight's spent life packs return, and after `banner` s a normal countdown
+     * resumes the fight. A second knockout in the same stage is the defeat.
+     */
+    checkpoint: { enabled: true, lifePacks: 1, banner: 1.2 },
     /**
      * Headless transformations (QA, soaks; the real game plays `cinematic` instead, with the
      * simulation frozen): seconds the boss is invulnerable and frozen while it transforms.
@@ -1322,7 +1357,7 @@ export const CONFIG = {
       maxChance: 0.95,
     },
     /** Multiplies the boss's damage per stage, on top of BossDef.damageMultiplier: the last stage hurts most. */
-    stageDamage: [1, 1.25, 1.5] as [number, number, number],
+    stageDamage: [1.2, 1.4, 1.5] as [number, number, number],
     /**
      * Every boss presses harder with his ordinary spells than his base profile (BossStages
      * stageProfile): shorter pauses between bursts, longer bursts, more blasts, stuns and punishes,

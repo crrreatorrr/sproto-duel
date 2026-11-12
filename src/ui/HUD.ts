@@ -130,6 +130,9 @@ export class HUD {
   private readonly packRow: HTMLElement;
   private readonly dodge: HTMLElement;
   private readonly dodgeLabel: HTMLElement;
+  /** Roll presses seen so far, and seconds left of the "not ready" flash for a refused one. */
+  private rollPresses = 0;
+  private rollDenied = 0;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
   /** Online: the round-trip time chip (null hides it). */
@@ -371,6 +374,10 @@ export class HUD {
         this.showBanner(`Fight ${this.match.bossIndex + 1}`, bossLine(), 'round', CONFIG.match.introTime);
         return;
       }
+      if (g.practice) {
+        this.showBanner('Practice', 'Nobody gets hurt here', 'round', CONFIG.match.introTime);
+        return;
+      }
       const last = this.match.wins.some((w) => w === CONFIG.match.roundsToWin - 1) && this.match.wins[0] === this.match.wins[1];
       this.showBanner(last ? 'Final Round' : `Round ${e.round}`, bossLine(), 'round', CONFIG.match.introTime);
     });
@@ -438,6 +445,13 @@ export class HUD {
     });
     events.on('lifePackPickup', (e) => {
       g.popups.spawn(e.wizard.chest(tmp).setY(e.wizard.pos.y + 2), `+${Math.round(e.healed)} HP`, 'heal');
+      this.healFlash = 0.6;
+    });
+    // A checkpoint caught the knockout: the stage starts over.
+    events.on('checkpoint', (e) => {
+      setAccent(this.banner.parentElement!, null);
+      const packs = e.packs > 0 ? ` · ${e.packs === 1 ? 'a life pack' : `${e.packs} life packs`} restored` : '';
+      this.showBanner('Checkpoint', `Stage ${e.stage + 1} starts over${packs} · no second chance this stage`, 'lifepack', CONFIG.campaign.checkpoint.banner);
       this.healFlash = 0.6;
     });
     // A boss phase ended: the heal potion's "+HP" over the player.
@@ -511,7 +525,8 @@ export class HUD {
     if (single) {
       this.set('timer', this.timer, 'text', clock(m.elapsed));
       this.set('timerc', this.timer, 'class', m.capped ? 'timer clock danger' : 'timer clock');
-      this.set('round', this.roundLabel, 'text', `Fight ${m.bossIndex + 1}/${BOSSES.length} · ${m.capped ? 'The fire closes in' : 'One life'}`);
+      const life = g.checkpointReady ? 'One life · checkpoint ready' : 'One life';
+      this.set('round', this.roundLabel, 'text', `Fight ${m.bossIndex + 1}/${BOSSES.length} · ${m.capped ? 'The fire closes in' : life}`);
     } else {
       this.set('timer', this.timer, 'text', String(Math.ceil(m.timer)));
       const danger = m.phase === 'fight' && m.timer < CONFIG.arena.suddenDeathAt;
@@ -549,8 +564,18 @@ export class HUD {
     } else {
       const dodgeReady = 1 - p.cd.dodge / (W.dodge.duration + W.dodge.cooldown);
       this.set('dodge', this.dodge, 'transform', `scaleX(${dodgeReady.toFixed(3)})`);
-      this.set('dodgelabel', this.dodgeLabel, 'text', 'ROLL');
+      this.set('dodgelabel', this.dodgeLabel, 'text', this.rollDenied > 0 ? 'NOT READY' : 'ROLL');
     }
+    // A roll pressed too early to be buffered is refused: say so on the bar instead of nothing happening.
+    const rollPresses = p.intent.presses.dodge;
+    if (rollPresses !== this.rollPresses) {
+      this.rollPresses = rollPresses;
+      const blinkReady = !!blink && p.intent.sprint && p.cd.blink <= 0;
+      if (!blinkReady && !p.dodging && p.cd.dodge > W.dodge.inputBuffer && this.match.phase === 'fight') this.rollDenied = 0.4;
+    }
+    this.rollDenied = Math.max(0, this.rollDenied - dt);
+    const bar = this.dodge.parentElement!;
+    this.set('dodgebar', bar, 'class', `dodge-bar${this.rollDenied > 0 ? ' denied' : p.cd.dodge <= 0 && !blink ? ' ready' : ''}`);
 
     // Crosshair hit marker.
     this.hitMarker = Math.max(0, this.hitMarker - dt);

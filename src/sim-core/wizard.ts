@@ -142,6 +142,7 @@ const DODGE_SPEED = fx(W.dodge.speed);
 const DODGE_TIME = sec(W.dodge.duration);
 const DODGE_IFRAMES = sec(W.dodge.iframes);
 const DODGE_CD = sec(W.dodge.duration + W.dodge.cooldown);
+const DODGE_BUFFER = sec(W.dodge.inputBuffer);
 const JUMP_V = fx(J.velocity);
 const GRAVITY = fx(J.gravity);
 const MAX_FALL = fx(J.maxFallSpeed);
@@ -387,7 +388,7 @@ export class SimWizard {
 
   /** Press an action now (the sim's AI; inputs do it through applyInput). */
   press(a: number): void {
-    this.buffered[a] = INPUT_BUFFER;
+    this.buffered[a] = a === A_DODGE ? DODGE_BUFFER : INPUT_BUFFER;
   }
 
   wants(a: number): boolean {
@@ -405,7 +406,7 @@ export class SimWizard {
     this.moveZ = mv.z;
     this.holdBolt = (f.held & HELD_BOLT) !== 0;
     this.sprint = (f.held & HELD_SPRINT) !== 0;
-    for (let i = 0; i < ACTION_COUNT; i++) if (f.press & (1 << i)) this.buffered[i] = INPUT_BUFFER;
+    for (let i = 0; i < ACTION_COUNT; i++) if (f.press & (1 << i)) this.buffered[i] = i === A_DODGE ? DODGE_BUFFER : INPUT_BUFFER;
     this.latch(f);
   }
 

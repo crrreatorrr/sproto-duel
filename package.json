@@ -15,6 +15,7 @@
     "gen:audio": "node scripts/gen-placeholder-audio.mjs",
     "check:assets": "node scripts/check-assets.mjs",
     "qa:headless": "node scripts/qa-headless.mjs",
+    "probe:sim": "vite-node scripts/sim-probe.ts",
     "build:server-sim": "node scripts/build-server-sim.mjs",
     "check:server-sim": "node scripts/build-server-sim.mjs --check && node scripts/check-server-bundle.mjs",
     "gen:goldens": "node scripts/gen-goldens.mjs",

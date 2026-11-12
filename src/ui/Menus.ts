@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, type Difficulty } from '../config';
 import type { ExchangeView, HubStatus } from '../hub/link';
 import { padGlyph, type InputDevice, type PadStyle } from '../core/Gamepad';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
@@ -34,7 +34,18 @@ export interface Settings {
   /** Controller aim assist strength (0 = off, 1 = default). */
   aimAssist: number;
   rumble: boolean;
+  /** Quick Duel's rival: Apprentice ('easy'), Adept ('normal') or Archmage ('hard'). */
+  quickDifficulty: Difficulty;
+  /** The Practice lessons were finished once (the main menu stops pointing new players at them). */
+  practiceDone: boolean;
 }
+
+const DIFFICULTY_ORDER: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+const DIFFICULTY_BLURB: Record<Difficulty, string> = {
+  easy: 'slower to react, misses more',
+  normal: 'dodges, shields and punishes',
+  hard: 'fast, accurate, reflects your spells',
+};
 
 const STORAGE_KEY = 'arcane-duel-settings';
 
@@ -51,13 +62,18 @@ export function loadSettings(): Settings {
     padInvertY: false,
     aimAssist: CONFIG.gamepad.aimAssist.strength,
     rumble: CONFIG.gamepad.rumble.enabled,
+    quickDifficulty: 'easy',
+    practiceDone: false,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      // Older saves carried a difficulty choice; there is only one Quick Duel opponent now.
+      // Older saves carried a `difficulty` from before the single Rival; the choice now lives in
+      // `quickDifficulty` and starts at Apprentice.
       const { difficulty: _legacy, ...saved } = JSON.parse(raw) as Partial<Settings> & { difficulty?: unknown };
-      return { ...defaults, ...saved };
+      const out = { ...defaults, ...saved };
+      if (!DIFFICULTY_ORDER.includes(out.quickDifficulty)) out.quickDifficulty = defaults.quickDifficulty;
+      return out;
     }
   } catch {
     // Storage unavailable (private mode, blocked): defaults are fine.
@@ -183,8 +199,10 @@ export interface VersusJoinView {
 }
 
 export interface MenuHandlers {
-  /** Quick Duel against the Rival (one fixed opponent). */
+  /** Quick Duel against the Rival at Settings.quickDifficulty. */
   start(): void;
+  /** Practice: the playable tutorial against a training dummy. Missing hides the button. */
+  practice?(): void;
   /** Local Versus: open the join screen. */
   versus?(): void;
   /** Online Duel on the main menu. Null hides the button. `why` is the second line; a disabled button still shows. */
@@ -429,6 +447,13 @@ export class Menus {
   }
 
   /** Which screen is showing ('main', 'boss', 'results', 'complete', ...), or null. */
+  /** A setting the app changed itself (not through a menu): the menus' copy and the save follow. */
+  updateSettings(patch: Partial<Settings>): void {
+    Object.assign(this.settings, patch);
+    saveSettings(this.settings);
+    this.h.settingsChanged(this.settings);
+  }
+
   get current(): string | null {
     return this.screen?.classList[1] ?? null;
   }
@@ -505,16 +530,18 @@ export class Menus {
           </div>
         </div>
         <div class="mode-block">
-          <button class="primary quick-duel" data-act="start">Quick Duel<small>One best-of-three against the Rival</small></button>
+          <button class="primary quick-duel" data-act="start">Quick Duel<small data-quick-line></small></button>
+          ${this.difficultyHtml()}
           ${this.h.versus ? '<button class="ghost versus-btn" data-act="versus">Local Versus<small>Two players, one screen</small></button>' : ''}
           ${this.onlineButtonHtml()}
         </div>
-        ${this.characterRackHtml()}
-        ${this.staffRackHtml(false)}
-        <div class="row">
+        <div class="row help-row">
+          ${this.h.practice ? `<button class="ghost practice-btn${this.settings.practiceDone ? '' : ' suggest'}" data-act="practice">Practice${this.settings.practiceDone ? '' : '<small>New here? Start with this</small>'}</button>` : ''}
           <button class="ghost" data-act="howto">How to Play</button>
           <button class="ghost" data-act="settings">Settings</button>
         </div>
+        ${this.characterRackHtml()}
+        ${this.staffRackHtml(false)}
         <div class="row">
           <button class="ghost" data-act="exchange">Exchange<small>${CONFIG.hub.ticketsPerVerse} Tickets = 1 Verse</small></button>
           <button class="ghost" data-act="exit">Return to Hub<small>Sproto Duel portal</small></button>
@@ -524,6 +551,7 @@ export class Menus {
       <div class="title-slot" data-title-slot></div>`, 'main');
     this.on(s, '[data-act="start"]', () => this.h.start());
     this.paintTicketChip(s);
+    this.on(s, '[data-act="practice"]', () => this.h.practice?.());
     this.on(s, '[data-act="versus"]', () => this.h.versus?.());
     this.on(s, '[data-act="online"]', () => this.h.openOnline?.());
     this.on(s, '[data-act="gauntlet"]', () => this.h.gauntlet());
@@ -534,7 +562,41 @@ export class Menus {
     this.on(s, '[data-act="exit"]', () => this.h.exitHub());
     this.bindCharacter(s);
     this.bindStaff(s);
+    this.bindDifficulty(s);
     this.h.titleStage?.(s.querySelector<HTMLElement>('[data-title-slot]')!);
+  }
+
+  /** Quick Duel's rival: Apprentice, Adept or Archmage (CONFIG.ai.difficulty), remembered in Settings. */
+  private difficultyHtml(): string {
+    const picks = DIFFICULTY_ORDER.map((d) => {
+      const on = d === this.settings.quickDifficulty;
+      return `<button type="button" class="diff-pick${on ? ' on' : ''}" data-difficulty="${d}" role="radio" aria-checked="${on}" title="${escapeHtml(DIFFICULTY_BLURB[d])}">${escapeHtml(CONFIG.ai.difficulty[d].label)}</button>`;
+    }).join('');
+    return `<div class="difficulty-pick" role="radiogroup" aria-label="Quick Duel rival">${picks}</div>`;
+  }
+
+  private bindDifficulty(root: ParentNode): void {
+    const paint = () => {
+      const d = this.settings.quickDifficulty;
+      root.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((btn) => {
+        const on = btn.dataset.difficulty === d;
+        btn.classList.toggle('on', on);
+        btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+      const line = root.querySelector('[data-quick-line]');
+      if (line) line.textContent = `Best of three against the ${CONFIG.ai.difficulty[d].label}: ${DIFFICULTY_BLURB[d]}`;
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const d = btn.dataset.difficulty as Difficulty;
+        if (!DIFFICULTY_ORDER.includes(d)) return;
+        this.settings.quickDifficulty = d;
+        saveSettings(this.settings);
+        this.h.settingsChanged(this.settings);
+        paint();
+      });
+    });
+    paint();
   }
 
   private onlineButtonHtml(): string {
@@ -680,6 +742,8 @@ export class Menus {
           <li>The ring of fire burns. When time runs low, it closes in.</li>
           <li>Deal damage to charge your Ultimate. It carries over between rounds.</li>
           <li>Boss Gauntlet: one life per boss. Each boss stage has its own health bar; empty it and the boss transforms. Grab the life packs (three per fight).</li>
+          <li>New to this? Practice on the main menu teaches mana, Blast, the roll, the Shield and Golden Tickets against a training dummy.</li>
+          <li>Checkpoints: fall in a boss's second or third stage and that stage starts over once, with a life pack back. Fall again in the same stage and the fight is lost.</li>
           <li>Every boss you beat teaches you its spell for good, in every later fight and in Quick Duel.</li>
         </ul>
         <h3 class="reward-head">Boss spells</h3>
@@ -958,6 +1022,30 @@ export class Menus {
         <button class="primary" data-act="again">Run It Again</button>
         <button class="ghost" data-act="menu">Main Menu</button>
       </div>`, 'complete');
+    this.on(s, '[data-act="again"]', () => actions.again());
+    this.on(s, '[data-act="menu"]', () => actions.menu());
+  }
+
+  /** After the Practice lessons: what was covered, and a first Quick Duel. */
+  showPracticeDone(info: { earned: number; count: number; rival: string }, actions: { duel(): void; again(): void; menu(): void }): void {
+    const s = this.mount(`
+      <div class="menu-panel practice-done">
+        <p class="boss-fight">Practice</p>
+        <h2>Ready to duel</h2>
+        <p class="note">${info.earned >= info.count ? `All ${info.count} lessons done.` : `${info.earned} of ${info.count} lessons done, the rest skipped.`}</p>
+        <ul class="tips">
+          <li>Held fire runs your mana down. Let go for two seconds before a Blast or a Shield.</li>
+          <li>The roll needs a moment between uses; a Shield raised at the last instant sends the spell back.</li>
+          <li>Golden Tickets give you more mana for a while. Get to them before your rival does.</li>
+          <li>Not covered here: Stun freezes a rival for a second, and your Ultimate charges as you deal and take damage.</li>
+        </ul>
+        <div class="menu-actions">
+          <button class="primary" data-act="duel" data-autofocus>Quick Duel<small>Best of three against the ${escapeHtml(info.rival)}</small></button>
+          <button class="ghost" data-act="again">Practice Again</button>
+          <button class="ghost" data-act="menu" data-back>Main Menu</button>
+        </div>
+      </div>`, 'practice-done');
+    this.on(s, '[data-act="duel"]', () => actions.duel());
     this.on(s, '[data-act="again"]', () => actions.again());
     this.on(s, '[data-act="menu"]', () => actions.menu());
   }

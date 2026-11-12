@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG, type TeamPalette } from './config';
+import { CONFIG, type AIProfile, type TeamPalette } from './config';
 import { AudioManager } from './audio/AudioManager';
 import { BossCinematic } from './campaign/BossCinematic';
 import { Campaign } from './campaign/Campaign';
@@ -11,7 +11,8 @@ import { events } from './core/events';
 import { bindRumble, connectedPadIndices, GamepadInput, padsHolding, rewardLabels, spellLabels } from './core/Gamepad';
 import { bossModelKeys, nearestStanding, type Game } from './core/Game';
 import { Match } from './core/Match';
-import { GAUNTLET, ONLINE, QUICK, VERSUS, type MatchRules } from './core/rules';
+import { GAUNTLET, ONLINE, PRACTICE, QUICK, VERSUS, type MatchRules } from './core/rules';
+import { Tutorial } from './tutorial/Tutorial';
 import type { OnlineController } from './net/OnlineController';
 import type { OnlineLobby, OnlineSession, SessionState } from './net/OnlineSession';
 import type { AcceptEndMsg, FoundMsg, OutcomeMsg, RematchStateMsg, StartMsg } from './net/protocol';
@@ -44,7 +45,7 @@ export interface FeedbackHold {
  * Quick Duel (one fixed rival), the Boss Gauntlet campaign (the difficulty ladder), Local Versus
  * (two players, split-screen) or an online 1v1.
  */
-export type GameMode = 'quick' | 'gauntlet' | 'versus' | 'online';
+export type GameMode = 'quick' | 'gauntlet' | 'versus' | 'online' | 'practice';
 
 const tmpRight = new THREE.Vector3();
 const WHITE = new THREE.Color(1, 1, 1);
@@ -69,8 +70,6 @@ const ONLINE_REASONS: Record<string, string> = {
   already_in_match: 'You are already in a match.',
 };
 
-/** Quick Duel has one opponent; the Boss Gauntlet is the difficulty ladder. */
-const QUICK_DUEL_AI = CONFIG.ai.difficulty.normal;
 
 /** Top-level flow: menus, match, pause, pointer lock, audio and settings. */
 export class App {
@@ -113,6 +112,8 @@ export class App {
   /** Local Versus: P2's own pad, and P2's seat (built on first use). */
   readonly p2Pad = new GamepadInput();
   private p2Source: LocalHumanSource | null = null;
+  /** Practice: the lessons and the training dummy's seat (src/tutorial). */
+  readonly tutorial: Tutorial;
   /** Local Versus is set up (split-screen, P2's seat, no AI): leaveVersus undoes it. */
   private versusOn = false;
   /** The device split of the current (or last) Local Versus, for Rematch. */
@@ -210,10 +211,12 @@ export class App {
     game.onTick((dt) => this.attractTick(dt));
 
     this.hud = new HUD(game.ui, game, this.match);
+    this.tutorial = new Tutorial(game, game.ui);
     this.cinematic = new BossCinematic(game, this.hud.root);
     game.presenter = this.cinematic;
     this.menus = new Menus(game.ui, this.settings, {
       start: () => this.startMatch(),
+      practice: () => this.startPractice(),
       versus: () => this.showVersusJoin(),
       online: () => ({ enabled: true, why: 'Best of three · 0 Tickets' }),
       openOnline: () => this.openOnline(),
@@ -426,6 +429,10 @@ export class App {
       }
     });
     window.addEventListener('keydown', (e) => {
+      // Practice: Enter skips the lesson on screen.
+      if (!e.repeat && e.code === 'Enter' && this.state === 'playing' && this.mode === 'practice' && !this.feedbackOpen) this.tutorial.skip();
+    });
+    window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       const back = CONFIG.controls.menu.back.includes(e.code);
       if (!back && !CONFIG.controls.pause.includes(e.code)) return;
@@ -551,6 +558,7 @@ export class App {
   startVersus(devices: [DeviceBinding, DeviceBinding]): void {
     const g = this.game;
     this.endOnline();
+    this.leavePractice();
     this.versusDevices = devices;
     this.mode = 'versus';
     this.dressEnemy(null);
@@ -890,9 +898,55 @@ export class App {
   }
 
   /** Back to one player on one screen (every non-Versus mode starts with this). */
+  /**
+   * Practice: the tutorial against a training dummy (the rival's look, standing on its mark). A
+   * real match on the sim under PRACTICE rules, with the dummy's seat scripted by the Tutorial and
+   * the fight kept open until the lessons are done.
+   */
+  startPractice(): void {
+    const g = this.game;
+    this.endOnline();
+    this.leaveVersus();
+    this.mode = 'practice';
+    this.dressEnemy(null);
+    g.enemyController = null;
+    g.enemy.intent.clear();
+    g.controllers[1] = this.tutorial.source;
+    g.practice = true;
+    g.ui.classList.add('practice');
+    this.hud.setNames(['You', 'Training Dummy']);
+    this.beginMatch(null, PRACTICE);
+    this.tutorial.begin();
+  }
+
+  /** Undo startPractice (any other mode starting, or a menu). */
+  private leavePractice(): void {
+    const g = this.game;
+    this.tutorial.end();
+    if (!g.practice) return;
+    g.practice = false;
+    g.ui.classList.remove('practice');
+    if (g.controllers[1] === this.tutorial.source) g.controllers[1] = null;
+    g.enemyController = this.aiDriver;
+  }
+
+  /** Every lesson is done (or skipped): remember it and offer a first Quick Duel. */
+  private finishPractice(earned: number, count: number): void {
+    if (!this.settings.practiceDone) this.menus.updateSettings({ practiceDone: true });
+    this.enterMenuState('quick');
+    this.dressEnemy(null);
+    this.ai.setProfile(this.quickProfile());
+    this.resetAttract();
+    this.menus.showPracticeDone(
+      { earned, count, rival: CONFIG.ai.difficulty[this.settings.quickDifficulty].label },
+      { duel: () => this.startMatch(), again: () => this.startPractice(), menu: () => this.toMenu() },
+    );
+  }
+
   private leaveVersus(): void {
     const g = this.game;
     this.join = null;
+    this.leavePractice();
     if (!this.versusOn) return;
     this.versusOn = false;
     g.setSplit(false);
@@ -947,13 +1001,20 @@ export class App {
     this.attract.reset();
   }
 
-  /** Quick Duel: the one Rival (fixed AI profile) in the moonlit arena. */
+  /** The Quick Duel rival the player chose on the main menu (Settings.quickDifficulty). */
+  private quickProfile(): AIProfile {
+    return CONFIG.ai.difficulty[this.settings.quickDifficulty];
+  }
+
+  /** Quick Duel: the Rival at the chosen difficulty, in the moonlit arena. */
   startMatch(): void {
     this.endOnline();
     this.leaveVersus();
     this.mode = 'quick';
+    // The sim plays the rival, so the choice goes into its setup (and the input log).
+    this.game.simDifficulty = this.settings.quickDifficulty;
     this.dressEnemy(null);
-    this.ai.setProfile(QUICK_DUEL_AI);
+    this.ai.setProfile(this.quickProfile());
     this.hud.setNames(['You', CONFIG.teams[1].name]);
     this.beginMatch(null);
   }
@@ -1032,6 +1093,7 @@ export class App {
   /** Rematch / Retry / pause "Restart": the same opponent again. */
   restart(): void {
     if (this.mode === 'gauntlet') this.startBossFight();
+    else if (this.mode === 'practice') this.startPractice();
     else if (this.mode === 'versus' && this.versusDevices) this.startVersus(this.versusDevices);
     else this.startMatch();
   }
@@ -1184,7 +1246,8 @@ export class App {
         if (st?.current) stages.push({ index: st.stage, name: st.current.name, who: boss.partner ? w.name : '', down: !w.alive });
       }
     }
-    this.menus.showPause(boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${bossDisplayName(boss)}, ${boss.title}` : '', stages, boss ? 'Restart Fight' : 'Restart Match');
+    const sub = boss ? `Fight ${this.match.bossIndex + 1} of ${BOSSES.length} · ${bossDisplayName(boss)}, ${boss.title}` : this.mode === 'practice' ? 'Practice' : '';
+    this.menus.showPause(sub, stages, boss ? 'Restart Fight' : this.mode === 'practice' ? 'Restart Practice' : 'Restart Match');
     this.audio.setPaused(true);
   }
 
@@ -1265,7 +1328,7 @@ export class App {
     this.applySkin();
     this.enterMenuState('quick');
     this.dressEnemy(null);
-    this.ai.setProfile(QUICK_DUEL_AI);
+    this.ai.setProfile(this.quickProfile());
     this.resetAttract();
     this.menus.showMain();
   }
@@ -1275,6 +1338,8 @@ export class App {
     const g = this.game;
     this.endOnline();
     this.leaveVersus();
+    // A match left through the pause menu must not keep simulating (and finishing) behind the menu.
+    g.stopSim();
     this.match.rules = QUICK;
     g.spells.rewardSpellsEnabled = true;
     this.freshRun = false;
@@ -1331,7 +1396,7 @@ export class App {
       const sim = this.game.sim;
       void this.hub.onDuelWin(
         {
-          mode: this.mode,
+          mode: this.mode === 'practice' ? 'versus' : this.mode,
           playerWon: winner === this.game.player,
           bossId,
           godMode: this.godUsed || !!(sim && sim.world.setup.godMode),
@@ -1361,7 +1426,7 @@ export class App {
   showCampaignComplete(): void {
     this.enterMenuState('quick');
     this.dressEnemy(null);
-    this.ai.setProfile(QUICK_DUEL_AI);
+    this.ai.setProfile(this.quickProfile());
     this.resetAttract();
     this.menus.showCampaignComplete({ clears: this.campaign.saved.clears, unsaved: this.winUnsaved }, { again: () => this.newGauntlet(), menu: () => this.toMenu() });
   }
@@ -1486,6 +1551,9 @@ export class App {
 
   private frame(dt: number): void {
     const g = this.game;
+    const lessons = this.tutorial.result;
+    // (A frozen Practice waits for the feedback window to close, like a fight's results.)
+    if (lessons && this.mode === 'practice' && this.state === 'playing' && !this.feedbackOpen) this.finishPractice(lessons.earned, lessons.count);
     if (this.state === 'playing' || this.state === 'paused') this.hud.update(dt);
     const session = this.onlineSession;
     if (session?.active && !this.onlineCtl?.active) session.update();

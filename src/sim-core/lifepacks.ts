@@ -77,6 +77,14 @@ export class SimLifePacks {
     this.clearPack();
   }
 
+  /** A checkpoint hands back `n` of the fight's spent packs (none on the floor, no gap to wait out). */
+  restore(n: number): void {
+    this.clearPack();
+    this.spawned = Math.max(0, this.spawned - n);
+    this.sinceLast = OPEN;
+    this.retry = 0;
+  }
+
   /** Round start: no pack on the floor. */
   clearPack(): void {
     this.pack.active = false;

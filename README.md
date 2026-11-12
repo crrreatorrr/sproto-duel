@@ -58,8 +58,8 @@ Hub** leaves at once from the main menu; from the pause screen mid-fight it asks
 | Mouse | Look and aim (click the game to capture the mouse) |
 | Shift | Sprint (drains mana; runs dry, then needs to recover) |
 | Space / F | Jump: hop the Ultimate's shockwave (feet clear at the wavefront) or onto crumbled pillar stumps. Cast freely in the air; no rolling until you land |
-| C | Dodge roll, with brief invulnerability |
-| Left click / 1 | **Bolt**: fast, cheap, no cooldown, hold to fire |
+| C | Dodge roll, with brief invulnerability (1.2 s cooldown; a press up to 0.3 s early still rolls) |
+| Left click / 1 | **Bolt**: fast, cheap, no cooldown, hold to fire (see Mana below) |
 | Right click / 2 | **Blast**: slow big orb, area damage, 3 s cooldown |
 | Q / 3 | **Shield**: blocks for 0.8 s. Raise it in the last 0.2 s before a hit to reflect the spell back, faster and stronger |
 | E / 4 | **Stun**: beam that freezes the target for 1 s, 8 s cooldown. A stunned wizard takes 50% more damage, and its own hits that land while it is stunned deal 50% more |
@@ -68,6 +68,18 @@ Hub** leaves at once from the main menu; from the pause screen mid-fight it asks
 | Esc / P | Pause |
 | N twice | Send feedback: the game pauses and a small window takes a note and a screenshot (hub accounts only; an online fight keeps running). Also on the pause menu |
 | Arrows / W S, Enter / Space, Esc | Menus: move, select, back (Esc on the pause menu resumes) |
+
+**Practice.** The main menu's Practice is a playable tutorial against a training dummy: eight
+short lessons (Bolt, mana, letting it refill, Blast, the roll, the Shield, the perfect reflect and
+Golden Tickets), each finished by doing it. Nobody can be knocked out and there is no clock; Enter
+skips a lesson, and the last one leads into a Quick Duel. It runs on the same sim as a real match
+(Local Versus rules, the dummy's seat scripted by `src/tutorial`), and nothing is reported to the hub.
+
+**Mana.** You have 160 and it comes back at 16 a second, without pausing when you spend. Holding
+fire spends faster than that: a full bar is down to less than a Blast in about 12 seconds, and from
+then on bolts leave at the regen rate (about three a second). Let go of fire for two seconds and
+you can afford a Blast again. Sprinting spends mana and stops regen while you run. Tuning:
+`CONFIG.wizard` (`maxMana`, `manaRegen`, `manaRegenDelay`).
 
 The keyboard follows the layout every Sproto game and the hub share: WASD or the arrows move, Space
 jumps, Shift runs, Esc pauses and backs out of menus. Space used to roll and F / C to jump; the roll
@@ -207,10 +219,10 @@ The client never chooses scope, game, or ranked, and it never sends a secret.
 During every round's fight (Quick Duel and the Boss Gauntlet), a Golden Tickets pickup appears
 every 6–12 seconds at a random open spot inside the fire ring, at most 3 at a time; look for the
 gold light beams. Touch one (walking or mid-jump) to collect it: for **15 seconds** your max mana
-rises from 100 to **150** and refills at once, so you can chain far more spells. Tickets and life
+rises from 160 to **240** and refills at once, so you can chain far more spells. Tickets and life
 packs glow hard to be seen: a tall beam in their colour, a bright halo, and a ring pulsing out
 along the floor every 1.3 s (`CONFIG.pickupHighlight`). Another ticket during the boost resets it to 15 seconds (it doesn't
-stack). When the boost ends, mana drops back to at most 100. A ticket left alone blinks and fades
+stack). When the boost ends, mana drops back to at most 160. A ticket left alone blinks and fades
 after 20 seconds, and the closing fire burns any it reaches. Rivals go for tickets too, when one
 is near, closer to them than to you (or their mana is low), and nothing is flying at them; a gold
 aura shows who is boosted.
@@ -225,8 +237,9 @@ ticket face is `textures/golden_ticket.png` (a canvas-drawn face is used without
 Five fights in a row, each in the boss's own arena: Sahil, the RugMaster (The Grand Bazaar);
 **Bitcoin Obama & The Midget** (The Blockchain Void, a double fight); Broccoli Head (Los Angeles);
 Glowie (Government Office); and Tinubu (Hellfire Caldera). Fight 1 is very easy and every fight
-after it is a clear step up; Tinubu is close to impossible. This ladder is the game's only
-difficulty setting (Quick Duel is one fixed rival, best of three). A card introduces each fight;
+after it is a clear step up; Tinubu is close to impossible. This ladder is the gauntlet's
+difficulty (Quick Duel has its own pick on the main menu: Apprentice, Adept or Archmage, best of
+three, Apprentice by default). A card introduces each fight;
 win to unlock the next, lose and you retry the same one. Progress is saved in the browser, so
 **Continue** on the main menu resumes at the next fight. Beating Tinubu clears the gauntlet.
 A gauntlet win against Sahil, Bitcoin Obama, Broccoli Head, Glowie, or Tinubu posts
@@ -242,13 +255,21 @@ says so); backing out to the main menu keeps Continue.
 clock counts the fight up and there are no round pips. Your health does not refill between the
 boss's stages.
 
+**Checkpoints.** Fall in a boss's second or third stage and that stage starts over instead, once
+per stage: you are back on your mark at full health, the boss has that stage's full bar again, one
+spent life pack returns, and a countdown resumes the fight (the clock keeps running). The HUD says
+"checkpoint ready" while one is left for the current stage. Fall again in the same stage and it is
+a defeat. Stage 1 has no checkpoint. Tuning: `CONFIG.campaign.checkpoint`.
+
 **Three stages, three health bars.** Every boss has three stages and each stage has its own,
 bigger health bar (`stageHealth` in levels.ts). Empty it and the boss doesn't fall: it transforms
 and comes back with the next stage's full bar (the hit that emptied the bar loses its overflow,
 and the boss is immune while it transforms). Only emptying the last stage's bar knocks it out.
 Each stage hits harder (`stageDamage`), thinks faster and sharper (`stageAI`), and unlocks more
 attacks (Blast, Stun, the Ultimate, a signature volley). Stages are sized to last about five
-minutes each against a competent player, so a fight runs 15 minutes or more. The boss plate shows
+minutes each for a player with a person's aim and a mid staff (about eight with the stock staff,
+two to three with the strongest reward staves, four to five for the soak's reference AI), so a
+fight runs roughly 6 to 25 minutes. The boss plate shows
 the current stage's bar, its stage pips and name; the bar sweeps up as the boss transforms.
 
 **Life packs.** Up to three health pickups per fight (a red potion with a light beam): one comes
@@ -456,20 +477,27 @@ telegraphs; single-life fights):
 
 | Fight | Spells the AI brings | Win rate | Fight length | Stage reached | Minutes per stage | Boss damage/s per stage | Power share of damage |
 |---|---|---|---|---|---|---|---|
-| Sahil | none | 100% (12/12) | 15.8 min | 3 | 4.9 / 5.5 / 5.3 | 0.11 / 0.27 / 0.49 | 25% |
-| Bitcoin Obama & The Midget | carpet | 67% (8/12) | 11.9 min | 3 / 3 | 4.7 / 6.0 / 2.6 | 0.25 / 0.53 / 0.78 | 33% |
-| Broccoli Head | carpet, pump | 33% (4/12) | 14.2 min | 3 | 4.6 / 4.8 / 4.8 | 0.24 / 0.47 / 0.80 | 26% (toxic cloud 6%) |
-| Glowie | carpet, pump, vape | 25% (3/12) | 14.6 min | 3 | 5.2 / 5.3 / 5.6 | 0.34 / 0.53 / 0.77 | 14% |
-| Tinubu | carpet, pump, vape, lock-on | 0% (0/12) | 9.7 min | 2 | 4.6 / - / - | 0.35 / 0.88 / - | 24% |
+| Sahil | none | 100% (12/12) | 14.8 min | 3 | 5.3 / 4.9 / 4.6 | 0.20 / 0.50 / 0.85 | 31% |
+| Bitcoin Obama & The Midget | carpet | 92% (11/12) | 14.6 min | 2.9 / 3 | 6.5 / 4.8 / 3.7 | 0.36 / 0.81 / 0.79 | - |
+| Broccoli Head | carpet, pump | 83% (10/12) | 12.1 min | 3 | 4.0 / 3.8 / 4.3 | 0.38 / 0.91 / 1.53 | - |
+| Glowie | carpet, pump, vape | 58% (7/12) | 13.2 min | 3 | 4.7 / 4.2 / 4.5 | 0.60 / 0.89 / 1.81 | - |
+| Tinubu | carpet, pump, vape, lock-on | 0% (0/12) | 10.8 min | 2.2 | 4.7 / 6.9 / - | 0.62 / 1.31 / 2.19 | - |
+
+Measured 2026-11-11 after the balance pass and its follow-up. A wizard has 330 health (was 220)
+and held fire no longer starves for mana. Stage damage is x1.2 / x1.4 / x1.5 (it was x1 / x1.25 /
+x1.5 against 220 health), powers deal `CONFIG.powers.damageScale` (0.6) of their listed damage,
+and pools, vents, the fire ring and lava went up by half with the health. The stage bars are sized
+for a person's aim with a mid staff (see Three stages above). The reference AI is the Adept
+profile, which was softened in the follow-up, so this table is not comparable with the one before
+it (100% / 67% / 33% / 25% / 0%): the middle of the ladder reads easier than it did, and the boss
+damage has not been re-tuned for that. The soak runs the legacy engine, which has no stage
+checkpoints: a player gets one restart in each of stages 2 and 3 on top of this.
 
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
-fights), so a 12-fight rate moves by roughly ±15 points between runs. The special powers added a
-new, dodgeable share of each boss's damage (a quarter to a third for the reference AI, which takes
-about a sixth of what a player standing still would), so the bosses' spell damage came down to
-keep the ladder: Sahil ×0.77, Bitcoin Obama ×0.64 and The Midget ×0.52, Broccoli Head ×0.76,
-Glowie ×0.86, Tinubu ×0.74 (stage damage ×1 / ×1.25 / ×1.5), and powers deal `CONFIG.powers.damageScale`
-(0.4) of their listed damage. A player who stands still takes far more than before. Tinubu is
-almost impossible: the reference AI dies in his second form.
+fights), so a 12-fight rate moves by roughly ±15 points between runs. Each boss's spell damage is
+also scaled on its own: Sahil ×0.77, Bitcoin Obama ×0.64 and The Midget ×0.46, Broccoli Head ×0.76,
+Glowie ×0.86, Tinubu ×0.74. A player who stands still takes far more than the reference AI.
+Tinubu is almost impossible: the reference AI dies in his second form.
 
 ## God mode (testing)
 
@@ -486,7 +514,7 @@ stats until a match starts). Tuning: `CONFIG.debug`.
 ## Balancing
 
 Every tuning number lives in [src/config.ts](src/config.ts): movement, dodge timing, each spell's
-damage/speed/cost/cooldown, hit-stop and shake, camera, AI profiles (Quick Duel uses `normal`), round length, team
+damage/speed/cost/cooldown, hit-stop and shake, camera, AI profiles (Quick Duel uses the one picked on the main menu), round length, team
 colours. The dev server hot-reloads on save.
 
 ## Environments
@@ -661,6 +689,25 @@ await __duel.qa.perf(8)             // real frame-time stats while you play
 ```
 
 `?nolock` in the URL runs the game without pointer lock (for automation).
+
+**Which engine a check runs.** A real match runs on the deterministic sim (`src/sim-core`). Most
+scenarios, `soak` and `campaignSoak` still drive the legacy engine (the game's own gameplay
+classes, which only present a match now), so they say little about balance on the shipping path.
+These run the sim:
+
+```js
+await __duel.qa.runAll('sim.')              // balance figures on the sim, and real matches started through the app
+__duel.qa.sim.balanceReport()               // mana samples, roll survival, spell share and round length by profile, first-boss pace
+__duel.qa.sim.scripted('holdFire')          // a scripted player against the rival: holdFire, attacker, attackerPaused, idle, strafe, rollSpam
+__duel.qa.sim.simSoak('hard', 12)           // AI against AI at a profile
+__duel.qa.sim.bossProbe('sahil', 'attackerPaused', { immortal: true })
+```
+
+They are deterministic (seeded) and need no rendering, so the same report comes from Node:
+`npm run probe:sim` (`-- soak hard 20`, `-- boss sahil attacker`, `-- holdFire easy`).
+`src/qa/simProbe.test.ts` pins the figures the balance pass was tuned to (mana while holding fire,
+round lengths, spell share). `sim.live_*` scenarios start a Quick Duel and a boss fight through the
+app with a scripted player and tick them as the game does.
 
 Headless, with no extra dependencies (Chrome with SwiftShader, driven over CDP):
 

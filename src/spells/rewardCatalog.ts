@@ -3,6 +3,10 @@
  * for good. Names, descriptions and icons live here (UI, saves, QA); the rules are in
  * RewardSpells.ts and the numbers in CONFIG.rewardSpells.
  */
+import { CONFIG } from '../config';
+
+/** Magic Carpet's ride time as the texts print it (CONFIG.rewardSpells.carpet.duration). */
+const CARPET_S = String(CONFIG.rewardSpells.carpet.duration);
 
 export type RewardSpellId = 'carpet' | 'pump' | 'vape' | 'lockon' | 'breath';
 
@@ -28,8 +32,8 @@ export const REWARD_SPELL_INFO: Record<RewardSpellId, RewardSpellInfo> = {
   carpet: {
     id: 'carpet',
     name: 'Magic Carpet',
-    description: 'Summon a flying carpet for 3.5 s: a burst of speed, then more than twice as fast, hovering over lava, fire, low cover and shockwaves. Fire bolts as you fly, ram enemies to knock them flying, jump to leap off, or press it again to hop off.',
-    short: 'Fly fast for 2.5 s, over lava and fire',
+    description: `Summon a flying carpet for ${CARPET_S} s: a burst of speed, then more than twice as fast, hovering over lava, fire, low cover and shockwaves. Fire bolts as you fly, ram enemies to knock them flying, jump to leap off, or press it again to hop off.`,
+    short: `Fly fast for ${CARPET_S} s, over lava and fire`,
     callout: 'MAGIC CARPET',
     icon: 'ui/spells/spell_carpet.png',
     color: '#ffb347',

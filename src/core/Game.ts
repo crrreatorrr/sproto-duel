@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config';
+import { CONFIG, type Difficulty } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
 import { MODELS, type ModelKey } from '../assets/manifest';
 import { bossFighters, type BossDef, type BossPartner } from '../campaign/levels';
@@ -193,6 +193,8 @@ export class Game {
   /** The reward spells the player has earned (App: the campaign save), without god mode's extras. */
   simLearned: string[] | null = null;
   simSeats: Wizard[] | null = null;
+  /** Quick Duel: the rival profile the player chose (App, from Settings). */
+  simDifficulty: Difficulty = 'normal';
   /** Gauntlet extras a SimDriver hands over (boss powers, reward spells, shifts, life packs). */
   presentSimEvent: ((e: SimEvent, pos: THREE.Vector3, w: Wizard | null, o: Wizard | null) => void) | null = null;
 
@@ -205,6 +207,22 @@ export class Game {
 
   stopSim(): void {
     this.sim = null;
+    this.checkpointReady = false;
+  }
+
+  /** The Practice tutorial is running (the HUD drops the round furniture). */
+  practice = false;
+  /** A knockout now would restart the boss stage instead of ending the fight (SimDriver, from the sim). */
+  checkpointReady = false;
+
+  /** The sim restarted a boss stage at a checkpoint: clear effects and popups, and look behind the player. */
+  onSimCheckpoint(packs: number): void {
+    // The hearts and the pack on the floor follow the sim: `packs` spent ones are back.
+    this.lifePacks.restore(packs);
+    this.fx.clear();
+    this.popups.clear();
+    feel.reset();
+    this.rig.snap(this.player.pos, this.player.facing);
   }
 
   /** The sim began a round: clear the arena's leftovers and look behind the player, as Match.startRound did. */

@@ -122,7 +122,7 @@ export function staffLine(id: StaffId): string {
     case 'duel_staff_shooter':
       return `Missile · damage ${damage * s.shooter.boltDamageMult} · ${CONFIG.spells.bolt.manaCost * s.shooter.boltManaMult} mana`;
     case 'duel_staff_fighter':
-      return `Bolt · damage ${damage} · ${CONFIG.spells.bolt.manaCost * s.fighter.boltManaMult} mana`;
+      return `Bolt · damage ${damage * s.fighter.boltDamageMult} · ${CONFIG.spells.bolt.manaCost * s.fighter.boltManaMult} mana`;
     case 'duel_staff_sproto':
       return 'Stock bolt';
     case 'duel_staff_momentum':

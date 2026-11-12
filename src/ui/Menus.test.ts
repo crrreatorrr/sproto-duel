@@ -180,3 +180,90 @@ describe('keyboard', () => {
     expect(resumed).toBe(1);
   });
 });
+
+describe('Quick Duel difficulty select', () => {
+  let parent: HTMLElement;
+
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    parent = document.createElement('div');
+    document.body.appendChild(parent);
+  });
+
+  it('starts at Apprentice, remembers the pick and tells the app', () => {
+    const settings = loadSettings();
+    expect(settings.quickDifficulty).toBe('easy');
+    const seen: string[] = [];
+    const menus = new Menus(parent, settings, { ...handlers, settingsChanged: (s) => seen.push(s.quickDifficulty) });
+    menus.showMain();
+    const picks = [...parent.querySelectorAll<HTMLButtonElement>('[data-difficulty]')];
+    expect(picks.map((b) => b.textContent)).toEqual(['Apprentice', 'Adept', 'Archmage']);
+    expect(picks.map((b) => b.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+    picks[2].click();
+    expect(picks.map((b) => b.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+    expect(parent.querySelector('[data-quick-line]')!.textContent).toContain('Archmage');
+    expect(seen).toEqual(['hard']);
+    expect(loadSettings().quickDifficulty).toBe('hard');
+  });
+
+  it('falls back to Apprentice on a bad saved value', () => {
+    localStorage.setItem('arcane-duel-settings', JSON.stringify({ quickDifficulty: 'nightmare', difficulty: 'hard' }));
+    expect(loadSettings().quickDifficulty).toBe('easy');
+  });
+
+  it('lists How to Play and Settings before the character and staff racks', () => {
+    const menus = new Menus(parent, loadSettings(), { ...handlers, characterRack: () => ({ skins: [{ id: 'a', name: 'A', line: '', accent: '#fff', locked: false }], selected: 'a' }) });
+    menus.showMain();
+    const help = parent.querySelector('.help-row')!;
+    const rack = parent.querySelector('[data-char-rack]')!;
+    expect(help.compareDocumentPosition(rack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('Practice on the menus', () => {
+  let parent: HTMLElement;
+
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    parent = document.createElement('div');
+    document.body.appendChild(parent);
+  });
+
+  it('the main menu offers Practice beside How to Play, pointed out until it has been done', () => {
+    let started = 0;
+    const settings = loadSettings();
+    expect(settings.practiceDone).toBe(false);
+    const menus = new Menus(parent, settings, { ...handlers, practice: () => started++ });
+    menus.showMain();
+    const btn = parent.querySelector<HTMLButtonElement>('.help-row [data-act="practice"]')!;
+    expect(btn.classList.contains('suggest')).toBe(true);
+    expect(btn.textContent).toContain('New here');
+    btn.click();
+    expect(started).toBe(1);
+    menus.updateSettings({ practiceDone: true });
+    expect(loadSettings().practiceDone).toBe(true);
+    menus.showMain();
+    const again = parent.querySelector<HTMLButtonElement>('[data-act="practice"]')!;
+    expect(again.classList.contains('suggest')).toBe(false);
+    expect(again.textContent).toBe('Practice');
+  });
+
+  it('is left out when the app does not provide it', () => {
+    const menus = new Menus(parent, loadSettings(), handlers);
+    menus.showMain();
+    expect(parent.querySelector('[data-act="practice"]')).toBeNull();
+  });
+
+  it('the finish screen leads into a Quick Duel against the chosen rival', () => {
+    const menus = new Menus(parent, loadSettings(), handlers);
+    const picked: string[] = [];
+    menus.showPracticeDone({ earned: 6, count: 8, rival: '<b>x</b>' }, { duel: () => picked.push('duel'), again: () => picked.push('again'), menu: () => picked.push('menu') });
+    expect(menus.current).toBe('practice-done');
+    expect(parent.textContent).toContain('6 of 8 lessons done');
+    expectNoInjected(parent);
+    for (const act of ['duel', 'again', 'menu']) parent.querySelector<HTMLButtonElement>(`[data-act="${act}"]`)!.click();
+    expect(picked).toEqual(['duel', 'again', 'menu']);
+  });
+});

@@ -3,7 +3,7 @@
  * ring and the round flow (src/core/Game.ts tick order + src/core/Match.ts). `step()` advances one
  * 60 Hz tick from one input frame per seat. Nothing here reads a clock, the DOM or Math.random.
  */
-import { CONFIG } from '../config';
+import { CONFIG, type Difficulty } from '../config';
 import { SimArena, isArenaId, type ArenaId, type Body } from './arena';
 import { SimEvents } from './events';
 import { DT, HALF, ONE, fx, len2, max, mul, muldiv, sec, vt } from './fixed';
@@ -48,6 +48,17 @@ export interface SimSetup {
    * five reward spells (where the rules allow them). `setGodMode` toggles it mid-fight.
    */
   godMode?: boolean;
+  /**
+   * Quick Duel: the CPU rival's profile (CONFIG.ai.difficulty), 'normal' (Adept) when missing.
+   * Ignored by every other mode.
+   */
+  difficulty?: Difficulty;
+}
+
+/** The Quick Duel rival profiles a setup may name. */
+export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+export function isDifficulty(x: unknown): x is Difficulty {
+  return x === 'easy' || x === 'normal' || x === 'hard';
 }
 
 export interface MatchState {
@@ -89,6 +100,8 @@ const CAP_CLOSE = sec(F.capCloseTime);
 const CAP_STAGE_R = fx(F.stageCapRadius);
 const CAP_MIN_R = fx(F.capMinRadius);
 const CAP_REOPEN = fx(F.reopenSpeed);
+const CK = CONFIG.campaign.checkpoint;
+const CK_INTRO = INTRO + sec(CK.banner);
 
 /** The player's look (manifest wizardPlayer muzzle [0.076, 0.916, 0.203] x fitHeight 1.9). */
 export const PLAYER_MUZZLES: MuzzleSet = muzzleSet([[0.076, 0.916, 0.203]], 1.9);
@@ -116,6 +129,8 @@ export class SimWorld {
   /** Gauntlet fight clock (GauntletClock). */
   readonly clock = { elapsed: 0, stageElapsed: 0, radius: 0, progress: 0 };
   private capAnnounced = false;
+  /** Gauntlet checkpoints spent, by boss stage (CONFIG.campaign.checkpoint). */
+  readonly checkpointUsed = [false, false, false];
   readonly match: MatchState = {
     phase: 'intro', round: 1, wins: [0, 0], timer: 0, phaseTime: 0, lastWinner: -1, roundWinners: [], lastReason: '', winner: -1, forfeit: -1, elapsed: 0,
   };
@@ -152,6 +167,8 @@ export class SimWorld {
       for (let i = 0; i < REWARDS.length; i++) if (setup.learned.indexOf(REWARDS[i]) >= 0) p.learned |= 1 << i;
     }
     this.baseLearned = p.learned;
+    // A checkpoint keeps the player standing through the blow that would end the fight.
+    if (this.rules.single) p.koGuard = () => this.match.phase === 'fight' && this.checkpointStage() >= 0;
     if (setup.godMode) this.setGodMode(true);
     this.spells = new SimSpells(this);
     this.spells.rewardSpells = this.rules.rewardSpells;
@@ -171,7 +188,7 @@ export class SimWorld {
         this.ais.push(ai);
       }
     } else if (!this.rules.even) {
-      this.ais.push(new SimAI(this, this.wizards[1], p, CONFIG.ai.difficulty.normal, null));
+      this.ais.push(new SimAI(this, this.wizards[1], p, CONFIG.ai.difficulty[isDifficulty(setup.difficulty) ? setup.difficulty : 'normal'], null));
     }
     this.lifePacks.reset();
     this.startMatch();
@@ -190,6 +207,66 @@ export class SimWorld {
     let n = 0;
     for (const st of this.stages) n += st.stage + (st.owner.alive ? 0 : 1);
     return n;
+  }
+
+  /** The furthest stage any boss has reached (0..2). */
+  private furthestStage(): number {
+    let far = 0;
+    for (const st of this.stages) if (st.stage > far) far = st.stage;
+    return far;
+  }
+
+  /** The stage a knockout now would restart, or -1 when it would end the fight. */
+  checkpointStage(): number {
+    if (!this.rules.single || !CK.enabled) return -1;
+    const far = this.furthestStage();
+    return far >= 1 && !this.checkpointUsed[far] ? far : -1;
+  }
+
+  /** Checkpoints used this fight. */
+  get checkpoints(): number {
+    let n = 0;
+    for (let i = 0; i < this.checkpointUsed.length; i++) if (this.checkpointUsed[i]) n++;
+    return n;
+  }
+
+  /**
+   * The player was knocked out with a checkpoint left (koGuard kept them standing at 0 health):
+   * restart the stage. Spells, hazards and pickups are cleared, everyone standing is back on the
+   * mark, the player at full health and mana (Ultimate charge kept), each boss with its current
+   * bar full; the arena and its shifts stay as they are, the fight clock keeps running and the
+   * stage's cap clock starts over. A countdown then resumes the fight.
+   */
+  private checkCheckpoint(): void {
+    const p = this.wizards[0];
+    if (!p.alive || p.health > 0 || this.match.phase !== 'fight') return;
+    const stage = this.checkpointStage();
+    if (stage < 0) return;
+    this.checkpointUsed[stage] = true;
+    this.spells.clear();
+    this.powers.clear();
+    this.rewards.clear();
+    this.tickets.clear();
+    this.lifePacks.restore(CK.lifePacks);
+    for (const st of this.stages) st.restart();
+    p.resetForRound(true);
+    for (const w of this.wizards) {
+      if (!w.active || !w.alive) continue;
+      const s = this.spawnSpot(w);
+      w.spawn(s[0], s[1], s[2]);
+      w.aim.x = s[0];
+      w.aim.y = fx(1.2);
+      w.aim.z = -s[1];
+      w.clearIntent();
+    }
+    for (const ai of this.ais) ai.reset();
+    this.clock.stageElapsed = 0;
+    const m = this.match;
+    m.phase = 'intro';
+    m.phaseTime = CK_INTRO;
+    this.lastCount = -1;
+    this.actionsLocked = true;
+    this.events.push('checkpoint', p.index, '', stage, -1, p.pos.x, p.pos.y, p.pos.z);
   }
 
   // ---------------------------------------------------------------- match flow
@@ -216,6 +293,7 @@ export class SimWorld {
     this.arena.reset();
     this.shifts.clear();
     for (const st of this.stages) st.reset();
+    this.checkpointUsed[0] = this.checkpointUsed[1] = this.checkpointUsed[2] = false;
     for (const w of this.wizards) w.resetForRound(M.ultCarriesOver);
     this.spawnWizards();
     for (const ai of this.ais) ai.reset();
@@ -388,6 +466,7 @@ export class SimWorld {
     for (const w of ws) if (w.active) w.updateMovement(DT, this.arena, ws);
     this.arena.update(DT, this.liveBodies());
     this.updateFire(DT);
+    if (this.rules.single) this.checkCheckpoint();
     this.tickets.update(DT);
     this.lifePacks.update(DT);
     this.updateMatch(DT);
@@ -560,6 +639,7 @@ export class SimWorld {
       for (const f of this.shifts.features) h.int(f.id).int(f.x).int(f.z).int(f.r).int(f.age).int(f.charge).int(f.timer).int(f.period);
       const lp = this.lifePacks;
       h.int(this.arena.ringCap).int(lp.spawned).int(lp.dueAt).bool(lp.pack.active);
+      for (let i = 0; i < this.checkpointUsed.length; i++) h.bool(this.checkpointUsed[i]);
       if (lp.pack.active) h.int(lp.pack.id).int(lp.pack.x).int(lp.pack.z).int(lp.pack.age);
     }
     return h.hex();

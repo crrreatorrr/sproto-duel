@@ -300,11 +300,12 @@ export function registerTicketScenarios(qa: QAHarness, game: Game, app: App): vo
       c.expect(refreshed === false, 'first pickup flagged as a refresh');
       c.near(p.maxMana, W.maxMana * T.maxManaMultiplier, 1e-6, 'boosted max');
       c.near(p.mana, p.maxMana, 1e-6, 'refilled mana');
-      // Boosted regen (CONFIG.tickets.regenMultiplier, after the boosted regen delay) right after spending.
+      // Boosted regen (CONFIG.tickets.regenMultiplier) right after spending: the boost's regen delay
+      // never makes it wait longer than the normal one.
       p.mana = 50;
       p.spendMana(10);
       c.step(1);
-      c.near(p.mana, 40 + W.manaRegen * T.regenMultiplier * (1 - T.regenDelay), 0.4, 'boosted regen 1s');
+      c.near(p.mana, 40 + W.manaRegen * T.regenMultiplier * (1 - Math.min(W.manaRegenDelay, T.regenDelay)), 0.4, 'boosted regen 1s');
       // Re-pickup refreshes to the full duration without stacking.
       c.step(9);
       c.near(p.manaBoost, T.boostDuration - 10, 0.05, 'boost left after 10 s');
@@ -396,10 +397,18 @@ export function registerTicketScenarios(qa: QAHarness, game: Game, app: App): vo
     tk.enabled = true;
     tk.spawnTimer = 1e9;
     let sought = 0, collectedBy: Wizard | null = null;
+    // Detours begun within TK.aiHurtMemory of being hit: going for a ticket while the fire is landing.
+    let hurried = 0, t = 0, lastHit = -1e9, was = false;
     const off = events.on('ticketPickup', (e) => (collectedBy = e.wizard));
+    const offHit = events.on('damage', (e) => {
+      if (e.target === c.enemy && e.source === c.player && e.amount > 0) lastHit = t;
+    });
     const each = () => {
+      t += DT;
       ai.update(DT);
       if (ai.seekingTicket) sought++;
+      if (ai.seekingTicket && !was && t - lastHit < T.aiHurtMemory) hurried++;
+      was = ai.seekingTicket;
       if (shoot) {
         // Keep the fire up for real: a Stun from the AI would otherwise pause it and open a window.
         c.player.stunTime = 0;
@@ -419,11 +428,12 @@ export function registerTicketScenarios(qa: QAHarness, game: Game, app: App): vo
       c.step(8, each);
     } finally {
       off();
+      offHit();
       ai.dispose();
       c.player.intent.holdBolt = false;
       tk.enabled = false;
     }
-    return { sought: sought * DT, collectedBy: collectedBy as Wizard | null, ticket, casts: c.enemy.stats.casts };
+    return { sought: sought * DT, hurried, collectedBy: collectedBy as Wizard | null, ticket, casts: c.enemy.stats.casts };
   };
 
   qa.add('tickets.ai_detours_when_safe', (c) => {
@@ -435,9 +445,14 @@ export function registerTicketScenarios(qa: QAHarness, game: Game, app: App): vo
   });
 
   qa.add('tickets.ai_holds_back_under_fire', (c) => {
-    const r = withSeededRandom(77, () => aiNearTicket(c, true));
-    c.expect(r.sought === 0, `the AI went for the ticket under fire (${r.sought.toFixed(1)} s)`);
-    c.note(`enemy hp ${c.enemy.health.toFixed(0)}, ticket ${r.ticket.active ? 'left alone' : `collected by ${r.collectedBy?.name}`}`);
+    // Since held fire stopped starving for mana the rival shoots back almost without pause, and its
+    // bolts clash many of the player's out of the air: stretches go by with nothing landing, and it
+    // may detour then. What it must never do is set off within aiHurtMemory of being hit.
+    for (const seed of [77, 78, 79, 80]) {
+      const r = withSeededRandom(seed, () => aiNearTicket(c, true));
+      c.expect(r.hurried === 0, `seed ${seed}: the AI set off for the ticket ${r.hurried} time(s) right after being hit`);
+      c.note(`seed ${seed}: sought ${r.sought.toFixed(1)} s, enemy hp ${c.enemy.health.toFixed(0)}, ticket ${r.ticket.active ? 'left alone' : `collected by ${r.collectedBy?.name}`}`);
+    }
   });
 
   qa.add('tickets.pool_meshes_reused', (c) => {

@@ -30,8 +30,10 @@ DuelSim.replay(log) -> { ok, error?, simVersion, winnerSeat: 0|1|null, wins: [n,
   `endHash` is always present.
 - `bossId` strings: `sahil`, `obama`, `broccoli`, `agent`, `tinubu`.
 - The seed is server-issued and travels in the log (online: the `OP_START` seed).
-- Targets: a full match replays in under 50 ms; a log is at most 16 KB and is sent in socket chunks
-  of at most 4096 bytes.
+- Targets: a full match replays in under 50 ms; a log is sent in socket chunks of at most 4096
+  bytes. A duel log stays under 16 KB; a boss-fight log does not (see Sizes: allow 32 KB). The
+  client and the bundle enforce no size limit themselves: `replay` bounds a log by ticks
+  (`MAX_TICKS`, 45 minutes), and the hub should cap the bytes it accepts.
 - CI fails if the bundle changes without its version header changing.
 
 ## Input log (schema 1)
@@ -49,6 +51,7 @@ DuelSim.replay(log) -> { ok, error?, simVersion, winnerSeat: 0|1|null, wins: [n,
   forfeit: { tick: 3000, seat: 1 }, // optional: seat leaving before tick index `tick`
   godMode: true,                    // optional: seat 0 starts in god mode (not under even rules)
   godToggles: [{ tick: 900, on: false }], // optional: god mode set before tick index `tick`, in order
+  difficulty: 'easy',               // optional, Quick Duel only: the CPU rival ('easy' | 'normal' | 'hard'); missing = 'normal'
   claimed: { winnerSeat: 1, wins: [1, 2], rounds: 3, ticks: 13464 }
 }
 ```
@@ -81,8 +84,12 @@ read.
 
 The scripted bots in `src/sim-core/testing/bot.ts` play busier than most people do: they change
 direction constantly and fire in bursts. A full three-round online match (13 464 ticks, both seats
-logged) takes 10.0 KB of JSON, against the hub's 16 KB limit. Gauntlet and Quick Duel logs carry
-one seat. `chunkLog(json, id)` splits a log into socket messages of at most 4096 bytes
+logged) takes about 7 to 12 KB of JSON. Gauntlet and Quick Duel logs carry one seat, but a boss
+fight is much longer: the scripted bot's losses in the golden set are 12.6 KB (31 400 ticks, 8.7
+minutes) to 21.9 KB (52 000 ticks, 14.4 minutes), about 1.5 KB a minute, and a fight that uses both
+checkpoints and runs to its caps can be longer still. A hub limit of 16 KB rejects honest boss
+fights. At the bot's rate 32 KB is a 21-minute fight and the 45-minute tick bound is about 68 KB;
+people press less than the bot, but that has not been measured, so size the limit from the bot. `chunkLog(json, id)` splits a log into socket messages of at most 4096 bytes
 (`id:i:n:part`), and `joinChunks` reassembles them in any order (both are exported by the bundle
 too).
 
@@ -102,7 +109,8 @@ if (!r.ok) { /* reject: r.error says why; r.endHash is still set */ }
   reporting player holds.
 - **Seats:** seat 0 always spawns on the -z mark (side 0) and seat 1 on +z, whichever client
   hosts. Online, seat numbers are the server's `OP_START` seats.
-- `endReason` is an extra field beyond the locked contract: the forfeit pay rules need it.
+- `endReason` is an extra field beyond the locked contract: the forfeit pay rules need it. So is
+  `checkpoints` (boss fights: stage checkpoints the player used, 0 to 2).
 
 ## Versioning
 
@@ -183,12 +191,24 @@ re-runs the opponent exactly. Only seat 0 (the player) is logged.
   hub should check they are ones this account has earned), `godMode` (seat 0 starts in god mode)
   and `godToggles` (turned on or off mid-fight). The replay simulates both, and the hub decides
   whether such a win pays; we suggest not.
+- **Checkpoints** (`CONFIG.campaign.checkpoint`): a knockout of the player in a boss's second or
+  third stage restarts that stage instead of ending the fight, once per stage. In the same tick the
+  sim clears spells, hazards, tickets and the life pack, puts everyone standing back on the mark,
+  refills the player (the Ultimate charge is kept) and each standing boss's current bar, hands
+  back one spent life pack and runs a countdown (`introTime` + `banner` s of locked ticks, which
+  are in the log like any other). The arena, its shifts and the fight clock carry on; the stage's
+  cap clock starts over. The replay result's additive `checkpoints` (boss fights only) says how
+  many were used, so the hub can tell a clean win from one that needed them.
 - **Combat rules:** a stunned wizard takes `stunnedDamageMultiplier` (1.5×) damage, and a hit that
   lands while its caster is stunned deals 1.5× (both stack). The stun beam's own hit lands before
   its stun. Each boss transformation heals the player by `campaign.phasePotionHeal` (33%) of max
   health (the `phasePotion` event).
-- **Size**: one seat, about 1.1 KB of log per minute for the scripted bot. A 15-20 minute boss
-  fight can reach the 16 KB limit; see the PR notes.
+- **Quick Duel rival**: the player picks Apprentice, Adept or Archmage on the main menu. The log's
+  `difficulty` (`easy`, `normal`, `hard`) names the profile the sim's CPU plays; it is left out for
+  `normal` and rejected under any other rules. A win's replay proves which rival was beaten, so the
+  hub can weigh an Apprentice win differently if it wants to.
+- **Size**: one seat, about 1.5 KB of log per minute for the scripted bot; the bot's long losses
+  are 13 to 22 KB (see Sizes above for what the hub should allow).
 
 ## The game on the sim (A2)
 
@@ -230,8 +250,9 @@ crosshair raycast.
   holds only the spells the player brought, and they come back when god mode turns off. A log
   holds at most 256 toggles (`MAX_GOD_TOGGLES`); past that the game refuses further toggles in
   that fight. Any `on: true` toggle means god mode was used.
-- **Not on the sim:** the QA sandbox (`__duel.qa` scenarios and soaks) still runs the legacy
-  engine, so those scenarios test the old code paths. Online replicas run no sim at all.
+- **Not on the sim:** the QA sandbox's older scenarios and its `soak` / `campaignSoak` still run
+  the legacy engine, so they test the old code paths (the legacy engine has no checkpoints).
+  `__duel.qa.sim`, the `sim.*` scenarios and `npm run probe:sim` run the sim itself (README, QA). Online replicas run no sim at all.
 - `node scripts/check-game-sim-e2e.mjs` plays a Quick Duel and a boss fight in the real game in
   Chromium and checks the game's own log replays, with the server bundle, to the game's own end
   hash. It takes a few minutes and is not in CI.
@@ -251,7 +272,7 @@ None of this has been playtested by people yet.
 
 ## Golden replays and tests (A4)
 
-`tests/golden/*.json` holds 23 recorded matches: `{ name, log, expect }`. `npm run gen:goldens`
+`tests/golden/*.json` holds 26 recorded matches: `{ name, log, expect }`. `npm run gen:goldens`
 rewrites them from `src/sim-core/testing/goldens.ts`. Run it only for an intended sim change, and
 review the diff. They cover:
 
@@ -259,7 +280,9 @@ review the diff. They cover:
   during the intro;
 - Quick Duel against the CPU rival with every staff, including `duel_staff_fighters_might` and
   `duel_staff_alien_ray`; with all reward spells learned; and in god mode;
-- every boss: a god-mode win through all three stages, and an honest loss.
+- every boss: a god-mode win through all three stages, and an honest loss;
+- two boss fights where god mode goes off in a later stage, so a knockout there takes the stage
+  checkpoint and the next one is the defeat.
 
 The inputs come from scripted bots (`src/sim-core/testing/bot.ts`), not people. The same logs are
 checked in four places, and each must give the frozen `endHash` and result:
@@ -276,7 +299,8 @@ and 200 random byte streams, which must be rejected without throwing.
 
 ## Performance
 
-Measured on the 23 goldens (4-core 2.8 GHz Xeon container):
+Measured on the 23 goldens of the time (4-core 2.8 GHz Xeon container; the scripted bot's boss
+losses run longer since the 2026-11 balance batch, up to about 49k ticks):
 
 | Engine | Duel (7k-19k ticks) | Boss fight, god-mode win (2k-4k ticks) | Boss fight, long loss (16k-36k ticks) |
 |---|---|---|---|

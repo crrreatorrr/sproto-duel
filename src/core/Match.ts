@@ -231,6 +231,7 @@ export class Match {
       bossId: boss ? boss.id : null,
       learned: rules.rewardSpells ? [...(g.simLearned ?? p.learned)] : [],
       godMode: rules.godModeAllowed && CONFIG.debug.godMode && !g.godHeld,
+      ...(rules.kind === 'quick' ? { difficulty: g.simDifficulty } : {}),
     });
     g.simulating = true;
   }

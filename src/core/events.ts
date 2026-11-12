@@ -96,6 +96,11 @@ export interface GameEvents {
   lifePackSpawn: { id: number; pos: Vector3; first: boolean; left: number };
   /** The player collected the life pack and healed `healed` HP. */
   lifePackPickup: { id: number; pos: Vector3; wizard: Wizard; healed: number };
+  /**
+   * A gauntlet checkpoint: the player fell in boss stage `stage` (1 or 2, 0-based) and that stage
+   * restarts instead (CONFIG.campaign.checkpoint); `packs` life packs came back.
+   */
+  checkpoint: { stage: number; packs: number };
   /** A boss phase ended (a transformation): `wizard` drank a heal potion for `healed` HP. */
   phasePotion: { wizard: Wizard; healed: number };
   /** The arena changed for a boss stage (pools and a spring at 1, vents at 2), its new features fading in. */
