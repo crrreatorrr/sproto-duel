@@ -3363,10 +3363,10 @@ var HubSDK = (() => {
     const ms = Date.parse(value);
     return Number.isFinite(ms) ? ms : 0;
   }
-  function channelJoinBody(target, persistence, hidden) {
-    if ("room" in target) return { target: target.room, type: 1, persistence, hidden };
-    if ("direct" in target) return { target: target.direct, type: 2, persistence, hidden };
-    return { target: target.group, type: 3, persistence, hidden };
+  function channelJoinBody(target, persistence, hidden2) {
+    if ("room" in target) return { target: target.room, type: 1, persistence, hidden: hidden2 };
+    if ("direct" in target) return { target: target.direct, type: 2, persistence, hidden: hidden2 };
+    return { target: target.group, type: 3, persistence, hidden: hidden2 };
   }
   function chatContentFromWire(raw) {
     if (!raw) return { text: "" };
@@ -4089,8 +4089,8 @@ var HubSDK = (() => {
       async joinChat(target, opts) {
         await ensureOpen();
         const persistence = opts?.persistence ?? true;
-        const hidden = opts?.hidden ?? false;
-        const env = await request({ channel_join: channelJoinBody(target, persistence, hidden) });
+        const hidden2 = opts?.hidden ?? false;
+        const env = await request({ channel_join: channelJoinBody(target, persistence, hidden2) });
         const c = env.channel ?? {};
         const id = c.id ?? "";
         if (c.self?.session_id) self = presenceFromWire(c.self);
@@ -4100,7 +4100,7 @@ var HubSDK = (() => {
           id,
           target,
           persistence,
-          hidden,
+          hidden: hidden2,
           presences: (c.presences ?? []).map(presenceFromWire),
           message: new Emitter(),
           presence: new Emitter(),
@@ -4760,6 +4760,9 @@ var HubSDK = (() => {
   // packages/hub-sdk/src/pageShot.ts
   var MEDIA_WAIT_MS = 1e3;
   var UNDER = "data-hub-feedback-under";
+  var CHOSEN = "data-hub-feedback-chosen";
+  var AUTO = "data-hub-feedback-auto";
+  var SIDES = ["top", "right", "bottom", "left"];
   var library = null;
   function loadPageShot() {
     library ??= Promise.resolve().then(() => (init_modern_screenshot(), modern_screenshot_exports)).catch((error) => {
@@ -4792,9 +4795,11 @@ var HubSDK = (() => {
     };
   }
   function capturePage(root, skip, maxWidth, holdMs) {
+    const width = Math.max(1, window.innerWidth);
+    const height = Math.max(1, window.innerHeight);
     const frozen = [];
     for (const canvas of Array.from(root.querySelectorAll("canvas"))) {
-      if (skip.includes(canvas) || !canvas.width || !canvas.height) continue;
+      if (skip.includes(canvas) || !canvas.width || !canvas.height || offscreen(canvas, width, height)) continue;
       try {
         const copy = document.createElement("canvas");
         copy.width = canvas.width;
@@ -4817,14 +4822,72 @@ var HubSDK = (() => {
         }
       }
     }
+    const chosen = [];
+    for (const node of Array.from(root.querySelectorAll("option, input"))) {
+      const on = node instanceof HTMLOptionElement ? node.selected : node instanceof HTMLInputElement && (node.type === "checkbox" || node.type === "radio") && node.checked;
+      if (on) {
+        node.setAttribute(CHOSEN, "");
+        chosen.push(node);
+      }
+    }
+    const autos = [];
+    for (const node of Array.from(root.querySelectorAll("*"))) {
+      if (typeof node.computedStyleMap !== "function") break;
+      let sides = "";
+      try {
+        const map = node.computedStyleMap();
+        for (const side of SIDES) if (String(map.get(`margin-${side}`)) === "auto") sides += side[0];
+      } catch {
+        break;
+      }
+      if (sides) {
+        node.setAttribute(AUTO, sides);
+        autos.push(node);
+      }
+    }
+    const rootStyle = getComputedStyle(root);
+    const margin = `${parseFloat(rootStyle.marginTop) - window.scrollY}px ${rootStyle.marginRight} ${rootStyle.marginBottom} ${parseFloat(rootStyle.marginLeft) - window.scrollX}px`;
     const release = holdFrames();
     const deadline = window.setTimeout(release, holdMs);
     const done = () => {
       window.clearTimeout(deadline);
       release();
       for (const parent of under) parent.removeAttribute(UNDER);
+      for (const node of chosen) node.removeAttribute(CHOSEN);
+      for (const node of autos) node.removeAttribute(AUTO);
       for (const canvas of frozen) delete canvas.toDataURL;
     };
+    return loadPageShot().then(
+      ({ domToCanvas: domToCanvas2 }) => domToCanvas2(root, {
+        width,
+        height,
+        scale: Math.min(1, maxWidth / width),
+        backgroundColor: null,
+        // The root's own background is behind the canvases on the page, not over them (see
+        // captureBackdrop for its picture).
+        style: { background: "transparent", margin },
+        timeout: Math.min(MEDIA_WAIT_MS, holdMs),
+        onCloneEachNode: (cloned) => {
+          if (!(cloned instanceof HTMLElement)) return;
+          if (cloned.hasAttribute(UNDER)) cloned.style.setProperty("background", "none", "important");
+          const sides = cloned.getAttribute(AUTO);
+          if (sides !== null) {
+            for (const side of SIDES) if (sides.includes(side[0])) cloned.style.setProperty(`margin-${side}`, "auto");
+            cloned.removeAttribute(AUTO);
+          }
+          if (cloned instanceof HTMLOptionElement || cloned instanceof HTMLInputElement) {
+            const attribute = cloned instanceof HTMLOptionElement ? "selected" : "checked";
+            if (cloned.hasAttribute(CHOSEN)) cloned.setAttribute(attribute, "");
+            else cloned.removeAttribute(attribute);
+            cloned.removeAttribute(CHOSEN);
+          }
+        },
+        filter: (node) => !(node instanceof Element) || !skip.includes(node) && visible(node) && !hidden(node, width, height)
+      })
+    ).catch(() => null).finally(done);
+  }
+  function captureBackdrop(root, maxWidth, timeoutMs) {
+    if (getComputedStyle(root).backgroundImage === "none") return Promise.resolve(null);
     const width = Math.max(1, window.innerWidth);
     const height = Math.max(1, window.innerHeight);
     return loadPageShot().then(
@@ -4833,17 +4896,27 @@ var HubSDK = (() => {
         height,
         scale: Math.min(1, maxWidth / width),
         backgroundColor: null,
-        // The root's own background is behind the canvases on the page, not over them.
-        style: { background: "transparent" },
-        timeout: Math.min(MEDIA_WAIT_MS, holdMs),
-        onCloneEachNode: (cloned) => {
-          if (cloned instanceof HTMLElement && cloned.hasAttribute(UNDER)) cloned.style.setProperty("background", "none", "important");
-        },
-        filter: (node) => !(node instanceof Element) || !skip.includes(node) && visible(node)
+        // On the page the body's background fills the whole viewport, whatever its margin.
+        style: { margin: "0" },
+        timeout: Math.min(MEDIA_WAIT_MS, timeoutMs),
+        filter: () => false
       })
-    ).catch(() => null).finally(done);
+    ).catch(() => null);
+  }
+  function offscreen(node, width, height) {
+    const r = node.getBoundingClientRect();
+    return r.right <= 0 || r.bottom <= 0 || r.left >= width || r.top >= height;
+  }
+  function hidden(node, width, height) {
+    if (node instanceof HTMLImageElement) return !node.complete || node.naturalWidth === 0 || offscreen(node, width, height);
+    if (node instanceof HTMLCanvasElement || node instanceof HTMLVideoElement || node instanceof SVGSVGElement) return offscreen(node, width, height);
+    if (!(node instanceof HTMLElement) || node.tagName === "BODY" || node.tagName === "HTML") return false;
+    if (!offscreen(node, width, height)) return false;
+    const style = getComputedStyle(node);
+    return style.overflowX !== "visible" && style.overflowY !== "visible";
   }
   function visible(node) {
+    if (node instanceof HTMLOptionElement || node instanceof HTMLOptGroupElement) return true;
     if (typeof node.checkVisibility === "function") return node.checkVisibility();
     return getComputedStyle(node).display !== "none";
   }
@@ -4997,8 +5070,10 @@ ${theme.css}`;
     out.height = Math.max(1, Math.round(height * scale));
     const g = out.getContext("2d");
     if (!g) return null;
-    g.fillStyle = page ? pageBackground() : "#000";
-    g.fillRect(0, 0, out.width, out.height);
+    if (!page) {
+      g.fillStyle = "#000";
+      g.fillRect(0, 0, out.width, out.height);
+    }
     let drawn = 0;
     for (const { canvas, rect } of visible2) {
       try {
@@ -5010,14 +5085,27 @@ ${theme.css}`;
     }
     return drawn || page ? { shot: out, drawn } : null;
   }
-  function drawOverlay(shot, overlay) {
-    if (!overlay || overlay.width < 1 || overlay.height < 1) return false;
+  function drawLayer(g, width, height, layer) {
+    if (!layer || layer.width < 1 || layer.height < 1) return false;
     try {
-      shot.getContext("2d")?.drawImage(overlay, 0, 0, shot.width, shot.height);
+      g.drawImage(layer, 0, 0, width, height);
       return true;
     } catch {
       return false;
     }
+  }
+  function composePage(canvases, drawn, backdrop, overlay) {
+    const out = document.createElement("canvas");
+    out.width = canvases.width;
+    out.height = canvases.height;
+    const g = out.getContext("2d");
+    if (!g) return drawn ? canvases : null;
+    g.fillStyle = pageBackground();
+    g.fillRect(0, 0, out.width, out.height);
+    const under = drawLayer(g, out.width, out.height, backdrop);
+    drawLayer(g, out.width, out.height, canvases);
+    const over = drawLayer(g, out.width, out.height, overlay);
+    return drawn || under || over ? out : null;
   }
   var OVERLAY_WAIT_MS = 3e3;
   function encode(canvas, max) {
@@ -5519,25 +5607,23 @@ ${theme.css}`;
         } catch {
         }
         let finished = false;
-        const finish = (overlay) => {
+        const finish = (layers) => {
           if (finished) return;
           finished = true;
           capturing = false;
-          const any = drawOverlay(shot, overlay) || drawn > 0;
-          openPanel(source, any ? shot : null, captured);
+          openPanel(source, composePage(shot, drawn, layers[0], layers[1]), captured);
         };
-        const timer = window.setTimeout(() => finish(null), OVERLAY_WAIT_MS);
-        const drawHtml = typeof options.overlay === "function" ? options.overlay : () => capturePage(document.body, [...list, ...host ? [host] : []], 960, OVERLAY_WAIT_MS);
-        Promise.resolve().then(() => drawHtml()).then(
-          (overlay) => {
-            window.clearTimeout(timer);
-            finish(overlay ?? null);
-          },
-          () => {
-            window.clearTimeout(timer);
-            finish(null);
-          }
-        );
+        const timer = window.setTimeout(() => finish([null, null]), OVERLAY_WAIT_MS);
+        const own = typeof options.overlay === "function" ? options.overlay : null;
+        const drawHtml = own ?? (() => capturePage(document.body, [...list, ...host ? [host] : []], 960, OVERLAY_WAIT_MS));
+        const drawBackdrop = own ? () => null : () => captureBackdrop(document.body, 960, OVERLAY_WAIT_MS);
+        Promise.all([
+          Promise.resolve().then(() => drawBackdrop()).catch(() => null),
+          Promise.resolve().then(() => drawHtml()).catch(() => null)
+        ]).then((layers) => {
+          window.clearTimeout(timer);
+          finish([layers[0] ?? null, layers[1] ?? null]);
+        });
       };
       requestAnimationFrame(run);
       window.setTimeout(run, 250);

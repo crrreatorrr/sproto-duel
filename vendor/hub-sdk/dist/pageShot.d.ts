@@ -8,6 +8,11 @@ export declare function loadPageShot(): Promise<Library>;
  * straight away, while their frame is still there. Game frames are held for at most `holdMs`.
  */
 export declare function capturePage(root: HTMLElement, skip: readonly Element[], maxWidth: number, holdMs: number): Promise<HTMLCanvasElement | null>;
+/**
+ * The root's background picture alone (a fixed page backdrop behind the game), to lay under the
+ * canvases: in the HTML layer it would cover them. Null when the root has no background image.
+ */
+export declare function captureBackdrop(root: HTMLElement, maxWidth: number, timeoutMs: number): Promise<HTMLCanvasElement | null>;
 /** The colour behind everything on the page, for the parts no canvas or element covers. */
 export declare function pageBackground(): string;
 export {};
