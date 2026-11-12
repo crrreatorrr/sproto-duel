@@ -437,6 +437,8 @@ export const CONFIG = {
       /**
        * Seconds after a roll ends before the next one can start. 1.2, up from 0.55: rolling on
        * cooldown used to be invulnerable a third of the time for free; now it is under a fifth.
+       * The cooldown alone left rolling on cooldown about 30% ahead of strafing against the
+       * Archmage; the rivals now punish rolls that dodge nothing (CONFIG.ai.rollPunishWindow).
        */
       cooldown: 1.2,
       /**
@@ -844,7 +846,12 @@ export const CONFIG = {
     shooter: {
       name: 'Shooter Staff',
       boltLabel: 'Missile',
-      boltDamageMult: 6,
+      /**
+       * Bolt damage x this for twice the mana (4 -> 21 for 10). 4 before the mana pass, 6 after it;
+       * 5.25 puts held fire back at its old standing (about 2.8 times the stock staff on the first
+       * boss, just under the Alien Ray). Pinned in src/qa/simProbe.test.ts.
+       */
+      boltDamageMult: 5.25,
       boltManaMult: 2,
       boltSkin: 'missile' as const,
       bolt: 0xff942b,
@@ -854,7 +861,12 @@ export const CONFIG = {
     },
     fighter: {
       name: 'Fighter Staff',
-      boltDamageMult: 2.5,
+      /**
+       * Bolt damage x this, and bolts are free (4 -> 8.4 for 0). 1 before the mana pass (free bolts
+       * were worth 3.8 times the starved stock staff), 2.5 after it (4.6 times); 2.1 is the old
+       * standing, about 3.7 times the stock staff on the first boss.
+       */
+      boltDamageMult: 2.1,
       boltManaMult: 0,
       bolt: 0x56eaff,
       trail: 0x9262ff,
@@ -1096,6 +1108,13 @@ export const CONFIG = {
     castRevealTime: 0.5,
     /** How long the AI stays aggressive after spotting a punish window. */
     punishTime: 1.6,
+    /**
+     * Rolling on cooldown is a whiff: a roll made with none of the AI's spells in the air and no
+     * cast winding up, within this many seconds of the last such roll, opens a punish window
+     * (at the profile's punishChance). One roll to reposition, or any roll that dodges something,
+     * is never punished.
+     */
+    rollPunishWindow: 4,
     /** Minimum seconds between retreats. */
     retreatCooldown: 5,
     /**
@@ -1130,7 +1149,7 @@ export const CONFIG = {
       easy: {
         label: 'Apprentice',
         reactionTime: 0.45,
-        aimError: 0.16,
+        aimError: 0.17,
         leadFactor: 0.1,
         dodgeChance: 0.25,
         shieldPreference: 0.3,
@@ -1143,15 +1162,15 @@ export const CONFIG = {
         strafeSpeed: 0.65,
         preferredRange: [10, 15],
       },
-      // The middle step: a scripted attacker wins about a third of its rounds against it (it won
-      // one in twenty against the sharper profile this replaced, and wins most against easy).
+      // The middle step: a scripted attacker (strafe, hold fire, cast what is affordable) wins about
+      // 40% of its rounds against it, about 65% against easy and none against hard.
       normal: {
         label: 'Adept',
-        reactionTime: 0.32,
-        aimError: 0.15,
+        reactionTime: 0.34,
+        aimError: 0.16,
         leadFactor: 0.15,
-        dodgeChance: 0.4,
-        shieldPreference: 0.35,
+        dodgeChance: 0.3,
+        shieldPreference: 0.28,
         perfectShieldChance: 0.12,
         burst: [2, 3],
         burstPause: [1.0, 1.7],
@@ -1166,7 +1185,8 @@ export const CONFIG = {
         reactionTime: 0.15,
         aimError: 0.05,
         leadFactor: 0.85,
-        dodgeChance: 0.78,
+        // 0.84, up from 0.78 with the roll punish (rollPunishWindow): keeps its rounds against itself at about 50 s.
+        dodgeChance: 0.84,
         shieldPreference: 0.5,
         perfectShieldChance: 0.6,
         burst: [4, 6],

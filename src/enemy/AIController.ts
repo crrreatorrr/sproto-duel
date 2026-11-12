@@ -65,6 +65,8 @@ export class AIController implements IntentSource {
   private pauseTimer = 0;
   private decisionTimer = 0;
   private punishTimer = 0;
+  /** When the target last rolled with nothing of ours to dodge (-1: not yet). */
+  private emptyRollAt = -1;
   private losTimer = 0;
   private hasLos = true;
   /** The target is hidden by soft cover (a vape cloud): aim and move at where it was last seen... */
@@ -149,6 +151,7 @@ export class AIController implements IntentSource {
     this.target = w;
     this.ultWatch = -1;
     this.punishTimer = 0;
+    this.emptyRollAt = -1;
     this.comboBlastAt = -1;
     this.losTimer = 0;
     // Forget where the old target was last seen (e.g. inside a vape cloud).
@@ -177,6 +180,7 @@ export class AIController implements IntentSource {
     this.burstLeft = 0;
     this.pauseTimer = rand(0.3, 0.8);
     this.punishTimer = 0;
+    this.emptyRollAt = -1;
     this.comboBlastAt = -1;
     this.ultWatch = -1;
     this.retreatCooldown = 0;
@@ -213,6 +217,16 @@ export class AIController implements IntentSource {
       }),
       events.on('stunned', (e) => {
         if (e.wizard === this.target) this.tryPunish();
+      }),
+      events.on('dodge', (e) => {
+        // Rolling on cooldown is a whiff too: a second roll in a row with nothing of ours to dodge
+        // (CONFIG.ai.rollPunishWindow).
+        const w = this.self;
+        if (e.wizard !== this.target || w.cast || this.spells.powers.channeling(w)) return;
+        for (const proj of this.spells.pool.active) if (proj.owner.side === w.side) return;
+        const again = this.emptyRollAt >= 0 && this.time - this.emptyRollAt < AI.rollPunishWindow;
+        this.emptyRollAt = this.time;
+        if (again) this.tryPunish();
       }),
       events.on('ultWave', (e) => {
         if (e.wizard === this.target) this.ultWatch = this.self.health;

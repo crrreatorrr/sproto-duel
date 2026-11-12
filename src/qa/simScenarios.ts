@@ -78,14 +78,16 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
   });
 
   qa.add('sim.roll_on_cooldown_survival_vs_strafing', (c) => {
-    // Plan B2. Seconds of round 1 survived against the Adept doing nothing else.
-    const idle = scripted('idle', 'normal', 24, { firstRoundOnly: true }).survival.mean;
-    const strafe = scripted('strafe', 'normal', 24, { firstRoundOnly: true }).survival.mean;
-    const roll = scripted('rollSpam', 'normal', 24, { firstRoundOnly: true }).survival.mean;
-    c.note(`survival: idle ${idle} s, strafing ${strafe} s, rolling on cooldown ${roll} s (+${Math.round((roll / strafe - 1) * 100)}%)`);
+    // Plan B2. Seconds of round 1 survived doing nothing else, against the Archmage: the gentler
+    // rivals take most of the 80 s round to knock out anything that moves, which hides the gap.
+    const idle = scripted('idle', 'hard', 48, { firstRoundOnly: true }).survival.mean;
+    const strafe = scripted('strafe', 'hard', 48, { firstRoundOnly: true }).survival.mean;
+    const roll = scripted('rollSpam', 'hard', 48, { firstRoundOnly: true }).survival.mean;
+    c.note(`survival against the Archmage: idle ${idle} s, strafing ${strafe} s, rolling on cooldown ${roll} s (+${Math.round((roll / strafe - 1) * 100)}%)`);
     c.expect(idle < strafe, `standing still (${idle} s) outlasts strafing (${strafe} s)`);
-    // The plan's goal is within 15% of strafing; the shipped cooldown leaves it at about 25-30% (see the plan, section 11).
-    c.expect(roll < strafe * 1.4, `rolling on cooldown survives ${roll} s against ${strafe} s strafing`);
+    // The plan's goal is within about 15% of strafing (CONFIG.ai.rollPunishWindow: the rival punishes
+    // rolls that dodge nothing). About 14% over 240 rounds; this sample moves a few points.
+    c.expect(roll < strafe * 1.25, `rolling on cooldown survives ${roll} s against ${strafe} s strafing`);
     c.expect(W.dodge.iframes / (W.dodge.duration + W.dodge.cooldown) < 0.2, 'a roll on cooldown is invulnerable a fifth of the time or more');
   });
 
@@ -109,7 +111,7 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
     c.note(`scripted attacker round win rate: Apprentice ${won[0].toFixed(2)}, Adept ${won[1].toFixed(2)}, Archmage ${won[2].toFixed(2)}`);
     c.expect(won[0] > won[1] && won[1] >= won[2], `win rates do not fall with difficulty: ${won.map((x) => x.toFixed(2)).join(' / ')}`);
     c.expect(won[0] >= 0.5, `the scripted attacker wins only ${(won[0] * 100).toFixed(0)}% of rounds against the Apprentice`);
-    c.expect(won[1] >= 0.2 && won[1] <= 0.65, `the Adept is not a middle step: the scripted attacker wins ${(won[1] * 100).toFixed(0)}% of rounds`);
+    c.expect(won[1] >= 0.25 && won[1] <= 0.7, `the Adept is not a middle step: the scripted attacker wins ${(won[1] * 100).toFixed(0)}% of rounds`);
   });
 
   qa.add('sim.first_boss_stage_pace', (c) => {

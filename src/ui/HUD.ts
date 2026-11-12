@@ -133,6 +133,9 @@ export class HUD {
   /** Roll presses seen so far, and seconds left of the "not ready" flash for a refused one. */
   private rollPresses = 0;
   private rollDenied = 0;
+  /** Rolls seen so far, and seconds left for a buffered press to turn into one before it counts as refused. */
+  private rollsSeen = 0;
+  private rollPending = 0;
   private readonly cache = new Map<string, string>();
   private hitMarker = 0;
   /** Online: the round-trip time chip (null hides it). */
@@ -557,23 +560,33 @@ export class HUD {
     this.updateRewardSlots(p);
     this.updateReticle(p);
     const blink = p.staff?.blink;
-    if (blink) {
-      const ready = 1 - p.cd.blink / Math.max(0.001, blink.cooldown);
-      this.set('dodge', this.dodge, 'transform', `scaleX(${Math.max(0, Math.min(1, ready)).toFixed(3)})`);
-      this.set('dodgelabel', this.dodgeLabel, 'text', 'BLINK');
-    } else {
-      const dodgeReady = 1 - p.cd.dodge / (W.dodge.duration + W.dodge.cooldown);
-      this.set('dodge', this.dodge, 'transform', `scaleX(${dodgeReady.toFixed(3)})`);
-      this.set('dodgelabel', this.dodgeLabel, 'text', this.rollDenied > 0 ? 'NOT READY' : 'ROLL');
-    }
-    // A roll pressed too early to be buffered is refused: say so on the bar instead of nothing happening.
+    // A roll press that does nothing is refused out loud: the bar flashes NOT READY. At once when
+    // the roll is too far from ready to be buffered (also during a roll); when the buffer runs out
+    // with no roll otherwise (in the air, stunned).
     const rollPresses = p.intent.presses.dodge;
+    const rolled = p.stats.dodges !== this.rollsSeen;
+    this.rollsSeen = p.stats.dodges;
+    if (rolled) this.rollPending = 0;
+    const fighting = this.match.phase === 'fight' && p.alive;
     if (rollPresses !== this.rollPresses) {
       this.rollPresses = rollPresses;
       const blinkReady = !!blink && p.intent.sprint && p.cd.blink <= 0;
-      if (!blinkReady && !p.dodging && p.cd.dodge > W.dodge.inputBuffer && this.match.phase === 'fight') this.rollDenied = 0.4;
+      if (fighting && !rolled) {
+        if (!blinkReady && p.cd.dodge > W.dodge.inputBuffer) this.rollDenied = 0.4;
+        else this.rollPending = W.dodge.inputBuffer + 0.1;
+      }
+    } else if (this.rollPending > 0) {
+      this.rollPending -= dt;
+      if (this.rollPending <= 0 && fighting) this.rollDenied = 0.4;
+    } else this.rollDenied = Math.max(0, this.rollDenied - dt);
+    if (blink) {
+      const ready = 1 - p.cd.blink / Math.max(0.001, blink.cooldown);
+      this.set('dodge', this.dodge, 'transform', `scaleX(${Math.max(0, Math.min(1, ready)).toFixed(3)})`);
+    } else {
+      const dodgeReady = 1 - p.cd.dodge / (W.dodge.duration + W.dodge.cooldown);
+      this.set('dodge', this.dodge, 'transform', `scaleX(${dodgeReady.toFixed(3)})`);
     }
-    this.rollDenied = Math.max(0, this.rollDenied - dt);
+    this.set('dodgelabel', this.dodgeLabel, 'text', this.rollDenied > 0 ? 'NOT READY' : blink ? 'BLINK' : 'ROLL');
     const bar = this.dodge.parentElement!;
     this.set('dodgebar', bar, 'class', `dodge-bar${this.rollDenied > 0 ? ' denied' : p.cd.dodge <= 0 && !blink ? ' ready' : ''}`);
 

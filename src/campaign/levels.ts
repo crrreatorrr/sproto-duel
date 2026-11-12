@@ -204,8 +204,9 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
 /**
  * The boss ladder, easiest first. A gauntlet fight is one life against all three stages, each with
  * its own health bar (`stageHealth`). The bars are sized so a stage takes about five minutes for a
- * player with a person's aim holding fire with a mid staff (Moonward: 6.2 damage a second on Sahil
- * with the human-aim script in src/qa/simProbe.ts). The stock staff takes about eight (under the
+ * player with a person's aim holding fire with a mid staff (Moonward: 5.9 damage a second on Sahil
+ * with the human-aim script in src/qa/simProbe.ts; 3.4 to 5.3 minutes a stage across the ladder
+ * when that player also strafes and casts). The stock staff takes about eight at most (under the
  * nine-minute stage cap), the strongest reward staves two to three, and the soak's reference AI
  * (the Adept profile) four to five. Sizing for five minutes with the stock staff would have
  * let the reward staves clear a stage in about a minute. A knockout in stage 2
@@ -217,7 +218,9 @@ const ALL: StageAttacks = { blast: true, stun: true, ultimate: true };
  * is a double fight (`partner`): the pair together is tuned as one step on the ladder.
  * Each fight is tuned for a player who arrives with the boss spells (`reward`) of every fight before
  * it: fight N against spells 1..N-1. Tuned with `__duel.qa.campaignSoak` (its reference AI uses those
- * spells; reference win rates: README / the final report).
+ * spells; reference win rates: README / the final report). `damageMultiplier` is the ladder's
+ * lever: the 2026-11-12 retune raised it for fights 2 to 4 (0.64 / 0.46, 0.76, 0.86 before) after
+ * the smaller stage bars had made the middle of the ladder easy.
  */
 export const BOSSES: BossDef[] = [
   boss({
@@ -321,7 +324,7 @@ export const BOSSES: BossDef[] = [
     // bars, closes in). Two separate bosses: each changes stage only when its own bar empties, and
     // knocking one out leaves the other as it is; a sharp player drops Obama first.
     stageHealth: [540, 630, 710],
-    damageMultiplier: 0.64,
+    damageMultiplier: 0.73,
     spellDamage: 0.5,
     partner: {
       // Quicker and jumpier than Obama, a little less accurate, likes to get close, and takes more beating.
@@ -372,7 +375,7 @@ export const BOSSES: BossDef[] = [
       },
       // Much faster than anyone else (1.5x walk and sprint), but a little lighter: less health, softer hits.
       stageHealth: [640, 730, 800],
-      damageMultiplier: 0.46,
+      damageMultiplier: 0.53,
       spellDamage: 0.5,
       speed: 1.5,
       hitbox: { radius: 0.32, height: 1.25 },
@@ -422,7 +425,7 @@ export const BOSSES: BossDef[] = [
       preferredRange: [9, 14],
     },
     stageHealth: [1340, 1370, 1530],
-    damageMultiplier: 0.76,
+    damageMultiplier: 0.93,
     spellDamage: 0.97,
   }),
   boss({
@@ -475,7 +478,7 @@ export const BOSSES: BossDef[] = [
     },
     // Retuned for the player's carpet, Pump It and vape cloud (the cloud's healing and cover especially).
     stageHealth: [1640, 1670, 1910],
-    damageMultiplier: 0.86,
+    damageMultiplier: 1.0,
     spellDamage: 1.15,
   }),
   boss({

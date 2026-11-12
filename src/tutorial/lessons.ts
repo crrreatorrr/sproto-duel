@@ -56,6 +56,8 @@ const ROLLS = 2;
 const LOW_MANA = Math.round(W.maxMana * 0.5);
 /** Mana that must come back in the recover lesson: one Blast's worth and a bit. */
 const RECOVER = S.blast.manaCost + 6;
+/** Seconds a lesson whose goal was already met when it came up stays on screen before moving on. */
+export const MET_ON_ENTRY_SHOW = 3;
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const boost = Math.round((TK.maxManaMultiplier - 1) * 100);
 
@@ -79,7 +81,7 @@ export const LESSONS: readonly Lesson[] = [
     title: 'Let it refill',
     text: () => `Now let go. Mana returns at ${W.manaRegen} a second, so two seconds off the trigger pays for a Blast. Out of mana, Bolts only trickle out and nothing else casts.`,
     // Done once a Blast's worth has come back, or the bar is as good as full (a player who skipped
-    // the lesson before arrives with nothing to refill).
+    // the lesson before arrives with nothing to refill: LessonRun shows it briefly and moves on).
     progress: (f) => (f.mana >= W.maxMana - 1 ? 1 : clamp01((f.mana - f.lowMana) / RECOVER)),
     status: (f) => `Mana ${Math.round(f.mana)} / ${W.maxMana}`,
   },
@@ -132,6 +134,8 @@ export class LessonRun {
   facts: LessonFacts;
   /** Lessons finished by doing them (not skipped or timed out). */
   earned = 0;
+  /** The lesson on screen was already complete when it came up (nothing was done for it). */
+  private metOnEntry = false;
 
   constructor(mana: number, private readonly lessons: readonly Lesson[] = LESSONS) {
     this.facts = emptyFacts(mana);
@@ -158,10 +162,15 @@ export class LessonRun {
     f.mana = mana;
     if (mana < f.lowMana) f.lowMana = mana;
     if (l.progress(f) >= 1) {
-      this.earned++;
+      // Met before anything was done (the lesson before was skipped: a full bar with nothing to
+      // refill, a bar already run down): show the lesson for a moment, then move on uncounted.
+      if (this.metOnEntry && f.time < MET_ON_ENTRY_SHOW) return false;
+      if (!this.metOnEntry) this.earned++;
       this.next(mana);
       return true;
     }
+    // No longer met (the player started spending): from here it is done by doing it.
+    this.metOnEntry = false;
     if (l.giveUpAfter !== undefined && f.time >= l.giveUpAfter) {
       this.next(mana);
       return true;
@@ -177,5 +186,6 @@ export class LessonRun {
   private next(mana: number): void {
     this.index++;
     this.facts = emptyFacts(mana);
+    this.metOnEntry = this.lesson !== null && this.lesson.progress(this.facts) >= 1;
   }
 }
