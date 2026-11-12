@@ -578,8 +578,14 @@ export function createLiveHubSdk(env, client) {
             if (!active)
                 return {};
             const result = await sendOnce(active, 'session.event', key, { eventId, data });
-            const granted = result && typeof result === 'object' ? result.granted : undefined;
-            return typeof granted === 'string' && isRelicId(granted) ? { granted } : {};
+            const answer = result && typeof result === 'object' ? result : {};
+            const out = {};
+            if (typeof answer.granted === 'string' && isRelicId(answer.granted))
+                out.granted = answer.granted;
+            // The server names `tickets` only when this event credited some (a story boss, 0.7.1).
+            if (typeof answer.tickets === 'number' && Number.isSafeInteger(answer.tickets) && answer.tickets >= 0)
+                out.tickets = answer.tickets;
+            return out;
         },
         async submitScore(boardId, value, meta) {
             if (!isBoardId(boardId))

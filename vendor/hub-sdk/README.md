@@ -2,6 +2,8 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
+Version 0.7.1 adds one optional field: the live `reportEvent` now returns `tickets`, the Tickets the server credited for that event (20 for a story boss reported with `sproto.boss_defeated` or `fighter.boss_defeated`), so a game can tell the player what a boss paid. It is absent when the event paid nothing, and existing callers that read only `granted` need no change. Sproto Duel and Sproto Fighter re-vendor to use it; the other games' events pay no Tickets.
+
 Version 0.7.0 adds in-game feedback: `installFeedback` (the N-N feedback window), `feedbackTransportFromSdk`, and two optional `HubSdk` methods, `feedbackAccess` and `submitFeedback` (`feedback.can`, `feedback.submit`). See `docs/feedback.md` in metaverse-hub. Nothing else changes; games re-vendor and add a small adapter.
 
 Version 0.6.4 adds two Relics: `marina_anchor` (Sproto Coop Battle) and `dragon_scale` (Sproto Shooter), with `RELIC_BY_GAME` entries for both games and two events, `HubEvent.CoopStageClear` (`coop.stage_clear`, grant with `{ stage: 1 }` when stage 1, Tidebreak Marina, is cleared) and `HubEvent.ShooterWaveClear` (`shooter.wave_clear`, grant with `{ wave: 1 }` when wave 1 of Wave Mode is cleared). God Mode counts: extra fields such as `godMode: true` do not block either grant. Neither pays Tickets or counts toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server. Games must re-vendor to see the new Relics, because the SDK drops relic ids it does not know. Nothing else changes.
@@ -122,6 +124,7 @@ const outcome = await hub.reportEvent(
   `sproto:tinubu:${profile.playerId}`,
 );
 // outcome.granted === 'tinubu_crown' the first time only
+// outcome.tickets === 20 when the boss paid (once per boss per UTC day); absent when it paid nothing
 
 // sproto_wins is written by the server (the Sproto Duel match), never by the client.
 
@@ -148,7 +151,7 @@ init(gameId): Promise<{
   serverTime: number;
 }>
 
-reportEvent(eventId: string, data: object, key: string): Promise<{ granted?: RelicId }>
+reportEvent(eventId: string, data: object, key: string): Promise<{ granted?: RelicId; tickets?: number }>
 submitScore(boardId: string, value: number, meta?: object): Promise<ScoreResult | void>
 getSession?(): { token; playerId; game; ranked; expiresAt } | null
 refreshSession?(): Promise<HubSessionInfo | null>
@@ -175,7 +178,7 @@ Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, `spr
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
-| `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
+| `fighter.story_level_complete` with world `1` (Halloween 2008 story victory) | `tidebreaker_belt` |
 | `arcade.boss_defeated` with boss `bront` | `breakwater_coin` |
 | `coop.stage_clear` with stage `1` (Sproto Coop Battle) | `marina_anchor` |
 | `shooter.wave_clear` with wave `1` (Sproto Shooter, Wave Mode) | `dragon_scale` |

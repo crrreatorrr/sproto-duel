@@ -169,7 +169,9 @@ export class HubLink {
    * Report a finished duel. Losses and standalone visits do nothing.
    * This never calls earnTickets. A story-boss gauntlet win posts `sproto.boss_defeated`
    * (the hub pays 20 T once per boss per UTC day and may grant Tinubu's Crown).
-   * After that event, the shown balance is refreshed. A Ticket toast appears only when it rose.
+   * After that event, the shown balance is refreshed. When the hub returns `tickets` (SDK 0.7.1)
+   * the toast says what the win paid, or that it paid none today; without it, a Ticket toast
+   * appears only when the balance rose.
    * The match id is assigned once per fight (`beginFight`, or the first report of this win)
    * and the operation id is `sproto.boss_defeated:<id>`. A second call for that fight does not post.
    * On a queued error the SDK has already saved that id and resends it on the next init.
@@ -186,12 +188,15 @@ export class HubLink {
     let sub = '';
     let crown = false;
     let eventPosted = false;
+    /** Tickets the hub says this win paid (SDK 0.7.1). Undefined when the server did not say. */
+    let paid: number | undefined;
     for (const call of calls) {
       try {
         if (call.kind === 'event') {
           const reported = await this.api.reportEvent(call.eventId, call.data, call.key);
           eventPosted = true;
           if (reported.granted === 'tinubu_crown') crown = true;
+          if (typeof reported.tickets === 'number') paid = reported.tickets;
         } else {
           await this.api.submitScore(call.boardId, call.value, call.meta);
         }
@@ -209,14 +214,22 @@ export class HubLink {
       const before = this.balance;
       try {
         const next = (await this.api.getTicketBalance()).balance;
-        if (typeof before === 'number' && next > before) {
+        if (paid === undefined && typeof before === 'number' && next > before) {
           title = `+${next - before} Tickets`;
+          sub = sub ? `Balance ${next} · ${sub}` : `Balance ${next}`;
+        } else if (paid !== undefined) {
           sub = sub ? `Balance ${next} · ${sub}` : `Balance ${next}`;
         }
         this.balance = next;
       } catch {
-        /* no Ticket toast unless the shown balance actually rose */
+        /* without `tickets`, no Ticket toast unless the shown balance actually rose */
       }
+    }
+    if (paid !== undefined) {
+      // The hub said what this boss win paid. A replayed key returns the same number, so it is shown, never added.
+      const line = paid > 0 ? `This boss win paid ${paid} Tickets` : 'This boss already paid its Tickets today';
+      title = paid > 0 ? `+${paid} Tickets` : 'No Tickets today';
+      sub = sub ? `${line} · ${sub}` : line;
     }
     if (crown) {
       if (!this.relics.includes('tinubu_crown')) this.relics = [...this.relics, 'tinubu_crown'];

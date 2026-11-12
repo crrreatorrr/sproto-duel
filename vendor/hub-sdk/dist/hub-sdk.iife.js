@@ -1,4 +1,4 @@
-/*! @metaverse/hub-sdk 0.7.0 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
+/*! @metaverse/hub-sdk 0.7.1 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
 "use strict";
 var HubSDK = (() => {
   var __defProp = Object.defineProperty;
@@ -1067,8 +1067,11 @@ var HubSDK = (() => {
         }
         if (!active) return {};
         const result = await sendOnce(active, "session.event", key, { eventId, data });
-        const granted = result && typeof result === "object" ? result.granted : void 0;
-        return typeof granted === "string" && isRelicId(granted) ? { granted } : {};
+        const answer = result && typeof result === "object" ? result : {};
+        const out = {};
+        if (typeof answer.granted === "string" && isRelicId(answer.granted)) out.granted = answer.granted;
+        if (typeof answer.tickets === "number" && Number.isSafeInteger(answer.tickets) && answer.tickets >= 0) out.tickets = answer.tickets;
+        return out;
       },
       async submitScore(boardId, value, meta) {
         if (!isBoardId(boardId)) throw new HubSdkError("bad_board", `Unknown board "${boardId}"`);
