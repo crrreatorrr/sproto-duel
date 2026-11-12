@@ -674,7 +674,8 @@ export class Menus {
           <button class="primary" data-act="back">Back</button>
         </div>
       </div>`, 'controller');
-    this.sysBar(s, { ...o, controls: false });
+    // Keep Fighting on a Main Menu / Hub check comes back here; Back goes to where this was opened.
+    this.sysBar(s, { ...o, controls: false, reopen: () => this.showControls(o) });
     this.paintBinds();
     this.setBindNote(DEFAULT_BIND_NOTE);
     s.querySelectorAll<HTMLButtonElement>('[data-bind]').forEach((btn) => btn.addEventListener('click', () => this.startCapture(btn)));

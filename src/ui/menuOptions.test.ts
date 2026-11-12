@@ -275,4 +275,16 @@ describe('Controller Settings', () => {
     expect(m.back()).toBe(true);
     expect(m.current).toBe('pause');
   });
+
+  it('Keep Fighting on its Main Menu check comes back to Controller Settings', () => {
+    const { m, root } = setup({ inFight: () => 'local' });
+    m.showPause();
+    root.querySelector<HTMLButtonElement>('[data-sys="controls"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-sys="main"]')!.click();
+    expect(m.current).toBe('exit-confirm');
+    root.querySelector<HTMLButtonElement>('[data-act="stay"]')!.click();
+    expect(m.current).toBe('controller');
+    expect(m.back()).toBe(true);
+    expect(m.current).toBe('pause');
+  });
 });
