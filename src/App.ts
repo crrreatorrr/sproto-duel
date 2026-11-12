@@ -20,6 +20,8 @@ import type { AcceptEndMsg, FoundMsg, OutcomeMsg, RematchStateMsg, StartMsg } fr
 type NetStack = typeof import('./net/onlineStack');
 import type { TickController } from './core/Game';
 import { assignDevices } from './input/assignDevices';
+import { applyControlPrefs, loadControlPrefs } from './input/controlPrefs';
+import { escLeavesFullscreen } from './ui/fullscreen';
 import { joinStep, newJoinState, type JoinState } from './input/versusJoin';
 import type { DeviceBinding } from './input/IntentSource';
 import { LocalHumanSource } from './player/PlayerController';
@@ -178,6 +180,8 @@ export class App {
   private reportMatchId: string | null = null;
 
   constructor(readonly game: Game, campaign = new Campaign(), private readonly hub = HubLink.standalone()) {
+    // The player's saved key / button layout and dead zone (Controller Settings), before anything reads them.
+    applyControlPrefs(loadControlPrefs());
     // Relics the existing init already returned. No session: the staff cache stays the fallback.
     setSessionRelics(hub.connected ? hub.relics : null);
     this.campaign = campaign;
@@ -245,6 +249,12 @@ export class App {
       characterRack: () => this.characterRack(),
       selectCharacter: (id) => this.selectCharacter(id),
       titleStage: (slot) => this.showTitleStage(slot),
+      inFight: () => (this.state === 'paused' ? (this.mode === 'online' ? 'online' : 'local') : null),
+      toHub: () => {
+        this.endOnline();
+        this.hub.exitHub();
+      },
+      controlsChanged: () => this.relabel(),
       uiSound: (kind) => this.audio.play(kind === 'hover' ? 'uiHover' : 'uiClick', { exactPitch: true }),
     });
     this.applySettings(this.settings);
@@ -434,6 +444,8 @@ export class App {
     });
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
+      // Esc in browser full screen leaves full screen; the next Esc backs out or pauses.
+      if (escLeavesFullscreen(e)) return;
       const back = CONFIG.controls.menu.back.includes(e.code);
       if (!back && !CONFIG.controls.pause.includes(e.code)) return;
       if (this.state === 'playing') return this.pause();
@@ -460,16 +472,22 @@ export class App {
     this.bindGamepad();
   }
 
+  /** HUD prompts and menu glyphs for the active device and the current bindings. */
+  private relabel(): void {
+    const pad = this.game.input.pad;
+    this.menus.padStyle = pad.style;
+    this.menus.padDevice = pad.device;
+    this.hud.setKeyLabels(spellLabels(pad.device, pad.style));
+    this.hud.setRewardKeyLabels(rewardLabels(pad.device, pad.style));
+  }
+
   /** Controller: HUD prompts follow the active device, Start pauses, pad menu navigation, rumble. */
   private bindGamepad(): void {
     const g = this.game;
     const pad = g.input.pad;
-    const relabel = () => {
-      this.menus.padStyle = pad.style;
-      this.menus.padDevice = pad.device;
-      this.hud.setKeyLabels(spellLabels(pad.device, pad.style));
-      this.hud.setRewardKeyLabels(rewardLabels(pad.device, pad.style));
-    };
+    const relabel = () => this.relabel();
+    // Saved bindings may differ from the defaults the HUD was built with.
+    relabel();
     pad.onDeviceChange((device) => {
       relabel();
       // Picked up a pad while the game waits for the mouse to be captured: just play.
@@ -495,6 +513,8 @@ export class App {
     if (split) this.p2Pad.update();
     // The feedback window is up: Start and pad menu navigation would act on what is under it.
     if (this.feedbackOpen) return;
+    // Controller Settings is waiting for a button: it takes the press, Start included.
+    if (this.menus.capturing) return this.menus.nav.update(split && !pad.connected ? this.p2Pad : pad, dt);
     const pause = CONFIG.gamepad.bindings.pause;
     if (pad.wasPressed(pause) || (split && this.p2Pad.wasPressed(pause))) {
       if (this.state === 'playing') return this.pause();
