@@ -646,10 +646,12 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       c.expect(app.match.wins[0] === 0 && app.match.wins[1] === 0 && app.match.round === 1, 'Retry did not reset the match');
       c.expect(game.enemy.name === boss.name && game.enemy.health === game.enemy.maxHealth, 'Retry rival not reset');
       c.expect(app.match.single && game.stages.stage === 0 && game.enemy.maxHealth === boss.stageHealth[0] && game.lifePacks.spawned === 0, 'Retry is not a fresh one-life fight at stage 1');
-      // Pause -> Quit returns to the main menu.
+      // Pause -> Main Menu asks first, then returns to the main menu.
       app.pause();
       c.expect(app.menus.current === 'pause' && (app.menus.root.textContent ?? '').includes(boss.name), 'pause menu missing boss line');
       button(app, 'quit')!.click();
+      c.expect(app.menus.current === 'exit-confirm' && app.state === 'paused', 'Main Menu mid-fight did not ask first');
+      button(app, 'leave')!.click();
       c.expect(app.state === 'menu' && app.menus.current === 'main', 'Quit did not return to the menu');
     });
   });

@@ -1,6 +1,11 @@
 import { CONFIG, type Difficulty } from '../config';
 import type { ExchangeView, HubStatus } from '../hub/link';
-import { padGlyph, type InputDevice, type PadStyle } from '../core/Gamepad';
+import { padGlyph, type InputDevice, type PadButton, type PadStyle } from '../core/Gamepad';
+import {
+  ACTION_LABELS, DEADZONE_MAX, DEADZONE_MIN, applyControlPrefs, bindKey, bindPad, clearKey, defaultControlPrefs,
+  keyLabel, loadControlPrefs, saveControlPrefs, type BindResult, type ControlPrefs, type KeyAction, type PadAction,
+} from '../input/controlPrefs';
+import { fullscreenSupported, isFullscreen, toggleFullscreen } from './fullscreen';
 import { REWARD_SPELLS, REWARD_SPELL_INFO, type RewardSpellId } from '../spells/rewardCatalog';
 import { rewardIcon } from './icons';
 import { MENU_BACK, MenuNav } from './MenuNav';
@@ -152,6 +157,10 @@ export interface StageInfo {
 
 const NUMERALS = ['I', 'II', 'III'];
 
+/** Actions that have a controller button (the rest are on the sticks). */
+const PAD_ACTION_SET: ReadonlySet<string> = new Set<PadAction>(['sprint', 'jump', 'dodge', 'bolt', 'blast', 'shield', 'stun', 'ultimate', 'carpet', 'pump', 'vape', 'lockon', 'breath', 'pause']);
+const DEFAULT_BIND_NOTE = 'Pick a slot, then press the new key or button. One already in use swaps with it.';
+
 /** Saved gauntlet progress, for the main menu. */
 export interface GauntletStatus {
   canContinue: boolean;
@@ -247,6 +256,29 @@ export interface MenuHandlers {
   selectCharacter?(id: string): void;
   /** The main menu's slot for the title screen's live Wizard Sproto (App fills it). */
   titleStage?(slot: HTMLElement): void;
+  /**
+   * A fight is going on behind the menu: 'local' (paused), 'online' (a live match that never
+   * pauses), or null. Main Menu and Hub ask before leaving one.
+   */
+  inFight?(): 'local' | 'online' | null;
+  /** Leave for the hub from any menu (an online search or match is closed first). Defaults to exitHub. */
+  toHub?(): void;
+  /** Controller settings changed the bindings: relabel what shows them (the HUD). */
+  controlsChanged?(): void;
+}
+
+/**
+ * The standard options a menu screen offers in its top-right bar, besides Full Screen (always
+ * there when the browser supports it). `reopen` brings the screen back after Controller Settings.
+ * A screen whose own panel already has Main Menu or Return to Hub (marked data-sys-main /
+ * data-sys-hub) leaves that one out of the bar.
+ */
+export interface SysOptions {
+  main?: boolean;
+  hub?: boolean;
+  /** Controller Settings (false on that screen itself). Default true. */
+  controls?: boolean;
+  reopen(): void;
 }
 
 /** A key's printed name: KeyW -> W, Digit1 -> 1, ShiftLeft -> Shift, Escape -> Esc. */
@@ -319,6 +351,10 @@ export class Menus {
   private screen: HTMLElement | null = null;
   /** The boss card on screen (its reward line follows god mode: setBossRewardNote). */
   private bossIntro: BossIntro | null = null;
+  /** Controller settings being edited (the live layout: applied and saved on every change). */
+  private controls: ControlPrefs = loadControlPrefs();
+  /** Press-to-bind in progress on the controller screen. */
+  private capture: { kind: 'key' | 'pad'; action: string; slot: number; btn: HTMLButtonElement } | null = null;
 
   constructor(parent: HTMLElement, initial: Settings, private readonly h: MenuHandlers) {
     this.settings = { ...initial };
@@ -344,6 +380,14 @@ export class Menus {
       this.onStaffKey(e);
       this.nav.key(e);
     });
+    // Press-to-bind takes the next key before anything else sees it (Input, App's Esc, MenuNav).
+    window.addEventListener('keydown', (e) => this.onCaptureKey(e), true);
+    // A click anywhere but a binding slot cancels a bind in progress.
+    document.addEventListener('pointerdown', (e) => {
+      if (this.capture && !(e.target as Element | null)?.closest?.('[data-bind]')) this.cancelCapture();
+    }, true);
+    // F11 or Esc can leave full screen without the button: every visible toggle follows.
+    document.addEventListener('fullscreenchange', () => this.paintFullscreen());
   }
 
   private onStaffKey(e: KeyboardEvent): void {
@@ -487,6 +531,7 @@ export class Menus {
   }
 
   hide(): void {
+    this.endCapture();
     this.root.innerHTML = '';
     this.screen = null;
     this.root.classList.remove('open');
@@ -494,6 +539,7 @@ export class Menus {
   }
 
   private mount(html: string, cls: string): HTMLElement {
+    this.endCapture();
     this.bossIntro = null;
     this.root.innerHTML = `<div class="menu-screen ${cls}">${html}</div>`;
     this.root.classList.add('open');
@@ -507,6 +553,271 @@ export class Menus {
     el.querySelectorAll(sel).forEach((n) => n.addEventListener('click', fn));
   }
 
+  // ------------------------------------------------------------------ Standard options
+
+  /**
+   * The top-right bar every menu screen carries: Main Menu, Hub and Controller Settings where
+   * `o` asks for them, and Full Screen. `extra` goes at its end (the main menu's Ticket chip).
+   */
+  private sysBarHtml(o: SysOptions, extra = ''): string {
+    const fs = fullscreenSupported()
+      ? `<button type="button" class="sys-btn" data-sys="fullscreen" aria-pressed="${isFullscreen()}">Full Screen<small data-fs-state>${isFullscreen() ? 'On' : 'Off'}</small></button>`
+      : '';
+    return `<nav class="sys-bar" aria-label="Game options">
+      ${o.main ? '<button type="button" class="sys-btn" data-sys="main">Main Menu</button>' : ''}
+      ${o.hub ? '<button type="button" class="sys-btn" data-sys="hub">Hub</button>' : ''}
+      ${o.controls !== false ? '<button type="button" class="sys-btn" data-sys="controls">Controller Settings</button>' : ''}
+      ${fs}${extra}</nav>`;
+  }
+
+  /** Add the bar to screen `s` (after its panel, so a pad starts on the panel) and wire it. */
+  private sysBar(s: HTMLElement, o: SysOptions, extra = ''): void {
+    s.insertAdjacentHTML('beforeend', this.sysBarHtml(o, extra));
+    this.bindSys(s, o);
+  }
+
+  private bindSys(s: HTMLElement, o: SysOptions): void {
+    this.on(s, '[data-sys="main"]', () => this.goMain(o.reopen));
+    this.on(s, '[data-sys="hub"]', () => this.goHub(o.reopen));
+    this.on(s, '[data-sys="controls"]', () => this.showControls({ main: true, hub: true, ...o, controls: false }));
+    s.querySelectorAll<HTMLButtonElement>('[data-sys="fullscreen"]').forEach((btn) => {
+      // The request runs inside this click (or the key that pressed it): browsers need the gesture.
+      btn.addEventListener('click', () => {
+        void toggleFullscreen().then((ok) => {
+          if (!ok) this.toast('Full screen unavailable', 'Click the button, or press F11');
+          this.paintFullscreen();
+        });
+      });
+    });
+  }
+
+  /** Full Screen buttons say whether the page is in full screen now. */
+  private paintFullscreen(): void {
+    const on = isFullscreen();
+    this.root.querySelectorAll<HTMLButtonElement>('[data-sys="fullscreen"]').forEach((btn) => {
+      btn.setAttribute('aria-pressed', String(on));
+      const state = btn.querySelector('[data-fs-state]');
+      if (state) state.textContent = on ? 'On' : 'Off';
+    });
+  }
+
+  /** Main Menu from any screen: a fight in progress asks first. */
+  private goMain(reopen: () => void): void {
+    const fight = this.h.inFight?.() ?? null;
+    if (fight) this.showExitConfirm(reopen, 'menu', fight === 'online');
+    else this.h.quit();
+  }
+
+  /** Hub from any screen: a fight in progress asks first. */
+  private goHub(reopen: () => void): void {
+    const fight = this.h.inFight?.() ?? null;
+    if (fight) this.showExitConfirm(reopen, 'hub', fight === 'online');
+    else this.leaveForHub();
+  }
+
+  private leaveForHub(): void {
+    if (this.h.toHub) this.h.toHub();
+    else this.h.exitHub();
+  }
+
+  // ------------------------------------------------------------------ Controller settings
+
+  /** A press-to-bind is waiting for a key or button. */
+  get capturing(): boolean {
+    return this.capture !== null;
+  }
+
+  /**
+   * Controller Settings: every action's keys and pad button, press-to-bind remapping (Esc / B
+   * cancels, a key or button already in use swaps), vibration, the left-stick dead zone and
+   * Reset to Defaults. Changes apply at once and are saved (src/input/controlPrefs.ts).
+   * `o.reopen` is Back.
+   */
+  showControls(o: SysOptions): void {
+    const keySlot = (a: KeyAction, slot: number) =>
+      `<button type="button" class="bind" data-bind="key" data-action="${a}" data-slot="${slot}"${a === 'pause' && slot === 0 ? ' disabled' : ''}></button>`;
+    const padSlot = (a: PadAction) => `<button type="button" class="bind pad" data-bind="pad" data-action="${a}" data-slot="0"></button>`;
+    const fixed = (t: string) => `<span class="bind-fixed">${t}</span>`;
+    const row = (label: string, keys: string, pad: string) => `<div class="bind-row"><span class="bind-label">${label}</span>${keys}${pad}</div>`;
+    const action = (a: KeyAction, note = '') =>
+      row(`${ACTION_LABELS[a]}${note ? `<small>${note}</small>` : ''}`, `${keySlot(a, 0)}${keySlot(a, 1)}`, (PAD_ACTION_SET.has(a) ? padSlot(a as PadAction) : fixed('Left stick')));
+    const head = `<div class="bind-row bind-head"><span>Action</span><span>Key</span><span>Alt key</span><span>Controller</span></div>`;
+    const colA = [
+      action('forward'), action('back'), action('left'), action('right'),
+      row('Look / aim', fixed('Mouse') + fixed(''), fixed('Right stick')),
+      action('sprint'), action('jump'), action('dodge'),
+      action('bolt', 'and left click'), action('blast', 'and right click'),
+    ].join('');
+    const colB = [
+      action('shield'), action('stun'), action('ultimate'),
+      action('carpet'), action('pump'), action('vape'), action('lockon'), action('breath'),
+      action('pause'),
+      row('Menus', fixed('Arrows, Enter') + fixed('Esc back'), fixed(`D-pad, ${padGlyph('a', this.padStyle)} / ${padGlyph('b', this.padStyle)}`)),
+    ].join('');
+    const dz = this.controls.moveDeadzone;
+    const s = this.mount(`
+      <div class="menu-panel controls-panel">
+        <h2>Controller Settings</h2>
+        <p class="note bind-note" data-bind-note role="status"></p>
+        <div class="bind-list">
+          <div class="bind-col">${head}${colA}</div>
+          <div class="bind-col">${head}${colB}</div>
+        </div>
+        <div class="controls-options">
+          <label class="setting toggle"><span>Vibration</span><input type="checkbox" data-rumble ${this.settings.rumble ? 'checked' : ''}><i></i></label>
+          <label class="setting"><span>Left stick dead zone</span>
+            <input type="range" min="${DEADZONE_MIN}" max="${DEADZONE_MAX}" step="0.01" value="${dz}" data-deadzone>
+            <output>${dz.toFixed(2)}</output></label>
+        </div>
+        <div class="menu-actions row">
+          <button class="ghost" data-act="reset-controls">Reset to Defaults</button>
+          <button class="primary" data-act="back">Back</button>
+        </div>
+      </div>`, 'controller');
+    this.sysBar(s, { ...o, controls: false });
+    this.paintBinds();
+    this.setBindNote(DEFAULT_BIND_NOTE);
+    s.querySelectorAll<HTMLButtonElement>('[data-bind]').forEach((btn) => btn.addEventListener('click', () => this.startCapture(btn)));
+    const rumble = s.querySelector<HTMLInputElement>('[data-rumble]')!;
+    rumble.addEventListener('input', () => {
+      this.settings.rumble = rumble.checked;
+      this.h.settingsChanged({ ...this.settings });
+    });
+    const dzInput = s.querySelector<HTMLInputElement>('[data-deadzone]')!;
+    dzInput.addEventListener('input', () => {
+      const v = Number(dzInput.value);
+      dzInput.parentElement!.querySelector('output')!.textContent = v.toFixed(2);
+      this.commitControls({ ...this.controls, moveDeadzone: v });
+    });
+    this.on(s, '[data-act="reset-controls"]', () => {
+      this.commitControls(defaultControlPrefs());
+      this.settings.rumble = CONFIG.gamepad.rumble.enabled;
+      this.h.settingsChanged({ ...this.settings });
+      rumble.checked = this.settings.rumble;
+      dzInput.value = String(this.controls.moveDeadzone);
+      dzInput.parentElement!.querySelector('output')!.textContent = this.controls.moveDeadzone.toFixed(2);
+      this.paintBinds();
+      this.setBindNote('Back to the default layout.');
+    });
+    this.on(s, '[data-act="back"]', () => o.reopen());
+  }
+
+  /** Save, apply (input layer) and announce a new layout. */
+  private commitControls(next: ControlPrefs): void {
+    this.controls = next;
+    saveControlPrefs(next);
+    applyControlPrefs(next);
+    this.h.controlsChanged?.();
+  }
+
+  /** Write every slot's key or button name. */
+  private paintBinds(): void {
+    this.screen?.querySelectorAll<HTMLButtonElement>('[data-bind]').forEach((btn) => {
+      if (this.capture?.btn === btn) return;
+      const a = btn.dataset.action!;
+      const slot = Number(btn.dataset.slot);
+      const label = ACTION_LABELS[a as KeyAction];
+      if (btn.dataset.bind === 'key') {
+        const code = this.controls.keys[a as KeyAction][slot] ?? '';
+        btn.textContent = code ? keyLabel(code) : '—';
+        btn.classList.toggle('empty', !code);
+        btn.setAttribute('aria-label', `${label}, ${slot ? 'alternate key' : 'key'}: ${code ? keyLabel(code) : 'none'}`);
+      } else {
+        const names = this.controls.pad[a as PadAction].map((b) => padGlyph(b, this.padStyle)).join(' / ');
+        btn.textContent = names || '—';
+        btn.classList.toggle('empty', !names);
+        btn.setAttribute('aria-label', `${label}, controller: ${names || 'none'}`);
+      }
+      btn.classList.remove('capturing');
+    });
+  }
+
+  private setBindNote(text: string, warn = false): void {
+    const el = this.screen?.querySelector<HTMLElement>('[data-bind-note]');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('warn', warn);
+  }
+
+  private startCapture(btn: HTMLButtonElement): void {
+    this.endCapture();
+    const kind = btn.dataset.bind === 'pad' ? 'pad' : 'key';
+    const action = btn.dataset.action ?? '';
+    const slot = Number(btn.dataset.slot) || 0;
+    this.capture = { kind, action, slot, btn };
+    btn.classList.add('capturing');
+    btn.textContent = kind === 'key' ? 'Press a key' : 'Press a button';
+    const label = ACTION_LABELS[action as KeyAction];
+    this.setBindNote(kind === 'key'
+      ? `Press a key for ${label}. Esc or ${padGlyph('b', this.padStyle)} cancels${slot ? ', Backspace clears it' : ''}.`
+      : `Press a controller button for ${label}. ${padGlyph('b', this.padStyle)} or Esc cancels.`);
+    this.nav.capture = (b) => this.onCapturePad(b);
+  }
+
+  /** Stop listening without a message (a new screen, the menus closing). */
+  private endCapture(): void {
+    this.capture = null;
+    this.nav.capture = null;
+  }
+
+  private cancelCapture(): void {
+    if (!this.capture) return;
+    this.endCapture();
+    this.paintBinds();
+    this.setBindNote('Cancelled. ' + DEFAULT_BIND_NOTE);
+  }
+
+  private onCaptureKey(e: KeyboardEvent): void {
+    const c = this.capture;
+    if (!c) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.repeat) return;
+    if (e.code === 'Escape') return this.cancelCapture();
+    if (c.kind === 'pad') {
+      this.setBindNote(`Press a controller button for ${ACTION_LABELS[c.action as PadAction]}. Esc cancels.`);
+      return;
+    }
+    const action = c.action as KeyAction;
+    const result = e.code === 'Backspace' || e.code === 'Delete'
+      ? clearKey(this.controls, action, c.slot)
+      : bindKey(this.controls, action, c.slot, e.code);
+    this.finishCapture(result, keyLabel(e.code));
+  }
+
+  private onCapturePad(b: PadButton): void {
+    const c = this.capture;
+    if (!c) return;
+    if (b === 'b') return this.cancelCapture();
+    if (c.kind === 'key') return;
+    this.finishCapture(bindPad(this.controls, c.action as PadAction, b), padGlyph(b, this.padStyle));
+  }
+
+  private finishCapture(result: BindResult, name: string): void {
+    const c = this.capture!;
+    const btn = c.btn;
+    this.endCapture();
+    if (!result.ok) {
+      this.paintBinds();
+      this.setBindNote(result.reason, true);
+      btn.focus({ preventScroll: true });
+      return;
+    }
+    this.commitControls(result.prefs);
+    this.paintBinds();
+    const label = ACTION_LABELS[c.action as KeyAction];
+    const other = result.swapped;
+    let note = `${label}: ${name}.`;
+    if (other) {
+      const now = c.kind === 'key'
+        ? this.controls.keys[other as KeyAction].filter(Boolean).map(keyLabel).join(' / ')
+        : this.controls.pad[other as PadAction].map((x) => padGlyph(x, this.padStyle)).join(' / ');
+      note += ` Swapped: ${ACTION_LABELS[other]} is now ${now || 'unbound'}.`;
+    }
+    this.setBindNote(note);
+    btn.focus({ preventScroll: true });
+  }
+
   showMain(): void {
     const g = this.h.gauntletStatus();
     const cont = g.canContinue && g.next
@@ -516,7 +827,6 @@ export class Menus {
       : '';
     // A heading only labels the Continue / New Gauntlet pair: it never repeats a button's own title.
     const s = this.mount(`
-      <div class="ticket-chip" data-ticket-chip role="status"><span>Tickets</span><b></b></div>
       <div class="menu-panel main">
         <h1 class="title">Sproto<span>Duel</span></h1>
         <p class="tagline">Staffs up. One life against each boss.</p>
@@ -544,11 +854,12 @@ export class Menus {
         ${this.staffRackHtml(false)}
         <div class="row">
           <button class="ghost" data-act="exchange">Exchange<small>${CONFIG.hub.ticketsPerVerse} Tickets = 1 Verse</small></button>
-          <button class="ghost" data-act="exit">Return to Hub<small>Sproto Duel portal</small></button>
         </div>
         <p class="tip">Tip: raise your Shield just as a spell arrives to send it back.</p>
       </div>
       <div class="title-slot" data-title-slot></div>`, 'main');
+    // Hub leaves at once from here (nothing to lose); it sits with the other standard options.
+    this.sysBar(s, { hub: true, reopen: () => this.showMain() }, '<div class="ticket-chip" data-ticket-chip role="status"><span>Tickets</span><b></b></div>');
     this.on(s, '[data-act="start"]', () => this.h.start());
     this.paintTicketChip(s);
     this.on(s, '[data-act="practice"]', () => this.h.practice?.());
@@ -559,7 +870,6 @@ export class Menus {
     this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showMain()));
     this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showMain()));
     this.on(s, '[data-act="exchange"]', () => this.showExchange());
-    this.on(s, '[data-act="exit"]', () => this.h.exitHub());
     this.bindCharacter(s);
     this.bindStaff(s);
     this.bindDifficulty(s);
@@ -642,6 +952,7 @@ export class Menus {
           <button data-act="back" data-back>Back</button>
         </div>
       </div>`, 'versus-join');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showVersusJoin(view, h) });
     this.on(s, '[data-act="start"]', () => h.start());
     this.on(s, '[data-act="back"]', () => h.back());
     this.updateVersusJoin(view);
@@ -681,6 +992,7 @@ export class Menus {
           <button data-act="back" data-back>Back</button>
         </div>
       </div>`, 'exchange');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showExchange() });
     const balance = s.querySelector('.hub-balance')!;
     const cost = s.querySelector('.exchange-cost')!;
     const result = s.querySelector('.exchange-result')!;
@@ -750,6 +1062,7 @@ export class Menus {
         <ul class="reward-list">${this.rewardRows()}</ul>
         <div class="menu-actions"><button class="primary" data-act="back">Back</button></div>
       </div>`, 'howto');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showHowTo(back) });
     this.on(s, '[data-act="back"]', back);
   }
 
@@ -806,6 +1119,7 @@ export class Menus {
         </div>
         <div class="menu-actions"><button class="primary" data-act="back">Back</button></div>
       </div>`, 'settings');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showSettings(back) });
     const god = s.querySelector<HTMLInputElement>('input[data-god]')!;
     god.addEventListener('input', () => this.h.setGodMode(god.checked));
     // Forgetting is permanent: the first press asks, a second within 4 s confirms.
@@ -859,32 +1173,39 @@ export class Menus {
         <button data-act="howto">How to Play</button>
         <button data-act="settings">Settings</button>
         <button data-act="feedback">Send Feedback</button>
-        <button class="ghost" data-act="quit">Quit to Menu</button>
-        <button class="ghost" data-act="exit">Return to Hub</button>
+        <button class="ghost" data-act="quit" data-sys-main>Main Menu</button>
+        <button class="ghost" data-act="exit" data-sys-hub>Return to Hub</button>
       </div>`, 'pause');
+    const reopen = () => this.showPause(subtitle, stages, restartLabel);
+    this.sysBar(s, { reopen });
     this.on(s, '[data-act="resume"]', () => this.h.resume());
     this.on(s, '[data-act="restart"]', () => this.h.restart());
-    this.on(s, '[data-act="howto"]', () => this.showHowTo(() => this.showPause(subtitle, stages, restartLabel)));
-    this.on(s, '[data-act="settings"]', () => this.showSettings(() => this.showPause(subtitle, stages, restartLabel)));
+    this.on(s, '[data-act="howto"]', () => this.showHowTo(reopen));
+    this.on(s, '[data-act="settings"]', () => this.showSettings(reopen));
     this.on(s, '[data-act="feedback"]', () => this.h.feedback?.());
-    this.on(s, '[data-act="quit"]', () => this.h.quit());
-    this.on(s, '[data-act="exit"]', () => this.showExitConfirm(() => this.showPause(subtitle, stages, restartLabel)));
+    // Leaving mid-fight asks first, like Return to Hub.
+    this.on(s, '[data-act="quit"]', () => this.showExitConfirm(reopen, 'menu'));
+    this.on(s, '[data-act="exit"]', () => this.showExitConfirm(reopen));
   }
 
   /**
-   * Return to Hub mid-run asks first: leaving ends this fight with no result (the main menu's
-   * button leaves at once).
+   * Return to Hub or Main Menu mid-fight asks first: leaving ends this fight with no result (the
+   * main menu's Return to Hub leaves at once). Online, leaving is a forfeit.
    */
-  showExitConfirm(back: () => void): void {
+  showExitConfirm(back: () => void, to: 'hub' | 'menu' = 'hub', online = false): void {
+    const where = to === 'hub' ? 'the Hub' : 'the Main Menu';
+    const note = online
+      ? 'Leaving counts as a forfeit: the match is lost. 0 Tickets either way.'
+      : 'This fight ends here and counts for nothing. Saved gauntlet progress, learned spells and your staff are kept.';
     const s = this.mount(`
       <div class="menu-panel pause exit-confirm">
-        <h2>Return to Hub?</h2>
-        <p class="note">This fight ends here and counts for nothing. Saved gauntlet progress, learned spells and your staff are kept.</p>
+        <h2>${to === 'hub' ? 'Return to Hub?' : 'Quit to Main Menu?'}</h2>
+        <p class="note">${note}</p>
         <button class="primary" data-act="stay" data-back data-autofocus>Keep Fighting</button>
-        <button class="ghost" data-act="leave">Leave for the Hub</button>
+        <button class="ghost" data-act="leave">${online ? 'Forfeit and Leave' : `Leave for ${where}`}</button>
       </div>`, 'exit-confirm');
     this.on(s, '[data-act="stay"]', back);
-    this.on(s, '[data-act="leave"]', () => this.h.exitHub());
+    this.on(s, '[data-act="leave"]', () => (to === 'hub' ? this.leaveForHub() : this.h.quit()));
   }
 
   /** The five-step gauntlet ladder: cleared, current and locked fights. */
@@ -937,7 +1258,7 @@ export class Menus {
         </div>`;
     const foot = `${this.staffRackHtml(true)}
         <div class="menu-actions row"><button class="primary" data-act="begin">${this.label({ label: 'Begin', sub: info.beginNote })}</button>
-        <button class="ghost" data-act="menu" data-back>Main Menu</button></div>`;
+        <button class="ghost" data-act="menu" data-back data-sys-main>Main Menu</button></div>`;
     // A double fight has two stage lists: its card takes two columns (intro and reward | stages,
     // staff and buttons) so it fits 1366x768 and 900x560 without scrolling.
     const s = this.mount(pair
@@ -955,6 +1276,7 @@ export class Menus {
         ${this.rewardLine(info)}
         ${foot}
       </div>`, 'boss');
+    this.sysBar(s, { hub: true, reopen: () => this.showBossIntro(info, actions) });
     this.bossIntro = { ...info };
     this.on(s, '[data-act="begin"]', () => actions.begin());
     this.on(s, '[data-act="menu"]', () => actions.back());
@@ -1014,8 +1336,9 @@ export class Menus {
         <p class="reveal-keys">${keys}</p>
         <p class="note">Yours for good: in every fight from now on, and in Quick Duel.</p>
         <div class="menu-actions"><button class="primary" data-act="continue" data-autofocus>${this.label(actions.next)}</button>
-        <button class="ghost" data-act="menu">Main Menu</button></div>
+        <button class="ghost" data-act="menu" data-sys-main>Main Menu</button></div>
       </div>`, 'reveal');
+    this.sysBar(s, { hub: true, reopen: () => this.showSpellReveal(id, actions) });
     this.on(s, '[data-act="continue"]', () => actions.next.action());
     this.on(s, '[data-act="menu"]', () => actions.menu());
   }
@@ -1032,8 +1355,9 @@ export class Menus {
         </ol>
         <p class="note">${info.unsaved === 'god' ? 'God mode was on: this clear is not counted.' : info.unsaved === 'skipped' ? 'Earlier wins used god mode: this clear is not counted.' : info.clears > 1 ? `Gauntlet cleared ${info.clears} times.` : 'First clear. Well duelled.'}</p>
         <button class="primary" data-act="again">Run It Again</button>
-        <button class="ghost" data-act="menu">Main Menu</button>
+        <button class="ghost" data-act="menu" data-sys-main>Main Menu</button>
       </div>`, 'complete');
+    this.sysBar(s, { hub: true, reopen: () => this.showCampaignComplete(info, actions) });
     this.on(s, '[data-act="again"]', () => actions.again());
     this.on(s, '[data-act="menu"]', () => actions.menu());
   }
@@ -1054,9 +1378,10 @@ export class Menus {
         <div class="menu-actions">
           <button class="primary" data-act="duel" data-autofocus>Quick Duel<small>Best of three against the ${escapeHtml(info.rival)}</small></button>
           <button class="ghost" data-act="again">Practice Again</button>
-          <button class="ghost" data-act="menu" data-back>Main Menu</button>
+          <button class="ghost" data-act="menu" data-back data-sys-main>Main Menu</button>
         </div>
       </div>`, 'practice-done');
+    this.sysBar(s, { hub: true, reopen: () => this.showPracticeDone(info, actions) });
     this.on(s, '[data-act="duel"]', () => actions.duel());
     this.on(s, '[data-act="again"]', () => actions.again());
     this.on(s, '[data-act="menu"]', () => actions.menu());
@@ -1083,7 +1408,7 @@ export class Menus {
         </div>
         ${this.staffRackHtml(false, 'Change Staff')}
         <div class="menu-actions row"><button class="primary" data-act="rematch">${this.label(primary)}</button>
-        <button class="ghost" data-act="quit">Main Menu</button></div>`;
+        <button class="ghost" data-act="quit" data-sys-main>Main Menu</button></div>`;
     // Boss results (portrait, tag, learned spell, fight facts) are taller than a duel's: two
     // columns, headline | stats, staff and buttons, so they fit 1366x768 and 900x560.
     const s = this.mount(`
@@ -1091,6 +1416,7 @@ export class Menus {
         ${r.boss ? `<div class="results-col">${head}</div><div class="results-col">${tail}</div>` : `${head}
         ${tail}`}
       </div>`, 'results');
+    this.sysBar(s, { hub: true, reopen: () => this.showResults(r) });
     this.on(s, '[data-act="rematch"]', () => primary.action());
     this.on(s, '[data-act="quit"]', () => this.h.quit());
     this.bindStaff(s);
@@ -1112,6 +1438,7 @@ export class Menus {
         </div>
         <button class="ghost" data-act="back" data-back>Back</button>
       </div>`, 'online');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showOnline(h, note) });
     const input = s.querySelector<HTMLInputElement>('.room-code')!;
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') h.join(input.value);
@@ -1132,6 +1459,7 @@ export class Menus {
         <p class="note online-sub" role="status">${escapeHtml(sub)}</p>
         <button class="ghost" data-act="cancel" data-back data-autofocus>Cancel</button>
       </div>`, 'online-status');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showOnlineStatus(title, sub, h, code) });
     this.on(s, '[data-act="cancel"]', () => h.cancel());
     this.on(s, '[data-act="copy"]', () => { void this.copyCode(code ?? ''); });
     this.on(s, '[data-act="share"]', () => { void this.shareCode(code ?? ''); });
@@ -1149,6 +1477,7 @@ export class Menus {
         <p class="note">0 Tickets. No wager.</p>
         <button class="ghost" data-act="cancel" data-back data-autofocus>Cancel</button>
       </div>`, 'online-status');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showSearching(view, h) });
     this.on(s, '[data-act="cancel"]', () => h.cancel());
     this.setSearching(view);
   }
@@ -1180,6 +1509,7 @@ export class Menus {
         <button class="primary" data-act="accept" data-autofocus>Accept</button>
         <button class="ghost" data-act="decline" data-back>Decline</button>
       </div>`, 'match-found');
+    this.sysBar(s, { main: true, hub: true, reopen: () => this.showMatchFound(view, h) });
     this.on(s, '[data-act="accept"]', () => {
       h.accept();
       const btn = s.querySelector<HTMLButtonElement>('[data-act="accept"]');
@@ -1285,7 +1615,13 @@ export class Menus {
         <button class="primary" data-act="resume" data-autofocus>Resume</button>
         <button data-act="feedback">Send Feedback</button>
         <button class="ghost" data-act="forfeit">Forfeit</button>
+        <button class="ghost" data-act="quit" data-sys-main>Main Menu</button>
+        <button class="ghost" data-act="exit" data-sys-hub>Return to Hub</button>
       </div>`, 'online-pause');
+    const reopen = () => this.showOnlinePause(h);
+    this.sysBar(s, { reopen });
+    this.on(s, '[data-act="quit"]', () => this.showExitConfirm(reopen, 'menu', true));
+    this.on(s, '[data-act="exit"]', () => this.showExitConfirm(reopen, 'hub', true));
     this.on(s, '[data-act="resume"]', () => h.resume());
     this.on(s, '[data-act="feedback"]', () => this.h.feedback?.());
     this.on(s, '[data-act="forfeit"]', () => h.forfeit());

@@ -47,8 +47,28 @@ npm run gen:audio  # regenerate the synthesized placeholder sounds
 
 The main menu's top-right chip shows your Ticket balance (read with the hub SDK's
 `getTicketBalance`, at most every 30 s; wins and exchanges update it too). It reads `--` without a
-hub session. It only shows the balance: exchanging is still the **Exchange** button. **Return to
-Hub** leaves at once from the main menu; from the pause screen mid-fight it asks first.
+hub session. It only shows the balance: exchanging is still the **Exchange** button. **Hub** (top
+right, next to the chip) leaves at once from the main menu; from the pause screen mid-fight,
+**Return to Hub** asks first.
+
+**Every menu's options.** The game fills the browser window, and every menu screen (main menu,
+pause, Settings, How to Play, boss cards, results, the online and Local Versus screens) offers
+**Main Menu** (not on the main menu itself), **Hub**, **Controller Settings** and **Full Screen**:
+in the screen's own panel where it already had the button, otherwise in the bar at the top right.
+Mid-fight, Main Menu and Hub ask first (online, leaving is a forfeit); elsewhere they leave at once.
+Hub closes an online search first, then leaves through the hub SDK, or to the hub's URL when the
+game was opened on its own. Full Screen uses the browser Fullscreen API (hidden where the browser
+has none); Esc in full screen only leaves full screen, and the next Esc backs out or pauses as usual.
+A tall menu scrolls inside itself, never the page.
+
+**Controller Settings** shows every action's keys (a main and an alternate key) and controller
+button, and remaps them: pick a slot, then press the new key or button (Esc or B cancels, Backspace
+clears an alternate key). A key or button another action already uses swaps with it; Esc, N, 9, F9,
+Enter and Tab keep their fixed jobs. It also has vibration, the left-stick dead zone and **Reset to
+Defaults**. Changes apply at once and are saved in `localStorage` under `sproto-duel-controls`
+(vibration stays in the Settings save). Remapping happens at the input layer
+([src/input/controlPrefs.ts](src/input/controlPrefs.ts)): it rewrites the live key and button
+lists the local seat reads, so the sim, replays and online play only ever see the same intents.
 
 ## Controls
 
@@ -119,8 +139,8 @@ which you cast while the left stick keeps moving.
 - **Hub to game and back without the keyboard.** Buttons held when a controller first appears (page
   load, coming from the hub, a reconnect, a seat taking over a pad in Local Versus) are ignored until
   released, so the A that picked the portal in the hub never presses anything here. Browsers hide a
-  pad on a new page until it is pressed once; that first press is swallowed the same way. Return to
-  Hub is on the main menu and the pause menu (the pause one asks first).
+  pad on a new page until it is pressed once; that first press is swallowed the same way. Hub is on
+  every menu (mid-fight it asks first).
 - **Menus.** The D-pad and the left stick move (auto-repeat after 0.35 s, then every 0.12 s), A
   selects, B goes back (Resume on the pause menu; nothing on the main menu and the results screens,
   so a roll mashed at the KO cannot skip them). On Online Duel's room code field, A starts typing
