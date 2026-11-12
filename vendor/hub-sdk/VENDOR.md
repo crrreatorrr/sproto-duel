@@ -1,8 +1,8 @@
 # Vendored @metaverse/hub-sdk
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
-- branch: claude/nifty-einstein-ptgr08
-- sha: 5099cb5
+- branch: main
+- sha: c6627e5
 - package: packages/hub-sdk @ 0.7.2
 - built with: `node scripts/vendor-sdk.mjs`
 - iife: dist/hub-sdk.iife.js (global HubSDK; classic script, not a CDN import)
@@ -72,8 +72,8 @@ the canvases itself with modern-screenshot (MIT, `dist/third_party/modern-screen
 demand). Sproto Duel needs no adapter code for it. Two changes here help it:
 `index.html` loads Google Fonts with `crossorigin="anonymous"` so the fonts can be embedded, and the
 title turntable keeps its drawing buffer (`src/ui/TitleStaffPreview.ts`) so it is not blank in the
-screenshot. This copy is from hub branch `claude/sproto-duel-screenshot-scope-qer4am`; re-vendor
-from hub main once that branch is merged.
+screenshot. This copy is from hub main `c6627e5` (PR #183, merge `bb0017c`). The SDK
+sources match the earlier pin at `5099cb5`; later hub commits did not change the package.
 
 Re-sync this tree to hub main whenever packages/hub-sdk changes:
 `node /path/to/metaverse-hub/scripts/vendor-sdk.mjs /path/to/sproto-duel --branch main`, then
