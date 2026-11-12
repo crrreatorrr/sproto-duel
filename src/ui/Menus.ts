@@ -919,9 +919,7 @@ export class Menus {
       ? `<p class="boss-stages-who">${b.name}</p>${this.stagesHtml(b)}
         <p class="boss-stages-who partner" style="${bossStyleVars(pair)}">${pair.name}</p>${this.stagesHtml(pair, ' partner', bossStyleVars(pair))}`
       : this.stagesHtml(b);
-    const s = this.mount(`
-      <div class="menu-panel boss-card" style="${bossStyleVars(b)}">
-        ${this.ladderHtml(info.index, info.index)}
+    const head = `${this.ladderHtml(info.index, info.index)}
         <div class="boss-card-body">
           ${bossPortraitHtml(b, 'large')}
           <div class="boss-text">
@@ -936,12 +934,26 @@ export class Menus {
               <dt>Threat</dt><dd class="threat">${threat}</dd>
             </dl>
           </div>
-        </div>
+        </div>`;
+    const foot = `${this.staffRackHtml(true)}
+        <div class="menu-actions row"><button class="primary" data-act="begin">${this.label({ label: 'Begin', sub: info.beginNote })}</button>
+        <button class="ghost" data-act="menu" data-back>Main Menu</button></div>`;
+    // A double fight has two stage lists: its card takes two columns (intro and reward | stages,
+    // staff and buttons) so it fits 1366x768 and 900x560 without scrolling.
+    const s = this.mount(pair
+      ? `
+      <div class="menu-panel boss-card duo" style="${bossStyleVars(b)}">
+        <div class="boss-card-col">${head}
+        ${this.rewardLine(info)}</div>
+        <div class="boss-card-col">${stages}
+        ${foot}</div>
+      </div>`
+      : `
+      <div class="menu-panel boss-card" style="${bossStyleVars(b)}">
+        ${head}
         ${stages}
         ${this.rewardLine(info)}
-        ${this.staffRackHtml(true)}
-        <div class="menu-actions row"><button class="primary" data-act="begin">${this.label({ label: 'Begin', sub: info.beginNote })}</button>
-        <button class="ghost" data-act="menu" data-back>Main Menu</button></div>
+        ${foot}
       </div>`, 'boss');
     this.bossIntro = { ...info };
     this.on(s, '[data-act="begin"]', () => actions.begin());
@@ -1054,17 +1066,15 @@ export class Menus {
     const acc = (x: ResultData['player']) => (x.casts ? `${Math.round((x.hits / x.casts) * 100)}%` : '–');
     const row = (label: string, a: string | number, b: string | number) => `<span>${a}</span><b>${label}</b><span>${b}</span>`;
     const primary = r.primary ?? { label: 'Rematch', action: () => this.h.restart() };
-    const s = this.mount(`
-      <div class="menu-panel results ${r.victory ? 'victory' : 'defeat'}${r.boss ? ' boss-results' : ''}" style="${r.boss ? bossStyleVars(r.boss) : ''}">
-        ${r.boss ? `<div class="results-boss">${bossPortraitHtml(r.boss, 'small')}<p class="boss-fight">${escapeHtml(r.eyebrow ?? '')}</p></div>` : r.eyebrow ? `<p class="boss-fight">${escapeHtml(r.eyebrow)}</p>` : ''}
+    const head = `${r.boss ? `<div class="results-boss">${bossPortraitHtml(r.boss, 'small')}<p class="boss-fight">${escapeHtml(r.eyebrow ?? '')}</p></div>` : r.eyebrow ? `<p class="boss-fight">${escapeHtml(r.eyebrow)}</p>` : ''}
         ${r.tag ? `<p class="result-tag">${escapeHtml(r.tag)}</p>` : ''}
         <h1 class="result-title">${escapeHtml(r.title)}</h1>
         ${r.learned ? `<p class="result-learned">✦ New spell learned: <b>${escapeHtml(r.learned)}</b></p>` : ''}
         <p class="tagline">${escapeHtml(r.subtitle)}</p>
         ${r.facts
           ? `<dl class="fight-facts">${r.facts.map((f) => `<div><dt>${escapeHtml(f.label)}</dt><dd>${escapeHtml(f.value)}</dd></div>`).join('')}</dl>`
-          : `<div class="round-strip">${r.rounds.map((x, i) => `<i class="${x}" title="Round ${i + 1}">${i + 1}</i>`).join('')}</div>`}
-        <div class="stats">
+          : `<div class="round-strip">${r.rounds.map((x, i) => `<i class="${x}" title="Round ${i + 1}">${i + 1}</i>`).join('')}</div>`}`;
+    const tail = `<div class="stats">
           <span class="you">${escapeHtml(r.names[0])}</span><b></b><span class="them">${escapeHtml(r.names[1])}</span>
           ${row('Damage dealt', Math.round(r.player.damageDealt), Math.round(r.enemy.damageDealt))}
           ${row('Accuracy', acc(r.player), acc(r.enemy))}
@@ -1073,7 +1083,13 @@ export class Menus {
         </div>
         ${this.staffRackHtml(false, 'Change Staff')}
         <div class="menu-actions row"><button class="primary" data-act="rematch">${this.label(primary)}</button>
-        <button class="ghost" data-act="quit">Main Menu</button></div>
+        <button class="ghost" data-act="quit">Main Menu</button></div>`;
+    // Boss results (portrait, tag, learned spell, fight facts) are taller than a duel's: two
+    // columns, headline | stats, staff and buttons, so they fit 1366x768 and 900x560.
+    const s = this.mount(`
+      <div class="menu-panel results ${r.victory ? 'victory' : 'defeat'}${r.boss ? ' boss-results' : ''}" style="${r.boss ? bossStyleVars(r.boss) : ''}">
+        ${r.boss ? `<div class="results-col">${head}</div><div class="results-col">${tail}</div>` : `${head}
+        ${tail}`}
       </div>`, 'results');
     this.on(s, '[data-act="rematch"]', () => primary.action());
     this.on(s, '[data-act="quit"]', () => this.h.quit());
