@@ -78,7 +78,10 @@ export class TitleStaffPreview {
     this.label.innerHTML = '<b></b><small></small>';
     this.el.append(this.canvas, this.label);
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true, powerPreference: 'low-power', stencil: false });
+    // preserveDrawingBuffer: the stage draws at a capped rate, so on most frames its buffer would
+    // already be cleared when the N-N feedback screenshot copies it, and the character would be
+    // missing from the screenshot. The canvas is small, so keeping the buffer is cheap.
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true, powerPreference: 'low-power', stencil: false, preserveDrawingBuffer: true });
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = CONFIG.render.exposure;

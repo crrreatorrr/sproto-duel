@@ -99,6 +99,14 @@ export interface FeedbackOptions {
     beforeCapture?(): void;
     /** Canvases to capture, back to front. Default: every visible canvas on the page. */
     canvases?(): HTMLCanvasElement[];
+    /**
+     * The screenshot shows the whole page: the canvases, then the page's HTML (menus, HUD, panels)
+     * drawn over them. By default the SDK draws the HTML itself (document.body, minus the canvases
+     * above and anything not displayed). Pass a function to draw it yourself instead: return a
+     * canvas covering the whole viewport, transparent where the canvases show through, or null; it
+     * may be async. Pass `false` for canvases only. The window waits for the HTML at most 3 s.
+     */
+    overlay?: false | (() => HTMLCanvasElement | null | Promise<HTMLCanvasElement | null>);
     /** Recent errors from the game's own crash guard, newest last. Added to the ones caught here. */
     errors?(): unknown[];
     /** Return false to ignore the shortcut right now (a text prompt of the game's own is open). */

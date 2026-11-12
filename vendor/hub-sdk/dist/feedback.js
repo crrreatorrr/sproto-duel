@@ -5,6 +5,7 @@
 // Nothing here runs per frame except one timestamp subtraction for the FPS figure. Everything
 // else (screenshot, context snapshot) happens once, when the window opens.
 import { HubSdkError } from './errors';
+import { capturePage, loadPageShot, pageBackground } from './pageShot';
 export const FEEDBACK_CATEGORIES = [
     { id: 'broke', label: 'Something broke' },
     { id: 'unclear', label: 'Unclear what to do' },
@@ -141,21 +142,25 @@ textarea::placeholder { color: ${theme.muted}; }
 @media (prefers-reduced-motion: no-preference) { .panel { animation: fb-in 90ms ease-out; } @keyframes fb-in { from { opacity: 0; transform: translateY(6px); } } }
 ${theme.css}`;
 }
-/** Composite the page's canvases into one image no wider than `maxWidth`. */
-function captureCanvases(list, maxWidth) {
+/**
+ * Composite the page's canvases into one image no wider than `maxWidth`, and count the canvases
+ * drawn. With `page`, the image covers the whole viewport and is returned even when no canvas
+ * could be drawn, so an overlay can go on top.
+ */
+function captureCanvases(list, maxWidth, page = false) {
     const vw = Math.max(1, window.innerWidth);
     const vh = Math.max(1, window.innerHeight);
     const visible = list
         .map((canvas) => ({ canvas, rect: canvas.getBoundingClientRect() }))
         .filter(({ canvas, rect }) => canvas.width > 0 && canvas.height > 0 && rect.width > 1 && rect.height > 1 && rect.right > 0 && rect.bottom > 0 && rect.left < vw && rect.top < vh);
-    if (!visible.length)
+    if (!visible.length && !page)
         return null;
     // One canvas: capture exactly its box. Several (minimap, effects): keep the page layout.
     let left = 0;
     let top = 0;
     let width = vw;
     let height = vh;
-    if (visible.length === 1) {
+    if (visible.length === 1 && !page) {
         const r = visible[0].rect;
         left = r.left;
         top = r.top;
@@ -169,7 +174,7 @@ function captureCanvases(list, maxWidth) {
     const g = out.getContext('2d');
     if (!g)
         return null;
-    g.fillStyle = '#000';
+    g.fillStyle = page ? pageBackground() : '#000';
     g.fillRect(0, 0, out.width, out.height);
     let drawn = 0;
     for (const { canvas, rect } of visible) {
@@ -182,8 +187,21 @@ function captureCanvases(list, maxWidth) {
             // A tainted or lost canvas: skip it.
         }
     }
-    return drawn ? out : null;
+    return drawn || page ? { shot: out, drawn } : null;
 }
+/** Draw a whole-viewport overlay over a whole-viewport capture. */
+function drawOverlay(shot, overlay) {
+    if (!overlay || overlay.width < 1 || overlay.height < 1)
+        return false;
+    try {
+        shot.getContext('2d')?.drawImage(overlay, 0, 0, shot.width, shot.height);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+const OVERLAY_WAIT_MS = 3000;
 function encode(canvas, max) {
     let source = canvas;
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -236,6 +254,8 @@ export function installFeedback(options) {
     let host = null;
     let root = null;
     let panelOpen = false;
+    /** A screenshot is being taken: a second shortcut must not start another. */
+    let capturing = false;
     let closePanel = null;
     let panelKey = null;
     let toastTimer = 0;
@@ -719,7 +739,7 @@ export function installFeedback(options) {
         options.onOpen?.();
     }
     function begin(source) {
-        if (panelOpen || disposed)
+        if (panelOpen || capturing || disposed)
             return;
         if (access && !access.ok) {
             toast(refusal(access.reason));
@@ -730,22 +750,63 @@ export function installFeedback(options) {
         }
         // Snapshot and screenshot first, in the next frame: a later-registered frame callback runs
         // after the game's own, so a WebGL canvas still holds the frame it just drew.
+        capturing = true;
         const captured = snapshot(source);
         let done = false;
         const run = () => {
             if (done)
                 return;
             done = true;
-            let shot = null;
+            const page = options.overlay !== false;
+            let capture = null;
+            let list = [];
             try {
                 options.beforeCapture?.();
-                const list = options.canvases?.() ?? Array.from(document.querySelectorAll('canvas'));
-                shot = captureCanvases(list, 960);
+                list = options.canvases?.() ?? Array.from(document.querySelectorAll('canvas'));
+                // Copy the canvases now: a WebGL frame is only readable in this task.
+                capture = captureCanvases(list, 960, page);
             }
             catch {
-                shot = null;
+                capture = null;
             }
-            openPanel(source, shot, captured);
+            if (!page || !capture) {
+                capturing = false;
+                openPanel(source, capture?.shot ?? null, captured);
+                return;
+            }
+            const { shot, drawn } = capture;
+            // Read one pixel now: the copy finishes the GPU work behind it here, in the screenshot's
+            // frame, instead of inside the HTML drawing below and against its time limit (that work took
+            // seconds in a software renderer).
+            try {
+                shot.getContext('2d')?.getImageData(0, 0, 1, 1);
+            }
+            catch {
+                // Nothing to wait for.
+            }
+            let finished = false;
+            const finish = (overlay) => {
+                if (finished)
+                    return;
+                finished = true;
+                capturing = false;
+                // Without a canvas or an overlay the page capture is only a black frame: send none.
+                const any = drawOverlay(shot, overlay) || drawn > 0;
+                openPanel(source, any ? shot : null, captured);
+            };
+            const timer = window.setTimeout(() => finish(null), OVERLAY_WAIT_MS);
+            const drawHtml = typeof options.overlay === 'function'
+                ? options.overlay
+                : () => capturePage(document.body, [...list, ...(host ? [host] : [])], 960, OVERLAY_WAIT_MS);
+            Promise.resolve()
+                .then(() => drawHtml())
+                .then((overlay) => {
+                window.clearTimeout(timer);
+                finish(overlay ?? null);
+            }, () => {
+                window.clearTimeout(timer);
+                finish(null);
+            });
         };
         requestAnimationFrame(run);
         // A hidden tab never gets a frame: open anyway.
@@ -825,7 +886,12 @@ export function installFeedback(options) {
     window.addEventListener('unhandledrejection', onError);
     window.addEventListener('online', onOnline);
     // Learn early whether this player may send feedback, without competing with startup.
-    const warm = window.setTimeout(() => void checkAccess(), 4000);
+    const warm = window.setTimeout(() => {
+        void checkAccess();
+        // The HTML-drawing library, so the first screenshot does not wait for it.
+        if (options.overlay === undefined)
+            loadPageShot().catch(() => undefined);
+    }, 4000);
     return {
         open(source = 'manual') {
             begin(source);

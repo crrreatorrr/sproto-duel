@@ -1,7 +1,8 @@
 /**
  * In-game feedback: N twice (or the pause menu's Send Feedback) opens the hub SDK's feedback
  * window. The window, the screenshot and the sending live in the vendored SDK; this is only Sproto
- * Duel's adapter: how to freeze and unfreeze the game, and what "right now" looks like.
+ * Duel's adapter: how to freeze and unfreeze the game, and what "right now" looks like. The SDK
+ * draws the HTML menus and HUD over the arena canvas itself (0.7.2).
  * See docs/feedback.md in metaverse-hub.
  */
 import { feedbackTransportFromSdk, installFeedback, type FeedbackContext, type FeedbackHandle } from '@metaverse/hub-sdk';
