@@ -1061,3 +1061,55 @@ html, body {
 .ping-chip { position: absolute; top: 8px; right: 10px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.45); color: #cfe; display: none; }
 .ping-chip.on { display: block; }
 .ping-chip.bad { color: #ffb38a; }
+
+/* ------------------------------------------------------------- standard options */
+/* Every menu's top-right bar: Main Menu, Hub, Controller Settings, Full Screen (Menus.sysBar). */
+.sys-bar {
+  position: absolute; top: clamp(8px, 2.4cqh, 20px); right: clamp(8px, 2.4cqw, 28px); z-index: 2;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; max-width: calc(100cqw - 16px);
+}
+.menus .sys-bar .sys-btn {
+  display: flex; align-items: baseline; gap: 7px; padding: 8px 13px; border-radius: 999px;
+  font-size: 13px; letter-spacing: 0.12em; background: rgba(14, 10, 28, 0.82); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+.menus .sys-bar .sys-btn small { margin: 0; font-size: 11px; color: var(--ink-dim); }
+.menus .sys-bar .sys-btn[aria-pressed='true'] { border-color: rgba(255, 210, 122, 0.55); }
+.menus .sys-bar .sys-btn[aria-pressed='true'] small { color: var(--gold); }
+.sys-bar .ticket-chip { position: static; }
+@container menus (max-height: 640px) {
+  #ui .menus .sys-bar .sys-btn { padding: 6px 10px; font-size: 12px; }
+}
+
+/* Controller Settings: two columns of actions (one on narrow screens), the list scrolls inside. */
+.menu-screen.controller { background: rgba(7, 5, 16, 0.7); backdrop-filter: blur(6px); }
+.menu-panel.controls-panel {
+  width: min(1040px, calc(100cqw - 32px)); max-height: calc(100cqh - 32px); gap: 10px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+.controls-panel h2 { margin: 0; }
+.controls-panel .bind-note { min-height: 1.3em; }
+.controls-panel .bind-note.warn { color: #ffc6b4; }
+.bind-list { display: flex; flex-wrap: wrap; gap: 6px 28px; overflow-y: auto; min-height: 0; padding: 4px 6px 4px 2px; }
+.bind-col { flex: 1 1 440px; display: grid; gap: 4px; align-content: start; }
+.bind-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 104px; gap: 6px; align-items: center; min-height: 30px; }
+.bind-head { min-height: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+.bind-label { font-size: 16px; line-height: 1.1; }
+.bind-label small { display: block; font-size: 12px; color: var(--ink-dim); }
+.menus button.bind {
+  padding: 6px 4px; font-size: 14px; letter-spacing: 0.04em; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: rgba(30, 22, 58, 0.75);
+}
+.menus button.bind.pad { color: var(--gold); }
+.menus button.bind.empty { color: var(--ink-dim); background: rgba(20, 16, 40, 0.45); }
+.menus button.bind.capturing { border-color: var(--gold); color: var(--gold); animation: bind-wait 0.9s ease-in-out infinite alternate; }
+.menus button.bind:disabled { opacity: 0.6; }
+@keyframes bind-wait { to { box-shadow: 0 0 18px rgba(255, 200, 100, 0.55); } }
+.bind-fixed { font-size: 13px; text-align: center; color: var(--ink-dim); }
+.controls-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 6px 28px; }
+.controls-panel .menu-actions { justify-content: flex-end; }
+.controls-panel .menu-actions > button { flex: 0 1 240px; }
+@container menus (max-height: 640px) {
+  #ui .menus button.bind { padding: 4px; font-size: 13px; }
+  #ui .bind-row { min-height: 26px; }
+  #ui .controls-panel h2 { font-size: 26px; }
+}

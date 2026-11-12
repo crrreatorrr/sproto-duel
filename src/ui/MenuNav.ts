@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { padGlyph, type GamepadInput } from '../core/Gamepad';
+import { PAD_BUTTONS, padGlyph, type GamepadInput, type PadButton } from '../core/Gamepad';
 import { editPadText, startPadText, type PadText, type PadTextOp } from './padText';
 
 const M = CONFIG.gamepad.menu;
@@ -87,6 +87,11 @@ export class MenuNav {
   private hintKey = '';
   /** Element wearing the `pad-focus` ring (a class, so it shows even while the window lacks focus). */
   private marked: HTMLElement | null = null;
+  /**
+   * Press-to-bind (the controller screen): while set, the next pad button pressed goes here and
+   * nothing else (no focus moves, A / B do not press the screen's buttons).
+   */
+  capture: ((button: PadButton) => void) | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -152,6 +157,11 @@ export class MenuNav {
   }
 
   private step(pad: GamepadInput, dt: number, active: boolean, screen: Element | null): void {
+    if (this.capture) {
+      const pressed = PAD_BUTTONS.find((b) => b !== 'home' && pad.wasPressed([b]));
+      if (pressed) this.capture(pressed);
+      return;
+    }
     if (!active || !screen) return;
     if (!this.focused) {
       // New screen, focus lost to a mouse click, or the pad just woke up: focus first, act next frame.

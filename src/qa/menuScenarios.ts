@@ -19,7 +19,8 @@ export function fitProblems(app: App, name: string, noScroll = false): string[] 
   const problems: string[] = [];
   const screen = root.querySelector('.menu-screen') as HTMLElement;
   const box = root.getBoundingClientRect();
-  const buttons = [...screen.querySelectorAll<HTMLButtonElement>('button.primary, [data-act="back"], [data-act="menu"], [data-act="quit"]')];
+  // The standard options' bar (Main Menu, Hub, Controller Settings, Full Screen) must be reachable too.
+  const buttons = [...screen.querySelectorAll<HTMLButtonElement>('button.primary, [data-act="back"], [data-act="menu"], [data-act="quit"], [data-sys]')];
   if (!buttons.length) problems.push(`${name}: no buttons`);
   for (const b of buttons) {
     const r = b.getBoundingClientRect();
@@ -106,6 +107,7 @@ export function registerMenuScenarios(qa: QAHarness, game: Game, app: App): void
       const restart = button(app, 'restart')!.textContent ?? '';
       c.expect(restart === 'Restart Fight', `pause in a boss fight: "${restart}"`);
       button(app, 'quit')!.click();
+      button(app, 'leave')!.click();
       c.expect(app.menus.current === 'main' && !button(app, 'continue'), 'Continue still offered after starting over');
       app.startMatch();
       app.pause();
