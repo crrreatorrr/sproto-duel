@@ -6,6 +6,8 @@ on:
   push:
     branches:
       - main
+  # Manual start, for when a queued run never gets a runner.
+  workflow_dispatch:
 
 permissions:
   contents: read
