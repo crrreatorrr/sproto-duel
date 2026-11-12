@@ -107,6 +107,14 @@ export interface TicketBalanceResult {
 }
 export interface EventResult {
     granted?: RelicId;
+    /**
+     * Tickets the server credited for this event (0.7.1), for example 20 for a story boss in
+     * Sproto Duel or Sproto Fighter. Absent when the event paid nothing (most events, a boss
+     * already paid today, a cap), in a standalone or mock session, and from a server that does
+     * not send it. A replayed key returns the stored answer, so the same number comes back
+     * without a second credit: show it, do not add it to a balance; read `getBalance` for that.
+     */
+    tickets?: number;
     /** Cosmetic items (pets) this event granted, from the live server (migration 0030). `[]` when none. */
     granted_items?: string[];
 }

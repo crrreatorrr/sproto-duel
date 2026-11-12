@@ -536,6 +536,30 @@ html, body {
   .boss-ladder li + li { margin-left: 18px; }
   .boss-ladder li + li::before { width: 18px; }
 }
+/* Fight 2 (a double fight) lists two bosses' stages: its card takes two columns, intro and reward |
+   stages, staff and buttons, so it fits 1366x768 and 900x560 without scrolling. The width leaves room
+   for the screen's left padding. */
+.menu-screen.boss:has(.boss-card.duo) { background: linear-gradient(90deg, rgba(7, 5, 16, 0.9) 0%, rgba(7, 5, 16, 0.72) 65%, rgba(7, 5, 16, 0.4) 100%); }
+.menu-panel.boss-card.duo {
+  width: min(1060px, calc(100cqw - clamp(16px, 6cqw, 110px) - 16px));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 24px; align-items: start;
+}
+.boss-card-col { display: grid; gap: 14px; min-width: 0; align-content: start; }
+.boss-card.duo .boss-card-body { gap: 16px; }
+.boss-card.duo .boss-portrait.large { width: clamp(100px, 10cqw, 150px); }
+.boss-card.duo .boss-name.duo { font-size: clamp(24px, 2.6cqw, 38px); }
+.menus .boss-card.duo button.staff-pick { flex-basis: 112px; }
+/* Boss results: two columns, headline | stats, staff and buttons (1366x768 and 900x560). */
+.menu-panel.results.boss-results {
+  width: min(920px, calc(100cqw - 32px));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 12px 28px; align-items: center;
+}
+.results-col { display: grid; gap: 12px; min-width: 0; align-content: start; }
+.menu-panel.results.boss-results .result-title { font-size: clamp(48px, 5.6cqw, 80px); line-height: 1; overflow-wrap: anywhere; }
+.menu-panel.results.boss-results .tagline { margin-bottom: 0; }
+@container menus (max-width: 760px) {
+  .menu-panel.boss-card.duo, .menu-panel.results.boss-results { grid-template-columns: minmax(0, 1fr); }
+}
 @container menus (max-height: 760px) {
   .menu-screen.main .title { font-size: clamp(40px, 6cqw, 64px); }
   .menu-screen.main .tip { display: none; }
@@ -986,6 +1010,14 @@ html, body {
   #ui .reveal-desc { font-size: 15px; }
   #ui .menu-panel.reveal { gap: 6px; }
   #ui .complete-roll .boss-portrait.small { width: 64px; }
+  #ui .boss-card-col, #ui .results-col { gap: 8px; }
+  #ui .menu-panel.boss-card.duo { gap: 8px 18px; }
+  #ui .boss-card.duo .boss-portrait.large { width: clamp(72px, 10cqw, 110px); }
+  #ui .boss-card.duo .boss-name.duo { font-size: clamp(22px, 2.9cqw, 30px); }
+  #ui .boss-card.duo .boss-intro { margin: 0; }
+  #ui .boss-card.duo .boss-stages-who { margin-bottom: -4px; }
+  #ui .menu-panel.results.boss-results { gap: 8px 22px; }
+  #ui .results.boss-results .results-boss .boss-portrait.small { width: 40px; }
 }
 
 /* Local Versus split-screen (HUD.setViews(2)): a crosshair and a spell row per half, a divider. */
