@@ -27,7 +27,7 @@ var HubSDK = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/third_party/modern-screenshot.js
+  // packages/hub-sdk/src/third_party/modern-screenshot.js
   var modern_screenshot_exports = {};
   __export(modern_screenshot_exports, {
     createContext: () => createContext,
@@ -1589,7 +1589,7 @@ var HubSDK = (() => {
   }
   var _P, _H, _Y, _S, pngDataTable, b64PhysSignature1, b64PhysSignature2, b64PhysSignature3, PREFIX, IN_BROWSER, SUPPORT_WEB_WORKER, SUPPORT_ATOB, SUPPORT_BTOA, USER_AGENT, IN_CHROME, IN_SAFARI, IN_FIREFOX, isContext, isCssFontFaceRule, isCSSImportRule, isLayerBlockRule, isElementNode, isSVGElementNode, isSVGImageElementNode, isSVGUseElementNode, isHTMLElementNode, isCommentNode, isTextNode, isImageElement, isVideoElement, isCanvasElement, isTextareaElement, isInputElement, isStyleElement, isScriptElement, isSelectElement, isSlotElement, isIFrameElement, consoleWarn, isDataUrl, XMLNS, blobToDataUrl, blobToArrayBuffer, uuid, uid, ignoredStyles, includedAttributes, pseudoClasses, scrollbarPseudoClasses, excludeParentNodes, NORMAL_ATTRIBUTE_RE, URL_RE, properties, COMMENTS_RE, KEYFRAMES_RE, URL_WITH_FORMAT_RE, FONT_SRC_RE, SVG_EXTERNAL_RESOURCE_REGEX;
   var init_modern_screenshot = __esm({
-    "../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/third_party/modern-screenshot.js"() {
+    "packages/hub-sdk/src/third_party/modern-screenshot.js"() {
       "use strict";
       _P = "p".charCodeAt(0);
       _H = "H".charCodeAt(0);
@@ -1688,7 +1688,7 @@ var HubSDK = (() => {
     }
   });
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/index.ts
+  // packages/hub-sdk/src/index.ts
   var index_exports = {};
   __export(index_exports, {
     BOARD_IDS: () => BOARD_IDS,
@@ -1755,7 +1755,7 @@ var HubSDK = (() => {
     verifyMockTicket: () => verifyMockTicket
   });
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/types.ts
+  // packages/hub-sdk/src/types.ts
   var GAME_IDS = [
     "hpos10i",
     "nobu",
@@ -1831,7 +1831,7 @@ var HubSDK = (() => {
     return BOARD_IDS.includes(value);
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/events.ts
+  // packages/hub-sdk/src/events.ts
   var HubEvent = {
     Ready: "ready",
     GameBeaten: "game_beaten",
@@ -1887,7 +1887,7 @@ var HubSDK = (() => {
     return void 0;
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/errors.ts
+  // packages/hub-sdk/src/errors.ts
   var HubSdkError = class extends Error {
     code;
     status;
@@ -1906,7 +1906,7 @@ var HubSDK = (() => {
     }
   };
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/save.ts
+  // packages/hub-sdk/src/save.ts
   var EMPTY_SAVE = Object.freeze({ data: null, updatedAt: 0 });
   function encodeSave(data) {
     if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -1930,7 +1930,7 @@ var HubSDK = (() => {
     return { data, updatedAt: data ? updatedAt : 0 };
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/storage.ts
+  // packages/hub-sdk/src/storage.ts
   var DEVICE_ID_KEY = "hub:deviceId";
   function memoryKeyValue() {
     const map = /* @__PURE__ */ new Map();
@@ -1973,7 +1973,7 @@ var HubSDK = (() => {
     storage.setItem(key, String(value));
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/ticket.ts
+  // packages/hub-sdk/src/ticket.ts
   var MOCK_TICKET_KEY = "metaverse-hub-m0-mock-ticket-key";
   var ISSUER = "hub-mock";
   function bytesToBase64Url(bytes) {
@@ -2048,7 +2048,7 @@ var HubSDK = (() => {
     return next ? `#${next}` : "";
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/progress.ts
+  // packages/hub-sdk/src/progress.ts
   var MAX_RETRY_MS = 12e4;
   function stable(value) {
     return JSON.stringify(
@@ -2292,7 +2292,7 @@ var HubSDK = (() => {
     }
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/env.ts
+  // packages/hub-sdk/src/env.ts
   function defaultEnv() {
     if (typeof window === "undefined") {
       throw new HubSdkError("no_window", "createHubSdk() needs a browser, or pass an env for tests");
@@ -2333,7 +2333,7 @@ var HubSDK = (() => {
     };
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/pbShop.ts
+  // packages/hub-sdk/src/pbShop.ts
   var PB_SHOP = {
     "shop_staffwright:item_coom": { shopId: "shop_staffwright", itemId: "item_coom", packSize: 100, price: 7, sellPrice: 2 },
     "shop_staffwright:item_hopium_soda": { shopId: "shop_staffwright", itemId: "item_hopium_soda", packSize: 1, price: 4, sellPrice: 0 },
@@ -2439,7 +2439,7 @@ var HubSDK = (() => {
     return PB_SHOP[shopId + ":" + itemId];
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/nakama.ts
+  // packages/hub-sdk/src/nakama.ts
   var LOCAL_NAKAMA = {
     serverUrl: "http://127.0.0.1:7350",
     serverKey: ""
@@ -2549,7 +2549,7 @@ var HubSDK = (() => {
     };
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/live.ts
+  // packages/hub-sdk/src/live.ts
   var HUB_OUTBOX_DB = "hub-outbox";
   var OUTBOX_STORE = "writes";
   var memoryWrites = /* @__PURE__ */ new Map();
@@ -3123,7 +3123,7 @@ var HubSDK = (() => {
     };
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/createHubSdk.ts
+  // packages/hub-sdk/src/createHubSdk.ts
   var BOARD_MODE = {
     hpos10i_act_time: "asc-best",
     nobu_trial_time: "asc-best",
@@ -3546,13 +3546,13 @@ var HubSDK = (() => {
     return sdk;
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/friends.ts
+  // packages/hub-sdk/src/realtime/friends.ts
   function createFriendsStub() {
     const nope = () => Promise.reject(new HubSdkError("not_implemented", "Friends are not available yet"));
     return { list: nope, add: nope, remove: nope, block: nope };
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/protocol.ts
+  // packages/hub-sdk/src/realtime/protocol.ts
   var utf8Encoder = new TextEncoder();
   var utf8Decoder = new TextDecoder();
   function utf8Encode(text) {
@@ -3664,7 +3664,7 @@ var HubSDK = (() => {
     return new HubSdkError(errorCodeFromMessage(message, "rt_error"), message || "Realtime error");
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/client.ts
+  // packages/hub-sdk/src/realtime/client.ts
   var Emitter = class {
     list = /* @__PURE__ */ new Set();
     on(cb) {
@@ -4388,7 +4388,7 @@ var HubSDK = (() => {
     });
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/chatRules.ts
+  // packages/hub-sdk/src/realtime/chatRules.ts
   var CHAT_TEXT_MAX = 120;
   var CHAT_RAW_MAX_BYTES = 512;
   var CHAT_COLORS = ["yellow", "red", "green", "cyan", "purple", "white", "flash1", "flash2", "flash3", "glow1", "glow2", "glow3"];
@@ -4475,7 +4475,7 @@ var HubSDK = (() => {
     return { allowed: true, state: `${tokens - 1}:${last}` };
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/mock.ts
+  // packages/hub-sdk/src/realtime/mock.ts
   function wire(p) {
     return presenceToWire(p);
   }
@@ -5003,7 +5003,7 @@ var HubSDK = (() => {
     };
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/pageShot.ts
+  // packages/hub-sdk/src/pageShot.ts
   var MEDIA_WAIT_MS = 1e3;
   var UNDER = "data-hub-feedback-under";
   var CHOSEN = "data-hub-feedback-chosen";
@@ -5175,7 +5175,7 @@ var HubSDK = (() => {
     return "#000";
   }
 
-  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/feedback.ts
+  // packages/hub-sdk/src/feedback.ts
   var FEEDBACK_CATEGORIES = [
     { id: "broke", label: "Something broke" },
     { id: "unclear", label: "Unclear what to do" },

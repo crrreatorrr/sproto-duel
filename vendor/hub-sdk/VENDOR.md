@@ -1,12 +1,12 @@
 # Vendored @metaverse/hub-sdk
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
-- branch: claude/account-progress
-- sha: c9d01b3
+- branch: main
+- sha: b7921f2
 - package: packages/hub-sdk @ 0.8.0
 - built with: `node scripts/vendor-sdk.mjs`
 - iife: dist/hub-sdk.iife.js (global HubSDK; classic script, not a CDN import)
-- iife sha256: 5a9d3025b1cd4f6b642cafb0c2d9ac2a45e0295410f469d86a8c5dbe47630037
+- iife sha256: 833ce281696f9769bd13d284b9d9262957838181cf1ac308358c6b602b21f309
 - source src/createHubSdk.ts: 4ae184ef8b4a6e97192769a4118ea855fcd4463176ee7bac295a884e449ebcdf
 - source src/env.ts: c3a8eb38ea73539fa4d971da705e004355bed8258079a73a2ecbda912c35ef46
 - source src/errors.ts: 4eaba836a4dfad994b3926d90b66a158c4384ce6f100bf8a0791877c0646b541
@@ -78,9 +78,7 @@ sources match the earlier pin at `5099cb5`; later hub commits did not change the
 
 0.8.0 adds `createProgressStore` and `hubVisitStarting` (progress per hub account) and raises the
 cloud save limit to 16384 bytes. Sproto Duel keeps the gauntlet's earned progress in one store
-(`src/campaign/progress.ts`, used by `Campaign`). **This copy is from the unmerged hub branch
-`claude/account-progress` (`c9d01b3`). Re-vendor from hub main after that hub PR merges, and before
-the Sproto Duel PR merges.**
+(`src/campaign/progress.ts`, used by `Campaign`). This copy is from hub main `b7921f2` (PR #187).
 
 Re-sync this tree to hub main whenever packages/hub-sdk changes:
 `node /path/to/metaverse-hub/scripts/vendor-sdk.mjs /path/to/sproto-duel --branch main`, then
