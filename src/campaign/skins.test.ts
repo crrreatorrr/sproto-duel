@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MODELS } from '../assets/manifest';
 import { CAMPAIGN_STORAGE_KEY, Campaign, migratedDefeated } from './Campaign';
+import { LEGACY_CAMPAIGN_KEY } from './progress';
 import { BOSSES } from './levels';
 import { DEFAULT_SKIN, SKINS, SKIN_STORAGE_KEY, getSelectedSkin, setSelectedSkin, skinDef, skinScale } from './skins';
 
@@ -65,7 +66,8 @@ describe('character skins', () => {
     expect(migratedDefeated(2, 0, [])).toEqual(['sahil', 'obama', 'midget']);
     expect(migratedDefeated(0, 0, [BOSSES[3].reward])).toEqual(['agent']);
     expect(migratedDefeated(0, 1, [])).toEqual(SKINS.slice(1).map((s) => s.id));
-    store.set(CAMPAIGN_STORAGE_KEY, JSON.stringify({ version: 2, next: 1, clears: 0, unlockedSpells: ['carpet'] }));
+    // A save from before skins, under the old campaign key: read into this browser's progress copy.
+    store.set(LEGACY_CAMPAIGN_KEY, JSON.stringify({ version: 2, next: 1, clears: 0, unlockedSpells: ['carpet'] }));
     const c = new Campaign();
     expect(c.defeated).toEqual(['sahil']);
     expect(JSON.parse(store.get(CAMPAIGN_STORAGE_KEY)!).defeated).toEqual(['sahil']);

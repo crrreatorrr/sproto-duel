@@ -4,7 +4,7 @@ import type { App } from '../App';
 import { resolveAsset } from '../assets/AssetLoader';
 import { MODELS } from '../assets/manifest';
 import { STAGE_COUNT, stageProfile } from '../campaign/BossStages';
-import { CAMPAIGN_STORAGE_KEY, Campaign } from '../campaign/Campaign';
+import { CAMPAIGN_DEVICE_KEYS, Campaign } from '../campaign/Campaign';
 import { BOSSES, bossDisplayName, bossFighters, type BossDef } from '../campaign/levels';
 import { events, type GameEvents } from '../core/events';
 import { nearestStanding, type Game } from '../core/Game';
@@ -188,11 +188,11 @@ function measureBossThreat(c: Ctx, game: Game, boss: BossDef, seed: number, seco
 
 const fmt = (s: ThreatSample) => `${s.name}: ${s.dps.toFixed(1)}dps hit${(s.hitRate * 100).toFixed(0)}% threat=${s.threat.toFixed(2)}`;
 
-/** Run `fn` with the real campaign save stashed away, then put it back. */
+/** Run `fn` with the real campaign save (every device key) stashed away, then put it back. */
 export function withStashedSave(app: App, fn: () => void): void {
-  let saved: string | null = null;
+  const saved = new Map<string, string | null>();
   try {
-    saved = localStorage.getItem(CAMPAIGN_STORAGE_KEY);
+    for (const key of CAMPAIGN_DEVICE_KEYS) saved.set(key, localStorage.getItem(key));
   } catch {
     // no storage: nothing to restore
   }
@@ -200,8 +200,10 @@ export function withStashedSave(app: App, fn: () => void): void {
     fn();
   } finally {
     try {
-      if (saved === null) localStorage.removeItem(CAMPAIGN_STORAGE_KEY);
-      else localStorage.setItem(CAMPAIGN_STORAGE_KEY, saved);
+      for (const [key, value] of saved) {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      }
     } catch {
       // ignore
     }
@@ -585,6 +587,7 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
     } finally {
       try {
         localStorage.removeItem(key);
+        localStorage.removeItem(`${key}-run`);
       } catch {
         // ignore
       }

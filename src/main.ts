@@ -3,6 +3,8 @@ import { App } from './App';
 import { Game } from './core/Game';
 import { Campaign } from './campaign/Campaign';
 import { connectHub } from './hub/link';
+import { HUB_GAME_ID } from './hub/config';
+import { hubVisitStarting } from '@metaverse/hub-sdk';
 import { crashGuard } from './core/crash';
 import { showCrashPanel } from './ui/CrashPanel';
 import { installGameFeedback } from './hub/feedback';
@@ -19,12 +21,24 @@ async function boot() {
   loading.textContent = 'Summoning the arena…';
   ui.appendChild(loading);
 
+  // Progress belongs to the hub account that earned it. A portal ticket or a live session: hold
+  // progress until the account is known, so nothing lands in this browser's own copy.
+  const campaign = new Campaign();
+  if (hubVisitStarting(HUB_GAME_ID)) campaign.hold();
+  addEventListener('storage', (e) => {
+    if (campaign.watches(e.key)) campaign.refresh();
+  });
+  addEventListener('pagehide', () => void campaign.flush());
+
   // A portal ticket is redeemed while the arena loads. No ticket: standalone, same as before.
   const hubPromise = connectHub();
   const game = await Game.create(container, ui);
   const hub = await hubPromise;
+  // A live session: the account's own progress, synced with its cloud save. Otherwise this browser's.
+  if (hub.connected && hub.playerId) void campaign.attach(hub.sdk, hub.playerId);
+  else campaign.release();
   loading.remove();
-  const app = new App(game, new Campaign(), hub);
+  const app = new App(game, campaign, hub);
   // N twice (or the pause menu's button) opens the hub feedback window.
   installGameFeedback(game, app, hub);
   game.start();

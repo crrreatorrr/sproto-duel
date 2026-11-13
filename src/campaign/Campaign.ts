@@ -1,59 +1,68 @@
+import type { KeyValue, ProgressCloud, ProgressOwner, ProgressStore, ProgressSync } from '@metaverse/hub-sdk';
 import { BOSSES, bossFighters, type BossDef } from './levels';
-import { REWARD_SPELLS, isRewardSpell, type RewardSpellId } from '../spells/rewardCatalog';
+import type { RewardSpellId } from '../spells/rewardCatalog';
+import {
+  LEGACY_CAMPAIGN_KEY,
+  LEGACY_SETTINGS_KEY,
+  PROGRESS_KEY,
+  canonicalFighters,
+  createCampaignStore,
+  learnedSpells,
+  legacyRunCursor,
+  type CampaignProgress,
+  type CampaignStoreOptions,
+} from './progress';
 
-/** What the Boss Gauntlet remembers between sessions. */
+export { migratedDefeated, migratedSpells } from './progress';
+
+/** What the Boss Gauntlet remembers between sessions, as menus and QA read it. */
 export interface CampaignSave {
-  /** Save format. 1 (or missing): no `unlockedSpells` (migrated from progress on read). */
-  version: 2;
   /** Index of the next boss to fight. 0 with `clears > 0` means the last run was finished. */
   next: number;
   /** How many times the whole gauntlet has been beaten. */
   clears: number;
   /**
    * Boss reward spells learned for good (in gauntlet order). They survive New Gauntlet; only
-   * Settings' "Forget learned spells" (or `reset`) clears them.
+   * Settings' "Forget learned spells" clears them.
    */
   unlockedSpells: RewardSpellId[];
-  /**
-   * Fighter ids beaten in a saved win (bosses and partners, gauntlet order): their skins are
-   * unlocked. Never cleared except by `reset`. Missing in older saves: derived from progress.
-   */
+  /** Fighter ids beaten in a saved win (bosses and partners, gauntlet order): their skins are unlocked. */
   defeated: string[];
 }
 
-export const CAMPAIGN_STORAGE_KEY = 'arcane-duel-campaign';
-export const CAMPAIGN_SAVE_VERSION = 2;
+/** The device copy of the progress store. Kept for QA, which stashes it around its scenarios. */
+export const CAMPAIGN_STORAGE_KEY = PROGRESS_KEY;
+/** Every key the device's gauntlet uses on this browser: QA stashes them all. */
+export const CAMPAIGN_DEVICE_KEYS: readonly string[] = [PROGRESS_KEY, `${PROGRESS_KEY}-run`, LEGACY_CAMPAIGN_KEY];
 
 const clampIndex = (i: number) => Math.max(0, Math.min(BOSSES.length - 1, Math.floor(Number.isFinite(i) ? i : 0)));
-/** Known spell ids only, once each, in gauntlet order. */
-const canonical = (ids: readonly unknown[]): RewardSpellId[] => REWARD_SPELLS.filter((id) => ids.includes(id));
+const clampNext = (n: unknown) => {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.max(0, Math.min(BOSSES.length, Math.floor(v))) : 0;
+};
 
-/**
- * The spells an old (version 1) save has earned: every boss before `next` was beaten, and a cleared
- * gauntlet means all of them were.
- */
-export function migratedSpells(next: number, clears: number): RewardSpellId[] {
-  if (clears > 0) return [...REWARD_SPELLS];
-  return BOSSES.slice(0, Math.max(0, Math.min(BOSSES.length, next))).map((b) => b.reward);
-}
-
-const FIGHTER_IDS: readonly string[] = BOSSES.flatMap((b) => bossFighters(b).map((f) => f.id));
-/** Known fighter ids only, once each, in gauntlet order. */
-const canonicalFighters = (ids: readonly unknown[]): string[] => FIGHTER_IDS.filter((id) => ids.includes(id));
-
-/**
- * The fighters a save from before skins has beaten: every boss before `next`, every boss whose
- * spell was learned, and all of them after a clear.
- */
-export function migratedDefeated(next: number, clears: number, spells: readonly RewardSpellId[]): string[] {
-  const beaten = BOSSES.filter((b, i) => clears > 0 || i < next || spells.includes(b.reward));
-  return canonicalFighters(beaten.flatMap((b) => bossFighters(b).map((f) => f.id)));
+function defaultStorage(): KeyValue | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Boss Gauntlet progress: five single-life boss fights in a row. Beating a boss saves the next one,
  * so "Continue" resumes there; losing keeps you on the same boss. Beating a boss also teaches its
- * reward spell for good (`unlockedSpells`). Saved in localStorage (if allowed).
+ * reward spell for good and unlocks its fighters' skins.
+ *
+ * What the player earned (spells, skins, clears, Practice done) lives in one hub progress store
+ * (`./progress`): this browser's copy outside a hub session, the hub account's own copy (synced to
+ * its cloud save) inside one. It only ever moves forward, through `store.update`.
+ *
+ * The run cursor (`next`, the boss Continue resumes at) goes back to fight 1 on New Gauntlet and
+ * after a clear, so it is not in the store. It is kept on this browser per owner: the device's
+ * under `<key>-run`, an account's under `<key>-run@<playerId>`, so one account never continues
+ * another's run (a win there would teach spells the account never earned). It does not follow
+ * an account to another device.
  *
  * The save never claims a fight that wasn't won fairly. A win with god mode on is never saved (App
  * skips recordWin) but still moves the run on in this session; from then on the run is ahead of the
@@ -65,10 +74,29 @@ export class Campaign {
   index = 0;
   /** The spell the last recordWin taught for the first time (the reveal screen shows it), or null. */
   lastLearned: RewardSpellId | null = null;
-  private save: CampaignSave;
+  private readonly key: string;
+  private readonly storage: KeyValue | null;
+  private readonly storeOptions: CampaignStoreOptions;
+  private store: ProgressStore<CampaignProgress>;
+  /** The run cursor of the current owner. */
+  private next = 0;
+  /** The run moved while the owner was pending: it goes to the account (or device) with the wins. */
+  private pendingRunMoved = false;
+  private readonly listeners = new Set<() => void>();
+  /** Run cursors when there is no storage (private mode), per owner. */
+  private readonly memoryRuns = new Map<string, number>();
+  private unsubscribe: () => void;
 
-  constructor(private readonly storageKey = CAMPAIGN_STORAGE_KEY) {
-    this.save = this.read();
+  /** A string is a private storage key (QA); the options are for tests. */
+  constructor(options: string | (CampaignStoreOptions & { storage?: KeyValue | null }) = {}) {
+    const opts = typeof options === 'string' ? { key: options } : options;
+    this.key = opts.key ?? PROGRESS_KEY;
+    this.storage = opts.storage === undefined ? defaultStorage() : opts.storage;
+    this.storeOptions = { ...opts, key: this.key, storage: this.storage };
+    this.store = createCampaignStore(this.storeOptions);
+    this.unsubscribe = this.store.subscribe(() => this.emit());
+    this.migrateDevice();
+    this.next = this.readRun();
   }
 
   get boss(): BossDef {
@@ -88,22 +116,32 @@ export class Campaign {
     return BOSSES[this.index + 1] ?? null;
   }
 
+  get progress(): Readonly<CampaignProgress> {
+    return this.store.get();
+  }
+
   get saved(): Readonly<CampaignSave> {
-    return this.save;
+    const p = this.store.get();
+    return { next: this.next, clears: p.clears, unlockedSpells: learnedSpells(p), defeated: [...p.defeated] };
   }
 
   /** Reward spells learned so far (saved). */
   get unlocked(): readonly RewardSpellId[] {
-    return this.save.unlockedSpells;
+    return learnedSpells(this.store.get());
   }
 
   /** Fighter ids beaten in saved wins (their skins are unlocked). */
   get defeated(): readonly string[] {
-    return this.save.defeated;
+    return this.store.get().defeated;
+  }
+
+  /** The Practice lessons were finished once. */
+  get practiceDone(): boolean {
+    return this.store.get().practiceDone;
   }
 
   hasLearned(id: RewardSpellId): boolean {
-    return this.save.unlockedSpells.includes(id);
+    return this.unlocked.includes(id);
   }
 
   /**
@@ -111,12 +149,12 @@ export class Campaign {
    * run went past the save through god-mode wins (which are never saved).
    */
   get continuesSave(): boolean {
-    return this.index <= this.save.next;
+    return this.index <= this.next;
   }
 
   /** A run is in progress past fight 1, so the menu offers "Continue". */
   get canContinue(): boolean {
-    return this.save.next > 0 && this.save.next < BOSSES.length;
+    return this.next > 0 && this.next < BOSSES.length;
   }
 
   /**
@@ -125,13 +163,13 @@ export class Campaign {
    */
   startNew(): BossDef {
     this.index = 0;
-    this.write({ ...this.save, next: 0 });
+    this.writeRun(0);
     return this.boss;
   }
 
   /** Pick up at the saved fight. */
   resume(): BossDef {
-    this.index = clampIndex(this.save.next);
+    this.index = clampIndex(this.next);
     return this.boss;
   }
 
@@ -148,15 +186,21 @@ export class Campaign {
       return 'unsaved';
     }
     const reward = this.boss.reward;
-    const learned = this.hasLearned(reward);
-    this.lastLearned = learned ? null : reward;
-    const unlockedSpells = learned ? this.save.unlockedSpells : canonical([...this.save.unlockedSpells, reward]);
-    const defeated = canonicalFighters([...this.save.defeated, ...bossFighters(this.boss).map((f) => f.id)]);
-    if (this.isLast) {
-      this.write({ ...this.save, next: 0, clears: this.save.clears + 1, unlockedSpells, defeated });
+    this.lastLearned = this.hasLearned(reward) ? null : reward;
+    const fighters = bossFighters(this.boss).map((f) => f.id);
+    const last = this.isLast;
+    this.store.update((p) => ({
+      ...p,
+      clears: last ? p.clears + 1 : p.clears,
+      defeated: canonicalFighters([...p.defeated, ...fighters]),
+      // Learned at the current forget count: learned now, and after any earlier forget.
+      spells: learnedSpells(p).includes(reward) ? p.spells : { ...p.spells, [reward]: p.forgets },
+    }));
+    if (last) {
+      this.writeRun(0);
       return 'complete';
     }
-    this.write({ ...this.save, next: Math.max(this.save.next, this.index + 1), unlockedSpells, defeated });
+    this.writeRun(Math.max(this.next, this.index + 1));
     return 'next';
   }
 
@@ -166,58 +210,176 @@ export class Campaign {
     return this.boss;
   }
 
-  /** Re-read storage (another tab, or QA restoring a snapshot). */
-  reload(): void {
-    this.save = this.read();
+  /** The Practice lessons are done: the main menu stops pointing at them. */
+  markPracticeDone(): void {
+    if (!this.practiceDone) this.store.update((p) => ({ ...p, practiceDone: true }));
   }
 
-  /** Forget the learned reward spells (Settings). Progress and clears stay. */
+  /** Forget the learned reward spells (Settings), on every device of the account. Progress and clears stay. */
   forgetSpells(): void {
     this.lastLearned = null;
-    this.write({ ...this.save, unlockedSpells: [] });
+    this.store.update((p) => ({ ...p, forgets: p.forgets + 1 }));
   }
 
-  /** Forget all progress, spells included. */
+  /**
+   * QA restored a snapshot of storage: read it back as it is. For device play the copy in memory
+   * is replaced (a scenario's wins must not survive its stash); an account's only merges.
+   */
+  reload(): void {
+    if (this.store.owner().kind === 'device') this.rebuildStore();
+    else this.store.refresh();
+    this.next = this.readRun();
+    this.emit();
+  }
+
+  /** Another tab saved progress or moved the run: merge it in. */
+  refresh(): void {
+    this.store.refresh();
+    this.next = this.readRun();
+    this.emit();
+  }
+
+  /** True when a `storage` event with this key changes the progress or run shown. */
+  watches(key: string | null): boolean {
+    return this.store.watches(key) || key === this.runKey(this.store.owner());
+  }
+
+  /**
+   * QA only: forget this browser's device progress (the device copy, the old campaign save and the
+   * run). Progress only moves forward otherwise, and an account's cloud copy would bring it back,
+   * so this does nothing outside device play. Scenarios stash `CAMPAIGN_DEVICE_KEYS` around it.
+   */
   reset(): void {
+    if (this.store.owner().kind !== 'device') return;
     this.index = 0;
     this.lastLearned = null;
-    this.write({ version: CAMPAIGN_SAVE_VERSION, next: 0, clears: 0, unlockedSpells: [], defeated: [] });
-  }
-
-  private read(): CampaignSave {
-    const fresh: CampaignSave = { version: CAMPAIGN_SAVE_VERSION, next: 0, clears: 0, unlockedSpells: [], defeated: [] };
-    try {
-      const raw = localStorage.getItem(this.storageKey);
-      if (!raw) return fresh;
-      const data = JSON.parse(raw) as Partial<CampaignSave> & { unlockedSpells?: unknown; defeated?: unknown };
-      const n = Number(data.next);
-      const c = Number(data.clears);
-      const next = Number.isFinite(n) ? Math.max(0, Math.min(BOSSES.length, Math.floor(n))) : 0;
-      const clears = Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0;
-      // Saves from before the reward spells: everything the progress has earned.
-      const spells = Array.isArray(data.unlockedSpells) ? canonical(data.unlockedSpells.filter(isRewardSpell)) : migratedSpells(next, clears);
-      // Saves from before skins: the fighters the progress has beaten.
-      const defeated = Array.isArray(data.defeated) ? canonicalFighters(data.defeated) : migratedDefeated(next, clears, spells);
-      const save: CampaignSave = { version: CAMPAIGN_SAVE_VERSION, next, clears, unlockedSpells: spells, defeated };
-      // Write a migrated save back in the current format.
-      if (data.version !== CAMPAIGN_SAVE_VERSION || !Array.isArray(data.unlockedSpells) || !Array.isArray(data.defeated)) this.persist(save);
-      return save;
-    } catch {
-      // Storage unavailable or corrupt: start fresh.
-      return fresh;
+    for (const k of [this.key, this.runKey(this.store.owner()), ...(this.key === PROGRESS_KEY ? [LEGACY_CAMPAIGN_KEY] : [])]) {
+      try {
+        if (k) this.storage?.removeItem(k);
+      } catch {
+        // ignore
+      }
     }
+    this.rebuildStore();
+    this.next = 0;
+    this.writeRun(0);
+    this.emit();
   }
 
-  private write(save: CampaignSave): void {
-    this.save = save;
-    this.persist(save);
+  /** Whose progress this is: the browser, a hub visit still starting, or a hub account. */
+  owner(): ProgressOwner {
+    return this.store.owner();
   }
 
-  private persist(save: CampaignSave): void {
+  /** Cloud state of an account's progress. */
+  sync(): ProgressSync {
+    return this.store.sync();
+  }
+
+  /** A hub visit is starting: wins are held in memory until the account is known. */
+  hold(): void {
+    this.store.hold();
+    this.index = 0;
+    this.lastLearned = null;
+    this.next = 0;
+    this.pendingRunMoved = false;
+  }
+
+  /** Show and save `playerId`'s progress, synced with their hub cloud save. */
+  attach(cloud: ProgressCloud, playerId: string): Promise<void> {
+    const carried = this.carriedRun();
+    const done = this.store.attach(cloud, playerId);
+    this.switchedOwner(carried);
+    return done;
+  }
+
+  /** Back to this browser's own progress, for play without a hub session. */
+  release(): void {
+    const carried = this.carriedRun();
+    this.store.release();
+    this.switchedOwner(carried);
+  }
+
+  /** Push any unsynced account progress now. */
+  flush(): Promise<void> {
+    return this.store.flush();
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** A fresh device store read from storage. */
+  private rebuildStore(): void {
+    this.unsubscribe();
+    this.store = createCampaignStore(this.storeOptions);
+    this.unsubscribe = this.store.subscribe(() => this.emit());
+  }
+
+  private emit(): void {
+    for (const listener of this.listeners) listener();
+  }
+
+  private carriedRun(): number | null {
+    return this.store.owner().kind === 'pending' && this.pendingRunMoved ? this.next : null;
+  }
+
+  private switchedOwner(carried: number | null): void {
+    this.pendingRunMoved = false;
+    this.lastLearned = null;
+    this.next = this.readRun();
+    if (carried !== null) this.writeRun(carried);
+    this.index = clampIndex(this.next);
+    this.emit();
+  }
+
+  /** Write the device copy once from the old saves, so it no longer depends on them. */
+  private migrateDevice(): void {
+    if (this.key !== PROGRESS_KEY || !this.storage) return;
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(save));
+      if (this.storage.getItem(PROGRESS_KEY) !== null) return;
+      if (this.storage.getItem(LEGACY_CAMPAIGN_KEY) === null && this.storage.getItem(LEGACY_SETTINGS_KEY) === null) return;
     } catch {
-      // Private mode or blocked storage: progress lasts for this session only.
+      return;
+    }
+    this.store.update((p) => p);
+  }
+
+  private runKey(owner: ProgressOwner): string | null {
+    if (owner.kind === 'device') return `${this.key}-run`;
+    if (owner.kind === 'account') return `${this.key}-run@${owner.playerId}`;
+    return null;
+  }
+
+  private readRun(): number {
+    const owner = this.store.owner();
+    const key = this.runKey(owner);
+    if (!key) return 0;
+    if (!this.storage) return this.memoryRuns.get(key) ?? 0;
+    try {
+      const raw = this.storage.getItem(key);
+      if (raw !== null) return clampNext(JSON.parse(raw));
+      // The device's run starts where the old campaign save left it.
+      if (owner.kind === 'device' && this.key === PROGRESS_KEY) return legacyRunCursor(this.storage) ?? 0;
+    } catch {
+      // Corrupt or blocked: start at fight 1.
+    }
+    return 0;
+  }
+
+  private writeRun(next: number): void {
+    this.next = clampNext(next);
+    const owner = this.store.owner();
+    if (owner.kind === 'pending') this.pendingRunMoved = true;
+    const key = this.runKey(owner);
+    if (!key) return;
+    this.memoryRuns.set(key, this.next);
+    try {
+      if (!this.storage) return;
+      this.storage.setItem(key, JSON.stringify(this.next));
+    } catch {
+      // Private mode or blocked storage: the run lasts for this session only.
     }
   }
 }

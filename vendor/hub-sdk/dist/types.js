@@ -64,7 +64,7 @@ export const MOCK_TICKET_EARN_CAP = 1000;
 /** Portal tickets are single-use and short-lived. */
 export const MOCK_TICKET_TTL_SECONDS = 60;
 /** Largest save the server accepts, in bytes of its JSON text. */
-export const SAVE_MAX_BYTES = 4096;
+export const SAVE_MAX_BYTES = 16384;
 /** NOBU time-trial floors per Classic level, versioned layout or Chapter 2 level, integer ms (Contract C13). */
 export const NOBU_TRIAL_FLOOR_MS = {
     '1': 15000, '2': 15000, '3': 12000,

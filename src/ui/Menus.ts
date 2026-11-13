@@ -41,8 +41,6 @@ export interface Settings {
   rumble: boolean;
   /** Quick Duel's rival: Apprentice ('easy'), Adept ('normal') or Archmage ('hard'). */
   quickDifficulty: Difficulty;
-  /** The Practice lessons were finished once (the main menu stops pointing new players at them). */
-  practiceDone: boolean;
 }
 
 const DIFFICULTY_ORDER: readonly Difficulty[] = ['easy', 'normal', 'hard'];
@@ -68,13 +66,14 @@ export function loadSettings(): Settings {
     aimAssist: CONFIG.gamepad.aimAssist.strength,
     rumble: CONFIG.gamepad.rumble.enabled,
     quickDifficulty: 'easy',
-    practiceDone: false,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       // Older saves carried a `difficulty` from before the single Rival; the choice now lives in
-      // `quickDifficulty` and starts at Apprentice.
+      // `quickDifficulty` and starts at Apprentice. `practiceDone` moved into the campaign's progress
+      // store (it is progress, kept per hub account); an old value stays in the save untouched for
+      // the device copy to read.
       const { difficulty: _legacy, ...saved } = JSON.parse(raw) as Partial<Settings> & { difficulty?: unknown };
       const out = { ...defaults, ...saved };
       if (!DIFFICULTY_ORDER.includes(out.quickDifficulty)) out.quickDifficulty = defaults.quickDifficulty;
@@ -212,6 +211,8 @@ export interface MenuHandlers {
   start(): void;
   /** Practice: the playable tutorial against a training dummy. Missing hides the button. */
   practice?(): void;
+  /** The Practice lessons were finished once (progress): the main menu stops pointing at them. */
+  practiceDone?(): boolean;
   /** Local Versus: open the join screen. */
   versus?(): void;
   /** Online Duel on the main menu. Null hides the button. `why` is the second line; a disabled button still shows. */
@@ -821,6 +822,7 @@ export class Menus {
 
   showMain(): void {
     const g = this.h.gauntletStatus();
+    const practiceDone = this.h.practiceDone?.() ?? false;
     const cont = g.canContinue && g.next
       ? `<button class="gauntlet-btn continue" data-act="continue" style="${bossStyleVars(g.next)}">
            <b>Continue</b><small>Fight ${g.nextIndex + 1} of ${BOSSES.length} · ${bossDisplayName(g.next)}</small>
@@ -847,7 +849,7 @@ export class Menus {
           ${this.onlineButtonHtml()}
         </div>
         <div class="row help-row">
-          ${this.h.practice ? `<button class="ghost practice-btn${this.settings.practiceDone ? '' : ' suggest'}" data-act="practice">Practice${this.settings.practiceDone ? '' : '<small>New here? Start with this</small>'}</button>` : ''}
+          ${this.h.practice ? `<button class="ghost practice-btn${practiceDone ? '' : ' suggest'}" data-act="practice">Practice${practiceDone ? '' : '<small>New here? Start with this</small>'}</button>` : ''}
           <button class="ghost" data-act="howto">How to Play</button>
           <button class="ghost" data-act="settings">Settings</button>
         </div>

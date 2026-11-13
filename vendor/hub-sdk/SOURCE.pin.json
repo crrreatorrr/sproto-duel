@@ -1,6 +1,6 @@
 {
   "package": "@metaverse/hub-sdk",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "entry": "src/index.ts",
   "format": "iife",
   "global": "HubSDK",
@@ -11,11 +11,12 @@
     "src/errors.ts": "4eaba836a4dfad994b3926d90b66a158c4384ce6f100bf8a0791877c0646b541",
     "src/events.ts": "584d264acb48d7e63746bc63b56767577dd4370a0b5fbdf4ddd73fc0fd2b9f64",
     "src/feedback.ts": "3ee200cafc7d07ca4b0c995a56a0d3ef5a6046e262fc62c7aef0bb903e83cf67",
-    "src/index.ts": "4f1d93041a8b2fb275e4a25761a2c4ed465e88ac4692c2fc856c704b3cd90767",
+    "src/index.ts": "b7db97e20962db7bdfc123f539af28a47e109062cf5ed74a374e09ef4b3cd457",
     "src/live.ts": "9272fe0acd8c0b8171028f163df42f7e9545408d28194da7de19e037f0417527",
     "src/nakama.ts": "67a701b47178244f1a63b433f8d715aea824b1599a49f140b35b401950ee266a",
     "src/pageShot.ts": "8e562aa07991d5b716d9f83aa2f659dbd43782b5b6e063d411895f52dfc84af9",
     "src/pbShop.ts": "3bbeff5bcf3b6e2c724409eadce9907432e1e52b02988938ff5e6f2ebdfe0faf",
+    "src/progress.ts": "fd39c7a20135c7c7dec4cf85783c564afe60cb44ac47715f01cd6ba42f5e1009",
     "src/realtime/chatRules.ts": "26913facb5c4c28c0a3529a4ecb6a3a50fadfe067736c74fb571184a9aa81b0e",
     "src/realtime/client.ts": "09b799cc261ae06eb36a3141722e7752b603c58eac66fdb2b2a4f88f4ae08b79",
     "src/realtime/friends.ts": "d2b309fca509ab6e46def7d4be20e470d7d932f6eacef63287ce7697225f86ef",
@@ -27,7 +28,7 @@
     "src/third_party/modern-screenshot.d.ts": "22372ef230b98655ee2597c8c741d75e397405f22dbb5c2f45521e6fe9950056",
     "src/third_party/modern-screenshot.js": "c1d44ba7cf8a296754c7013a12c79266235550b0564d17487a76e006f8472721",
     "src/ticket.ts": "b01e1635c7031dd0e6855ecb22b99af1654395c41f0296863b627a31ded41033",
-    "src/types.ts": "b3ac546d5c67e094d2755de3940d2c4a061a665b9974f1f574786f925a1c39df"
+    "src/types.ts": "90b551a3fe2b4e85f81b82bc7c9c1909654715f2a45a85cb7d683f6f05d309ab"
   },
-  "iifeSha256": "770e8e1b41ad1abef33eb0d04ef9c7eec8fda723336e5149a7809d902042013c"
+  "iifeSha256": "833ce281696f9769bd13d284b9d9262957838181cf1ac308358c6b602b21f309"
 }
