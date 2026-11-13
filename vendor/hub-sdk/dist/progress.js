@@ -43,8 +43,16 @@ export function createProgressStore(options) {
     function readRaw(k) {
         if (!storage)
             return null;
+        let raw;
         try {
-            const raw = storage.getItem(k);
+            raw = storage.getItem(k);
+        }
+        catch {
+            // Blocked storage: progress lasts for this visit only.
+            persistent = false;
+            return null;
+        }
+        try {
             return raw ? JSON.parse(raw) : null;
         }
         catch {
@@ -250,6 +258,8 @@ export function createProgressStore(options) {
             await push();
         },
         release() {
+            if (owner.kind === 'device')
+                return;
             const earned = owner.kind === 'pending' ? value : null;
             moveTo({ kind: 'device' });
             cloud = null;

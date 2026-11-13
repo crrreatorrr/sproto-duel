@@ -2,11 +2,11 @@
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
 - branch: claude/account-progress
-- sha: dbbf398
+- sha: c9d01b3
 - package: packages/hub-sdk @ 0.8.0
 - built with: `node scripts/vendor-sdk.mjs`
 - iife: dist/hub-sdk.iife.js (global HubSDK; classic script, not a CDN import)
-- iife sha256: b65b550cf9921dab8a272685a5d610c0a1b3f298cba9519b20308e545a542a1d
+- iife sha256: 5a9d3025b1cd4f6b642cafb0c2d9ac2a45e0295410f469d86a8c5dbe47630037
 - source src/createHubSdk.ts: 4ae184ef8b4a6e97192769a4118ea855fcd4463176ee7bac295a884e449ebcdf
 - source src/env.ts: c3a8eb38ea73539fa4d971da705e004355bed8258079a73a2ecbda912c35ef46
 - source src/errors.ts: 4eaba836a4dfad994b3926d90b66a158c4384ce6f100bf8a0791877c0646b541
@@ -17,7 +17,7 @@
 - source src/nakama.ts: 67a701b47178244f1a63b433f8d715aea824b1599a49f140b35b401950ee266a
 - source src/pageShot.ts: 8e562aa07991d5b716d9f83aa2f659dbd43782b5b6e063d411895f52dfc84af9
 - source src/pbShop.ts: 3bbeff5bcf3b6e2c724409eadce9907432e1e52b02988938ff5e6f2ebdfe0faf
-- source src/progress.ts: f091cbd4d2dc7326e1da99a3198a681fe6fac7a6015f4b65d6919ee1a31f4b95
+- source src/progress.ts: fd39c7a20135c7c7dec4cf85783c564afe60cb44ac47715f01cd6ba42f5e1009
 - source src/realtime/chatRules.ts: 26913facb5c4c28c0a3529a4ecb6a3a50fadfe067736c74fb571184a9aa81b0e
 - source src/realtime/client.ts: 09b799cc261ae06eb36a3141722e7752b603c58eac66fdb2b2a4f88f4ae08b79
 - source src/realtime/friends.ts: d2b309fca509ab6e46def7d4be20e470d7d932f6eacef63287ce7697225f86ef
@@ -79,7 +79,7 @@ sources match the earlier pin at `5099cb5`; later hub commits did not change the
 0.8.0 adds `createProgressStore` and `hubVisitStarting` (progress per hub account) and raises the
 cloud save limit to 16384 bytes. Sproto Duel keeps the gauntlet's earned progress in one store
 (`src/campaign/progress.ts`, used by `Campaign`). **This copy is from the unmerged hub branch
-`claude/account-progress` (`dbbf398`). Re-vendor from hub main after that hub PR merges, and before
+`claude/account-progress` (`c9d01b3`). Re-vendor from hub main after that hub PR merges, and before
 the Sproto Duel PR merges.**
 
 Re-sync this tree to hub main whenever packages/hub-sdk changes:

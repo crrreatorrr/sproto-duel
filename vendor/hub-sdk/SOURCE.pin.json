@@ -16,7 +16,7 @@
     "src/nakama.ts": "67a701b47178244f1a63b433f8d715aea824b1599a49f140b35b401950ee266a",
     "src/pageShot.ts": "8e562aa07991d5b716d9f83aa2f659dbd43782b5b6e063d411895f52dfc84af9",
     "src/pbShop.ts": "3bbeff5bcf3b6e2c724409eadce9907432e1e52b02988938ff5e6f2ebdfe0faf",
-    "src/progress.ts": "f091cbd4d2dc7326e1da99a3198a681fe6fac7a6015f4b65d6919ee1a31f4b95",
+    "src/progress.ts": "fd39c7a20135c7c7dec4cf85783c564afe60cb44ac47715f01cd6ba42f5e1009",
     "src/realtime/chatRules.ts": "26913facb5c4c28c0a3529a4ecb6a3a50fadfe067736c74fb571184a9aa81b0e",
     "src/realtime/client.ts": "09b799cc261ae06eb36a3141722e7752b603c58eac66fdb2b2a4f88f4ae08b79",
     "src/realtime/friends.ts": "d2b309fca509ab6e46def7d4be20e470d7d932f6eacef63287ce7697225f86ef",
@@ -30,5 +30,5 @@
     "src/ticket.ts": "b01e1635c7031dd0e6855ecb22b99af1654395c41f0296863b627a31ded41033",
     "src/types.ts": "90b551a3fe2b4e85f81b82bc7c9c1909654715f2a45a85cb7d683f6f05d309ab"
   },
-  "iifeSha256": "c0ea77abad144abfd8f01d8f21c29b5e1d869bfcb4462db318ea3982f591aab4"
+  "iifeSha256": "833ce281696f9769bd13d284b9d9262957838181cf1ac308358c6b602b21f309"
 }

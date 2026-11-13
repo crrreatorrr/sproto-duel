@@ -2080,8 +2080,14 @@ var HubSDK = (() => {
     const dirtyKey = (o) => o.kind === "account" ? `${key}@${o.playerId}:unsynced` : null;
     function readRaw(k) {
       if (!storage) return null;
+      let raw;
       try {
-        const raw = storage.getItem(k);
+        raw = storage.getItem(k);
+      } catch {
+        persistent = false;
+        return null;
+      }
+      try {
         return raw ? JSON.parse(raw) : null;
       } catch {
         return null;
@@ -2253,6 +2259,7 @@ var HubSDK = (() => {
         await push();
       },
       release() {
+        if (owner.kind === "device") return;
         const earned = owner.kind === "pending" ? value : null;
         moveTo({ kind: "device" });
         cloud = null;
