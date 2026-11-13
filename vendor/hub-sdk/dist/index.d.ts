@@ -2,6 +2,8 @@ export { BOARD_IDS, BoardId, FOUR_LIGHTS_RELIC_IDS, GAME_IDS, MOCK_TICKET_EARN_C
 export type { EarnResult, EventResult, ExchangeResult, GameId, HubGateView, HubSdk, HubSessionInfo, InitResult, LeaderboardRow, LeaderboardTop, RedeemedSession, RelicId, SaveResult, ScoreResult, SellResult, SpendResult, TicketBalanceResult, } from './types';
 export { HubEvent, relicForEvent } from './events';
 export { EMPTY_SAVE, encodeSave, readSaveResult } from './save';
+export { createProgressStore, hubVisitStarting } from './progress';
+export type { ProgressCloud, ProgressModel, ProgressOwner, ProgressStore, ProgressStoreOptions, ProgressSync, } from './progress';
 export type { HubEventId } from './events';
 export { DEVICE_ID_KEY, getOrCreateDeviceId, memoryKeyValue } from './storage';
 export type { KeyValue } from './storage';

@@ -77,6 +77,18 @@ describe('HubLink', () => {
     expect(api.init).toHaveBeenCalledWith('sproto');
     expect(link.connected).toBe(false);
     expect(link.error).toBeNull();
+    // A standalone profile's id is not an account: progress stays on this browser.
+    expect(link.playerId).toBeNull();
+  });
+
+  it('keeps the player id only while the hub session is live', () => {
+    const link = new HubLink(fakeApi());
+    link.attach({ playerId: 'p-7', ranked: false, relics: [], effects: {}, ticketsCapLeft: 0, serverTime: 0 });
+    expect(link.playerId).toBe('p-7');
+    link.fail(new Error('gone'));
+    expect(link.playerId).toBeNull();
+    link.attach(null);
+    expect(link.playerId).toBeNull();
   });
 
   it('does not call the hub for a standalone win', async () => {

@@ -1,4 +1,4 @@
-/*! @metaverse/hub-sdk 0.7.2 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
+/*! @metaverse/hub-sdk 0.8.0 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
 "use strict";
 var HubSDK = (() => {
   var __defProp = Object.defineProperty;
@@ -27,7 +27,7 @@ var HubSDK = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // packages/hub-sdk/src/third_party/modern-screenshot.js
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/third_party/modern-screenshot.js
   var modern_screenshot_exports = {};
   __export(modern_screenshot_exports, {
     createContext: () => createContext,
@@ -1589,7 +1589,7 @@ var HubSDK = (() => {
   }
   var _P, _H, _Y, _S, pngDataTable, b64PhysSignature1, b64PhysSignature2, b64PhysSignature3, PREFIX, IN_BROWSER, SUPPORT_WEB_WORKER, SUPPORT_ATOB, SUPPORT_BTOA, USER_AGENT, IN_CHROME, IN_SAFARI, IN_FIREFOX, isContext, isCssFontFaceRule, isCSSImportRule, isLayerBlockRule, isElementNode, isSVGElementNode, isSVGImageElementNode, isSVGUseElementNode, isHTMLElementNode, isCommentNode, isTextNode, isImageElement, isVideoElement, isCanvasElement, isTextareaElement, isInputElement, isStyleElement, isScriptElement, isSelectElement, isSlotElement, isIFrameElement, consoleWarn, isDataUrl, XMLNS, blobToDataUrl, blobToArrayBuffer, uuid, uid, ignoredStyles, includedAttributes, pseudoClasses, scrollbarPseudoClasses, excludeParentNodes, NORMAL_ATTRIBUTE_RE, URL_RE, properties, COMMENTS_RE, KEYFRAMES_RE, URL_WITH_FORMAT_RE, FONT_SRC_RE, SVG_EXTERNAL_RESOURCE_REGEX;
   var init_modern_screenshot = __esm({
-    "packages/hub-sdk/src/third_party/modern-screenshot.js"() {
+    "../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/third_party/modern-screenshot.js"() {
       "use strict";
       _P = "p".charCodeAt(0);
       _H = "H".charCodeAt(0);
@@ -1688,7 +1688,7 @@ var HubSDK = (() => {
     }
   });
 
-  // packages/hub-sdk/src/index.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/index.ts
   var index_exports = {};
   __export(index_exports, {
     BOARD_IDS: () => BOARD_IDS,
@@ -1726,12 +1726,14 @@ var HubSDK = (() => {
     createHubSdk: () => createHubSdk,
     createMockRealtimeServer: () => createMockRealtimeServer,
     createNakamaClient: () => createNakamaClient,
+    createProgressStore: () => createProgressStore,
     createRealtime: () => createRealtime,
     encodeSave: () => encodeSave,
     errorCodeFromMessage: () => errorCodeFromMessage,
     feedbackTransportFromSdk: () => feedbackTransportFromSdk,
     fitFeedbackMeta: () => fitFeedbackMeta,
     getOrCreateDeviceId: () => getOrCreateDeviceId,
+    hubVisitStarting: () => hubVisitStarting,
     installFeedback: () => installFeedback,
     installHubSdk: () => installHubSdk,
     isBoardId: () => isBoardId,
@@ -1753,7 +1755,7 @@ var HubSDK = (() => {
     verifyMockTicket: () => verifyMockTicket
   });
 
-  // packages/hub-sdk/src/types.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/types.ts
   var GAME_IDS = [
     "hpos10i",
     "nobu",
@@ -1803,7 +1805,7 @@ var HubSDK = (() => {
   var VERSE_DAILY_CAP = 50;
   var MOCK_TICKET_EARN_CAP = 1e3;
   var MOCK_TICKET_TTL_SECONDS = 60;
-  var SAVE_MAX_BYTES = 4096;
+  var SAVE_MAX_BYTES = 16384;
   var NOBU_TRIAL_FLOOR_MS = {
     "1": 15e3,
     "2": 15e3,
@@ -1829,7 +1831,7 @@ var HubSDK = (() => {
     return BOARD_IDS.includes(value);
   }
 
-  // packages/hub-sdk/src/events.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/events.ts
   var HubEvent = {
     Ready: "ready",
     GameBeaten: "game_beaten",
@@ -1885,7 +1887,7 @@ var HubSDK = (() => {
     return void 0;
   }
 
-  // packages/hub-sdk/src/errors.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/errors.ts
   var HubSdkError = class extends Error {
     code;
     status;
@@ -1904,7 +1906,7 @@ var HubSDK = (() => {
     }
   };
 
-  // packages/hub-sdk/src/save.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/save.ts
   var EMPTY_SAVE = Object.freeze({ data: null, updatedAt: 0 });
   function encodeSave(data) {
     if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -1928,7 +1930,7 @@ var HubSDK = (() => {
     return { data, updatedAt: data ? updatedAt : 0 };
   }
 
-  // packages/hub-sdk/src/storage.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/storage.ts
   var DEVICE_ID_KEY = "hub:deviceId";
   function memoryKeyValue() {
     const map = /* @__PURE__ */ new Map();
@@ -1971,7 +1973,7 @@ var HubSDK = (() => {
     storage.setItem(key, String(value));
   }
 
-  // packages/hub-sdk/src/ticket.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/ticket.ts
   var MOCK_TICKET_KEY = "metaverse-hub-m0-mock-ticket-key";
   var ISSUER = "hub-mock";
   function bytesToBase64Url(bytes) {
@@ -2046,7 +2048,244 @@ var HubSDK = (() => {
     return next ? `#${next}` : "";
   }
 
-  // packages/hub-sdk/src/env.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/progress.ts
+  var MAX_RETRY_MS = 12e4;
+  function stable(value) {
+    return JSON.stringify(
+      value,
+      (_key, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : v
+    );
+  }
+  function isFinal(error) {
+    return error instanceof HubSdkError && (error.code === "bad_save" || error.code === "save_too_large");
+  }
+  function createProgressStore(options) {
+    const { key, model } = options;
+    const storage = options.storage === void 0 ? browserKeyValue("local") : options.storage;
+    const pushDelay = options.pushDelayMs ?? 1500;
+    const retryBase = options.retryDelayMs ?? 5e3;
+    const toCloud = (value2) => model.toCloud ? model.toCloud(value2) : value2;
+    const fromCloud = (data) => model.normalize(model.fromCloud ? model.fromCloud(data) : data);
+    let owner = { kind: "device" };
+    let status = "local";
+    let persistent = !!storage;
+    let cloud = null;
+    let pushTimer = null;
+    let retryTimer = null;
+    let retryMs = retryBase;
+    let pushing = null;
+    let epoch = 0;
+    const listeners = /* @__PURE__ */ new Set();
+    const slotKey = (o) => o.kind === "device" ? key : o.kind === "account" ? `${key}@${o.playerId}` : null;
+    const dirtyKey = (o) => o.kind === "account" ? `${key}@${o.playerId}:unsynced` : null;
+    function readRaw(k) {
+      if (!storage) return null;
+      try {
+        const raw = storage.getItem(k);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+    function readSlot(o) {
+      const k = slotKey(o);
+      let value2 = model.normalize(k ? readRaw(k) : null);
+      if (o.kind === "device" && storage && options.readLegacy) {
+        try {
+          value2 = model.merge(value2, model.normalize(options.readLegacy(storage)));
+        } catch {
+        }
+      }
+      return value2;
+    }
+    function writeSlot(o, value2) {
+      const k = slotKey(o);
+      if (!k) return;
+      try {
+        if (!storage) throw new Error("no storage");
+        storage.setItem(k, JSON.stringify(value2));
+        persistent = true;
+      } catch {
+        persistent = false;
+      }
+    }
+    function setDirty(o, dirty) {
+      const k = dirtyKey(o);
+      if (!k || !storage) return;
+      try {
+        if (dirty) storage.setItem(k, "1");
+        else storage.removeItem(k);
+      } catch {
+      }
+    }
+    function isDirty(o) {
+      const k = dirtyKey(o);
+      if (!k || !storage) return false;
+      try {
+        return storage.getItem(k) === "1";
+      } catch {
+        return false;
+      }
+    }
+    let value = readSlot(owner);
+    const emit = () => {
+      for (const listener of listeners) listener();
+    };
+    function clearTimers() {
+      if (pushTimer) clearTimeout(pushTimer);
+      if (retryTimer) clearTimeout(retryTimer);
+      pushTimer = null;
+      retryTimer = null;
+    }
+    function schedulePush(delay) {
+      if (owner.kind !== "account" || !cloud) return;
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(() => {
+        pushTimer = null;
+        void push();
+      }, delay);
+    }
+    function push() {
+      if (pushing) {
+        return pushing.then(() => owner.kind === "account" && isDirty(owner) ? push() : void 0);
+      }
+      const o = owner;
+      const api = cloud;
+      const at = epoch;
+      if (o.kind !== "account" || !api?.loadSave || !api.writeSave) return Promise.resolve();
+      status = "syncing";
+      emit();
+      pushing = (async () => {
+        try {
+          const remote = await api.loadSave();
+          if (at !== epoch) return;
+          const theirs = remote.data ? fromCloud(remote.data) : null;
+          value = model.merge(readSlot(o), theirs ? model.merge(value, theirs) : value);
+          writeSlot(o, value);
+          const body = toCloud(value);
+          encodeSave(body);
+          if (stable(body) !== stable(toCloud(theirs ?? model.empty()))) {
+            await api.writeSave(body);
+            if (at !== epoch) return;
+          }
+          setDirty(o, false);
+          status = "synced";
+          retryMs = retryBase;
+        } catch (error) {
+          if (at !== epoch) return;
+          options.onError?.(error);
+          if (isFinal(error)) {
+            status = "error";
+          } else {
+            status = "offline";
+            if (retryTimer) clearTimeout(retryTimer);
+            retryTimer = setTimeout(() => {
+              retryTimer = null;
+              void push();
+            }, retryMs);
+            retryMs = Math.min(MAX_RETRY_MS, retryMs * 2);
+          }
+        } finally {
+          pushing = null;
+          if (at === epoch) emit();
+        }
+      })();
+      return pushing;
+    }
+    function moveTo(next) {
+      epoch += 1;
+      clearTimers();
+      retryMs = retryBase;
+      owner = next;
+    }
+    return {
+      get: () => value,
+      owner: () => owner,
+      sync: () => status,
+      persistent: () => persistent,
+      update(advance) {
+        if (owner.kind !== "pending") value = model.merge(value, readSlot(owner));
+        value = model.merge(value, model.normalize(advance(value)));
+        writeSlot(owner, value);
+        if (owner.kind === "account") {
+          setDirty(owner, true);
+          schedulePush(pushDelay);
+        }
+        emit();
+        return value;
+      },
+      refresh() {
+        if (owner.kind === "pending") return;
+        value = model.merge(value, readSlot(owner));
+        emit();
+      },
+      watches(changed) {
+        return changed === null || changed === slotKey(owner);
+      },
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+      hold() {
+        if (owner.kind === "pending") return;
+        moveTo({ kind: "pending" });
+        cloud = null;
+        value = model.empty();
+        status = "local";
+        emit();
+      },
+      async attach(api, playerId) {
+        if (!playerId) throw new HubSdkError("bad_player", "attach needs a player id");
+        const earned = owner.kind === "pending" ? value : null;
+        const next = { kind: "account", playerId };
+        moveTo(next);
+        cloud = api;
+        value = readSlot(next);
+        if (earned) {
+          value = model.merge(value, earned);
+          writeSlot(next, value);
+          setDirty(next, true);
+        }
+        status = "local";
+        emit();
+        await push();
+      },
+      release() {
+        const earned = owner.kind === "pending" ? value : null;
+        moveTo({ kind: "device" });
+        cloud = null;
+        value = readSlot(owner);
+        if (earned) {
+          value = model.merge(value, earned);
+          writeSlot(owner, value);
+        }
+        status = "local";
+        emit();
+      },
+      flush() {
+        if (owner.kind !== "account" || !cloud) return Promise.resolve();
+        if (pushTimer) {
+          clearTimeout(pushTimer);
+          pushTimer = null;
+        }
+        return push();
+      }
+    };
+  }
+  function hubVisitStarting(game, hash, session) {
+    const fragment = hash ?? (typeof location !== "undefined" ? location.hash : "");
+    if (readTicketParam(fragment)) return true;
+    try {
+      const store = session ?? browserKeyValue("session");
+      return store.getItem(`hub:${game}:session`) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/env.ts
   function defaultEnv() {
     if (typeof window === "undefined") {
       throw new HubSdkError("no_window", "createHubSdk() needs a browser, or pass an env for tests");
@@ -2087,7 +2326,7 @@ var HubSDK = (() => {
     };
   }
 
-  // packages/hub-sdk/src/pbShop.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/pbShop.ts
   var PB_SHOP = {
     "shop_staffwright:item_coom": { shopId: "shop_staffwright", itemId: "item_coom", packSize: 100, price: 7, sellPrice: 2 },
     "shop_staffwright:item_hopium_soda": { shopId: "shop_staffwright", itemId: "item_hopium_soda", packSize: 1, price: 4, sellPrice: 0 },
@@ -2193,7 +2432,7 @@ var HubSDK = (() => {
     return PB_SHOP[shopId + ":" + itemId];
   }
 
-  // packages/hub-sdk/src/nakama.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/nakama.ts
   var LOCAL_NAKAMA = {
     serverUrl: "http://127.0.0.1:7350",
     serverKey: ""
@@ -2303,7 +2542,7 @@ var HubSDK = (() => {
     };
   }
 
-  // packages/hub-sdk/src/live.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/live.ts
   var HUB_OUTBOX_DB = "hub-outbox";
   var OUTBOX_STORE = "writes";
   var memoryWrites = /* @__PURE__ */ new Map();
@@ -2877,7 +3116,7 @@ var HubSDK = (() => {
     };
   }
 
-  // packages/hub-sdk/src/createHubSdk.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/createHubSdk.ts
   var BOARD_MODE = {
     hpos10i_act_time: "asc-best",
     nobu_trial_time: "asc-best",
@@ -2891,12 +3130,12 @@ var HubSDK = (() => {
   function dayKey(now) {
     return new Date(now).toISOString().slice(0, 10);
   }
-  function stable(value) {
+  function stable2(value) {
     if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-    if (Array.isArray(value)) return `[${value.map((item) => stable(item)).join(",")}]`;
+    if (Array.isArray(value)) return `[${value.map((item) => stable2(item)).join(",")}]`;
     const obj = value;
     const keys = Object.keys(obj).sort();
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${stable(obj[key])}`).join(",")}}`;
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stable2(obj[key])}`).join(",")}}`;
   }
   async function sha256(text) {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -3108,7 +3347,7 @@ var HubSDK = (() => {
         if (!data || typeof data !== "object") throw new HubSdkError("bad_event", "Event data must be an object");
         if (!active) return {};
         const session = active;
-        return withIdem(session.playerId, key, "session.event", stable({ eventId, data }), () => {
+        return withIdem(session.playerId, key, "session.event", stable2({ eventId, data }), () => {
           const relic = relicForEvent(session.game, eventId, data);
           if (!relic) return {};
           const owned = readRelics();
@@ -3143,7 +3382,7 @@ var HubSDK = (() => {
         if (mode === "desc-incr") next = previous + whole;
         const posted = !hasPrevious || next !== previous;
         writeNumber(resolved.local, storageKey, next);
-        if (posted) resolved.local.setItem(`${storageKey}:meta`, stable(metaObj));
+        if (posted) resolved.local.setItem(`${storageKey}:meta`, stable2(metaObj));
         return { accepted: true, posted, value: next, order: mode === "asc-best" ? "asc" : "desc" };
       },
       getSession() {
@@ -3201,7 +3440,7 @@ var HubSDK = (() => {
         if (!active) return { balance: 0, capped: false };
         const session = active;
         const whole = Math.floor(amount);
-        return withIdem(session.playerId, key, "tickets.earn", stable({ amount: whole, reason }), () => {
+        return withIdem(session.playerId, key, "tickets.earn", stable2({ amount: whole, reason }), () => {
           const credited = applyCredit(session, whole, false);
           return { balance: credited.balance, capped: credited.applied < whole };
         });
@@ -3214,7 +3453,7 @@ var HubSDK = (() => {
         if (!active) return { verse: 0, ticketsLeft: 0, balance: 0, receiptId: "noop", verseCapLeft: 0 };
         const session = active;
         const requested = Math.floor(tickets);
-        return withIdem(session.playerId, key, "tickets.exchange", stable({ tickets: requested }), () => {
+        return withIdem(session.playerId, key, "tickets.exchange", stable2({ tickets: requested }), () => {
           let verseOut = Math.floor(requested / TICKETS_PER_VERSE);
           if (verseOut <= 0) {
             throw new HubSdkError("below_rate", `Need at least ${TICKETS_PER_VERSE} Tickets to mint 1 Verse`);
@@ -3243,7 +3482,7 @@ var HubSDK = (() => {
         const whole = Math.floor(packs);
         if (!active) return { shop_id: shopId, item_id: itemId, packs: whole, units: whole, spent: 0, balance: 0 };
         const session = active;
-        return withIdem(session.playerId, key, "tickets.spend", stable({ shopId, itemId, packs: whole }), () => {
+        return withIdem(session.playerId, key, "tickets.spend", stable2({ shopId, itemId, packs: whole }), () => {
           const row = session.game === "peoples-bitcoin" ? pbShopRow(shopId, itemId) : void 0;
           if (!row) throw new HubSdkError("unknown_item", "Unknown item");
           const spent = row.price * whole;
@@ -3263,7 +3502,7 @@ var HubSDK = (() => {
         const whole = Math.floor(packs);
         if (!active) return { shop_id: shopId, item_id: itemId, packs: whole, units: whole, credited: 0, balance: 0 };
         const session = active;
-        return withIdem(session.playerId, key, "tickets.sell", stable({ shopId, itemId, packs: whole }), () => {
+        return withIdem(session.playerId, key, "tickets.sell", stable2({ shopId, itemId, packs: whole }), () => {
           const row = session.game === "peoples-bitcoin" ? pbShopRow(shopId, itemId) : void 0;
           if (!row) throw new HubSdkError("unknown_item", "Unknown item");
           const credited = row.sellPrice * whole;
@@ -3300,13 +3539,13 @@ var HubSDK = (() => {
     return sdk;
   }
 
-  // packages/hub-sdk/src/realtime/friends.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/friends.ts
   function createFriendsStub() {
     const nope = () => Promise.reject(new HubSdkError("not_implemented", "Friends are not available yet"));
     return { list: nope, add: nope, remove: nope, block: nope };
   }
 
-  // packages/hub-sdk/src/realtime/protocol.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/protocol.ts
   var utf8Encoder = new TextEncoder();
   var utf8Decoder = new TextDecoder();
   function utf8Encode(text) {
@@ -3418,7 +3657,7 @@ var HubSDK = (() => {
     return new HubSdkError(errorCodeFromMessage(message, "rt_error"), message || "Realtime error");
   }
 
-  // packages/hub-sdk/src/realtime/client.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/client.ts
   var Emitter = class {
     list = /* @__PURE__ */ new Set();
     on(cb) {
@@ -4142,7 +4381,7 @@ var HubSDK = (() => {
     });
   }
 
-  // packages/hub-sdk/src/realtime/chatRules.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/chatRules.ts
   var CHAT_TEXT_MAX = 120;
   var CHAT_RAW_MAX_BYTES = 512;
   var CHAT_COLORS = ["yellow", "red", "green", "cyan", "purple", "white", "flash1", "flash2", "flash3", "glow1", "glow2", "glow3"];
@@ -4229,7 +4468,7 @@ var HubSDK = (() => {
     return { allowed: true, state: `${tokens - 1}:${last}` };
   }
 
-  // packages/hub-sdk/src/realtime/mock.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/realtime/mock.ts
   function wire(p) {
     return presenceToWire(p);
   }
@@ -4757,7 +4996,7 @@ var HubSDK = (() => {
     };
   }
 
-  // packages/hub-sdk/src/pageShot.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/pageShot.ts
   var MEDIA_WAIT_MS = 1e3;
   var UNDER = "data-hub-feedback-under";
   var CHOSEN = "data-hub-feedback-chosen";
@@ -4929,7 +5168,7 @@ var HubSDK = (() => {
     return "#000";
   }
 
-  // packages/hub-sdk/src/feedback.ts
+  // ../../metaverse-hub/claude-account-progress/packages/hub-sdk/src/feedback.ts
   var FEEDBACK_CATEGORIES = [
     { id: "broke", label: "Something broke" },
     { id: "unclear", label: "Unclear what to do" },

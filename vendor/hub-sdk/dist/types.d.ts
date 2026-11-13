@@ -194,7 +194,7 @@ export interface SaveResult {
     updatedAt: number;
 }
 /** Largest save the server accepts, in bytes of its JSON text. */
-export declare const SAVE_MAX_BYTES = 4096;
+export declare const SAVE_MAX_BYTES = 16384;
 /** Game session handed to realtime (`realtimeFromSdk`). */
 export interface HubSessionInfo {
     token: string;

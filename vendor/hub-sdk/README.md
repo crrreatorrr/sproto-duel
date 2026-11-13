@@ -2,6 +2,8 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
+Version 0.8.0 adds `createProgressStore`, which keeps each hub account's progress apart and syncs it through the cloud save, and raises the cloud save limit (`SAVE_MAX_BYTES`, `save.put`) from 4096 to 16384 bytes. Every game should keep its progress in one store. See "Progress per account" below. Nothing else changes.
+
 Version 0.7.2 makes the feedback screenshot show the whole page. It used to copy only canvases, so a menu or HUD built in HTML was missing and only the game behind it showed. The SDK now draws the page's HTML over the canvases itself, with modern-screenshot (MIT) vendored in `src/third_party` and loaded on demand. Games need no code change, only a re-vendor. A new optional `installFeedback` option, `overlay`, turns this off (`false`) or replaces the drawing with the game's own. A Google Fonts `<link>` needs `crossorigin="anonymous"` for its fonts to appear in the screenshot.
 
 Version 0.7.1 adds one optional field: the live `reportEvent` now returns `tickets`, the Tickets the server credited for that event (20 for a story boss reported with `sproto.boss_defeated` or `fighter.boss_defeated`), so a game can tell the player what a boss paid. It is absent when the event paid nothing, and existing callers that read only `granted` need no change. Sproto Duel and Sproto Fighter re-vendor to use it; the other games' events pay no Tickets.
@@ -38,6 +40,39 @@ Version 0.6.1 fixes the outbox so one refused write cannot lock a game out of th
 Version 0.6.0 added the `sproto-arcade` game id, the `breakwater_coin` Relic and its `arcade.boss_defeated` event, and optional cloud saves: `loadSave()` / `writeSave(data)` (RPCs `save.get` / `save.put`, one JSON object of at most 4096 bytes per player per game, no-op standalone). Games must re-vendor to see the new Relic, because the SDK drops relic ids it does not know.
 
 Version 0.5.0 added the realtime client (`createRealtime`, `realtimeFromSdk`), an in-memory realtime mock for game tests, `getSession` / `refreshSession` / `getLeaderboard`, and a `ScoreResult` answer from `submitScore`. Everything is additive: 0.4 callers and test doubles still typecheck. `redeemTicket` is the handoff. Shop calls (`spendTickets`, `sellItem`, and `getTicketBalance`) sit on the same surface. Method names, argument order, game ids, relic ids, and event ids stay stable.
+
+## Progress per account
+
+Progress belongs to the hub account that earned it, and follows that account to any device. Play outside a hub session keeps its own progress in the browser. Progress from one account never appears in another, and progress from play outside the hub never moves into an account.
+
+```ts
+import { createProgressStore, hubVisitStarting, type ProgressModel } from '@metaverse/hub-sdk';
+
+const model: ProgressModel<Save> = {
+  empty: () => ({ cleared: [] }),
+  normalize: (raw) => /* any input to a valid Save, never throws */,
+  merge: (a, b) => ({ cleared: [...new Set([...a.cleared, ...b.cleared])] }),
+};
+export const progress = createProgressStore({ key: 'my-game-progress-v1', model });
+
+// At startup, before init resolves:
+if (hubVisitStarting('my-game')) progress.hold();
+// When init resolves with a live session (sdk.getSession() is not null):
+await progress.attach(sdk, profile.playerId);
+// When the visit turns out to be standalone or init fails:
+progress.release();
+
+// Advance progress only through the store:
+progress.update((save) => ({ ...save, cleared: [...save.cleared, 'level-2'] }));
+// Another tab saved:
+addEventListener('storage', (e) => { if (progress.watches(e.key)) progress.refresh(); });
+```
+
+- **Progress only advances.** `merge` keeps everything either copy earned: unions for unlocks and clears, the better value for records. It must give the same result in any order. Every copy (other tabs, other devices, the cloud) is combined with it, so nothing earned is overwritten. Settings, the current run and anything else that can go back do not belong in the store.
+- **Owners.** `device` is play without a hub session, under `key`. An account's copy is `key@<playerId>` in the browser plus its cloud save. `pending` holds a visit's progress in memory until `attach` (it goes to the account) or `release` (it goes to the device).
+- **Cloud sync.** `attach` reads the cloud save, merges and writes back when they differ. Each `update` pushes the same way after `pushDelayMs`. A failed push is retried with backoff and, after a reload, on the next `attach`. `toCloud`/`fromCloud` give a compact cloud form when the plain one is near `SAVE_MAX_BYTES`. A save that is too large stops syncing (`sync() === 'error'`); test the largest possible save in the game's own tests.
+- **Old keys.** `readLegacy` merges progress from older keys into the device copy only. An account starts from its own cloud save.
+- Saves never grant Relics, Tickets or items.
 
 ## Install
 

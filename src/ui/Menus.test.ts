@@ -233,17 +233,16 @@ describe('Practice on the menus', () => {
 
   it('the main menu offers Practice beside How to Play, pointed out until it has been done', () => {
     let started = 0;
-    const settings = loadSettings();
-    expect(settings.practiceDone).toBe(false);
-    const menus = new Menus(parent, settings, { ...handlers, practice: () => started++ });
+    let done = false;
+    const menus = new Menus(parent, loadSettings(), { ...handlers, practice: () => started++, practiceDone: () => done });
     menus.showMain();
     const btn = parent.querySelector<HTMLButtonElement>('.help-row [data-act="practice"]')!;
     expect(btn.classList.contains('suggest')).toBe(true);
     expect(btn.textContent).toContain('New here');
     btn.click();
     expect(started).toBe(1);
-    menus.updateSettings({ practiceDone: true });
-    expect(loadSettings().practiceDone).toBe(true);
+    // Practice done is progress (the campaign's store), not a setting.
+    done = true;
     menus.showMain();
     const again = parent.querySelector<HTMLButtonElement>('[data-act="practice"]')!;
     expect(again.classList.contains('suggest')).toBe(false);

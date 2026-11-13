@@ -226,6 +226,7 @@ export class App {
       openOnline: () => this.openOnline(),
       gauntlet: () => this.newGauntlet(),
       continueGauntlet: () => this.continueGauntlet(),
+      practiceDone: () => this.campaign.practiceDone,
       gauntletStatus: () => {
         const c = this.campaign;
         return { canContinue: c.canContinue, next: c.canContinue ? BOSSES[c.saved.next] : null, nextIndex: c.saved.next, clears: c.saved.clears };
@@ -266,6 +267,20 @@ export class App {
     this.applyStaff();
     this.applySkin();
     this.toMenu();
+    // Progress arrived from the hub account's cloud save or another tab.
+    campaign.subscribe(() => this.progressChanged());
+  }
+
+  /**
+   * The campaign's progress changed outside a win: the account's cloud save merged in, another tab
+   * saved, or the owner switched. A fight keeps its spells (every match start syncs them); menus
+   * show the new spells, skins and Continue.
+   */
+  private progressChanged(): void {
+    if (this.state === 'playing' || this.state === 'paused') return;
+    this.syncLearned();
+    this.applySkin();
+    if (this.menus.current === 'main') this.menus.showMain();
   }
 
   /**
@@ -952,7 +967,7 @@ export class App {
 
   /** Every lesson is done (or skipped): remember it and offer a first Quick Duel. */
   private finishPractice(earned: number, count: number): void {
-    if (!this.settings.practiceDone) this.menus.updateSettings({ practiceDone: true });
+    this.campaign.markPracticeDone();
     this.enterMenuState('quick');
     this.dressEnemy(null);
     this.ai.setProfile(this.quickProfile());

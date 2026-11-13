@@ -33,6 +33,8 @@ const NAKAMA_SERVER_KEY = pageServerKey();
  */
 export class HubLink {
   connected = false;
+  /** The hub account playing this visit, or null when standalone. Progress is saved under it. */
+  playerId: string | null = null;
   ranked = false;
   /**
    * Relics from the hub init result for this visit. Empty when the visit is standalone.
@@ -106,6 +108,8 @@ export class HubLink {
 
   attach(session: InitResult | null): void {
     this.connected = session !== null;
+    // Only a live hub session names the account: a standalone profile's id is not one.
+    this.playerId = session?.playerId || null;
     this.ranked = session?.ranked ?? false;
     this.relics = [...(session?.relics ?? [])];
     this.ticketsCapLeft = session?.ticketsCapLeft ?? null;
@@ -114,6 +118,7 @@ export class HubLink {
 
   fail(err: unknown): void {
     this.connected = false;
+    this.playerId = null;
     this.ranked = false;
     this.relics = [];
     this.error = err instanceof Error ? err.message : String(err);
