@@ -2,7 +2,7 @@
 // Playwright Chromium with an empty cache and counts requests and bytes (a) until the main menu is
 // up (requests sent before the menu's DOM first appeared) and (b) after the page has idled a few
 // seconds (background loads: fight sounds, the next boss).
-// Usage: npm run build && node scripts/measure-boot.mjs [--port 4199] [--idle 6000] [--json]
+// Usage: npm run build && node scripts/measure-boot.mjs [--port 4199] [--idle 6000] [--json] [--mbps 10 --latency 40]
 import { preview } from 'vite';
 import { chromium } from 'playwright';
 
@@ -14,6 +14,9 @@ const opt = (name, def) => {
 const port = Number(opt('port', '4199'));
 const idleMs = Number(opt('idle', '6000'));
 const asJson = args.includes('--json');
+// Optional throttling (CDP): --mbps 10 --latency 40 emulates a 10 Mbit/s link with 40 ms RTT.
+const mbps = Number(opt('mbps', '0'));
+const latency = Number(opt('latency', '0'));
 
 const server = await preview({ preview: { port, strictPort: true }, logLevel: 'silent' });
 // Never hang a CI job or an agent shell.
@@ -28,6 +31,10 @@ try {
   const cdp = await context.newCDPSession(page);
   await cdp.send('Network.enable');
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  if (mbps > 0) {
+    const bytesPerSec = (mbps * 1e6) / 8;
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency, downloadThroughput: bytesPerSec, uploadThroughput: bytesPerSec });
+  }
   const reqs = new Map();
   cdp.on('Network.requestWillBeSent', (e) => reqs.set(e.requestId, { url: e.request.url, at: e.wallTime * 1000, bytes: 0 }));
   // When the main menu first appears (page clock = wall clock): requests sent before it are boot.
