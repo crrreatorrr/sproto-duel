@@ -285,8 +285,11 @@ export class App {
 
   /**
    * Equip the staff `getLoadout` allows. Ranked (`HubLink.ranked`, from the vendored SDK init)
-   * keeps the mesh and colours and uses starter stats. There is no mid-fight swap: menus call
-   * this, and every match start calls it again. Equipping does not report Tickets, Relics, or scores.
+   * keeps the mesh and colours and uses starter stats. There is no mid-fight swap of stats: menus
+   * call this, and every match start calls it again. A staff whose model is not loaded yet (only
+   * the equipped one loads at boot) shows the previous mesh, or a procedural one, until it lands
+   * (mountStaff). That is a look-only swap, which normally lands within the 2.4 s intro countdown.
+   * Equipping does not report Tickets, Relics, or scores.
    */
   private applyStaff(cosmetic = false): void {
     const load = getLoadout();

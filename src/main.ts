@@ -36,8 +36,7 @@ async function boot() {
   const game = await Game.create(container, ui);
   const hub = await hubPromise;
   // A live session: the account's own progress, synced with its cloud save. Otherwise this browser's.
-  if (hub.connected && hub.playerId) void campaign.attach(hub.sdk, hub.playerId);
-  else campaign.release();
+  const attached = hub.connected && hub.playerId ? campaign.attach(hub.sdk, hub.playerId) : (campaign.release(), Promise.resolve());
   // The equipped staff and the skin belong to the account too (App reads them as it starts).
   const account = hub.connected && hub.playerId ? hub.playerId : null;
   setLoadoutAccount(account);
@@ -67,8 +66,10 @@ async function boot() {
     installDevTools(game, app);
   } else {
     // The next gauntlet boss's models arrive in the background once the menu is up (not all 18
-    // stage models: the other bosses load when the gauntlet reaches them, see App.showBossCard).
-    setTimeout(() => app.prefetchNextBoss(), 1500);
+    // stage models: the other bosses load when the gauntlet reaches them, see App.showBossCard),
+    // and once a hub account's cloud save is in, so it is that save's next boss.
+    const settled = attached.then(() => undefined, () => undefined);
+    setTimeout(() => void settled.then(() => app.prefetchNextBoss()), 1500);
   }
 }
 
