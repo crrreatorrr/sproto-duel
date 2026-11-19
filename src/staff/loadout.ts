@@ -159,6 +159,15 @@ function sameIds(saved: readonly string[], owned: readonly StaffId[]): boolean {
 }
 
 /**
+ * The saved staff id as it stands, unchecked and without writing anything: a guess at what will
+ * be equipped, for loading its model at boot before the hub account and its relics are known.
+ */
+export function peekSavedStaff(): StaffId {
+  const saved = read().slots.staff;
+  return isStaffId(saved) ? saved : SPROTO_STAFF;
+}
+
+/**
  * The equipped staff, checked against what is owned. A missing, unknown or unowned id
  * falls back to Sproto and the corrected save is written.
  */
