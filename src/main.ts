@@ -7,7 +7,6 @@ import { HUB_GAME_ID } from './hub/config';
 import { hubVisitStarting } from '@metaverse/hub-sdk';
 import { crashGuard } from './core/crash';
 import { showCrashPanel } from './ui/CrashPanel';
-import { installGameFeedback } from './hub/feedback';
 
 // Uncaught errors and rejections share the loop's counter; the panel opens once the game pauses.
 crashGuard.install(window, document);
@@ -39,9 +38,12 @@ async function boot() {
   else campaign.release();
   loading.remove();
   const app = new App(game, campaign, hub);
-  // N twice (or the pause menu's button) opens the hub feedback window.
-  installGameFeedback(game, app, hub);
   game.start();
+  // N twice (or the pause menu's button) opens the hub feedback window. It and its screenshot code
+  // load after the first frames, off the boot path.
+  whenIdle(() => {
+    void import('./hub/feedback').then(({ installGameFeedback }) => installGameFeedback(game, app, hub)).catch((err) => console.warn('[feedback] not loaded', err));
+  }, import.meta.env.DEV ? 0 : 1000);
   // Fight sounds and battle music (the menu's three sounds loaded with the page): once it is idle.
   whenIdle(() => app.audio.loadAll(), import.meta.env.DEV ? 0 : 2500);
 
