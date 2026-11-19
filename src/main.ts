@@ -42,6 +42,8 @@ async function boot() {
   // N twice (or the pause menu's button) opens the hub feedback window.
   installGameFeedback(game, app, hub);
   game.start();
+  // Fight sounds and battle music (the menu's three sounds loaded with the page): once it is idle.
+  whenIdle(() => app.audio.loadAll(), import.meta.env.DEV ? 0 : 2500);
 
   if (import.meta.env.DEV) {
     const netsim = new URLSearchParams(location.search).get('netsim');
@@ -60,6 +62,14 @@ async function boot() {
     // stage models: the other bosses load when the gauntlet reaches them, see App.showBossCard).
     setTimeout(() => app.prefetchNextBoss(), 1500);
   }
+}
+
+/** Run `fn` after `delayMs`, at the next idle moment (rIC where the browser has it). */
+function whenIdle(fn: () => void, delayMs: number): void {
+  setTimeout(() => {
+    if ('requestIdleCallback' in window) requestIdleCallback(() => fn(), { timeout: 2000 });
+    else fn();
+  }, delayMs);
 }
 
 // A failed boot (an asset, the physics module) shows the same panel, with Retry and the details.

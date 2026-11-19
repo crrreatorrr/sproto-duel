@@ -1273,6 +1273,8 @@ export class App {
     if (replica) this.match.prepareReplica(r ?? ONLINE);
     else this.match.startMatch(boss, r);
     this.audio.setPaused(false);
+    // Usually fetched already, in the menu's idle time (main.ts); a quick start fetches them now.
+    this.audio.loadAll();
     this.audio.playMusic('musicBattle');
     this.audio.setAmbient(true);
     if (this.requireLock) {
