@@ -234,6 +234,7 @@ export class OnlineSession {
     this.sentFrames.length = 0;
     this.unsent = 0;
     this.inputDigest = new InputDigest();
+    this.digestSealed = false;
     this.badSnapshots = 0;
     this.remoteInput.reset();
     this.snapshots.clear();
@@ -479,13 +480,22 @@ export class OnlineSession {
   queueInput(frame: IntentFrame): void {
     if (this.state !== 'playing' || this.isHost) return;
     this.sentFrames.push(frame);
-    this.inputDigest.add(frame);
     const per = this.opts.inputFramesPerMessage ?? 4;
     if (this.sentFrames.length > per) this.sentFrames.splice(0, this.sentFrames.length - per);
     if (++this.unsent < (this.opts.inputEveryTicks ?? 2)) return;
-    this.unsent = 0;
-    this.send(OP.INPUT, { t: this.sentFrames[0].tick, f: packFrames(this.sentFrames) });
+    this.flushInput();
   }
+
+  /** Send the queued frames now. The digest counts what went out, up to our RESULT. */
+  private flushInput(): void {
+    this.unsent = 0;
+    if (!this.sentFrames.length) return;
+    this.send(OP.INPUT, { t: this.sentFrames[0].tick, f: packFrames(this.sentFrames) });
+    if (!this.digestSealed) for (const f of this.sentFrames) this.inputDigest.add(f);
+  }
+
+  /** The guest's RESULT went out with the digest: frames sent after it are not in it. */
+  private digestSealed = false;
 
   /** Host: the snapshot for this send tick (already encoded). */
   sendSnapshot(snap: EncodedSnapshot): void {
@@ -500,8 +510,15 @@ export class OnlineSession {
   /** Both: how the match ended, as this client saw it. The server's OUTCOME follows. */
   sendResult(msg: ResultMsg): void {
     if (this.state !== 'playing') return;
-    // The guest vouches for its own input (the host's log is checked against it).
-    this.send(OP.RESULT, this.isHost ? msg : { ...msg, inputs: this.inputDigest.value });
+    if (this.isHost) {
+      this.send(OP.RESULT, msg);
+      return;
+    }
+    // The guest vouches for its own input (the host's log is checked against it): everything
+    // queued goes out first, and the digest covers exactly the frames sent up to here.
+    if (this.unsent > 0) this.flushInput();
+    this.digestSealed = true;
+    this.send(OP.RESULT, { ...msg, inputs: this.inputDigest.value });
   }
 
   forfeit(): void {

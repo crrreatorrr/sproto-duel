@@ -784,14 +784,20 @@ describe('OnlineSession input proof', () => {
       hostSend(op, data);
     };
     let t = 0;
+    // An odd number of frames: the last one is still queued (INPUT goes every 2 ticks) at RESULT.
     await run(clock, 500, [a, b], () => b.queueInput(frame(++t, t % 30 === 0 ? 2 : 0)));
-    await run(clock, 200, [a, b]);
+    if (t % 2 === 0) b.queueInput(frame(++t));
     b.sendResult({ winnerSeat: 0, wins: [2, 0], rounds: 2 });
-    await run(clock, 100, [a, b]);
+    const last = t;
+    // The guest keeps sending until OUTCOME: those frames are after its digest.
+    await run(clock, 300, [a, b], () => b.queueInput(frame(++t)));
     expect(results).toHaveLength(1);
-    const r = results[0] as { inputs: unknown; winnerSeat: number };
+    const r = results[0] as { inputs: { n: number; first: number; last: number }; winnerSeat: number };
     expect(r.winnerSeat).toBe(0);
-    expect(r.inputs).toEqual(digestFrames(relayed));
-    expect((r.inputs as { n: number }).n).toBe(t);
+    expect(r.inputs.n).toBe(last);
+    expect(r.inputs.last).toBe(last);
+    // The server's side: the relayed frames with ticks in [first, last].
+    expect(r.inputs).toEqual(digestFrames(relayed.filter((f) => f.tick >= r.inputs.first && f.tick <= r.inputs.last)));
+    expect(relayed.some((f) => f.tick > last)).toBe(true);
   });
 });
