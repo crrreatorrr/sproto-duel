@@ -677,6 +677,29 @@ html, body {
   .plate-partner .bar.mana, .plate-partner .bar.ult { display: none; }
   .plates-right { gap: 6px; }
 }
+/* Short screens (a small browser window, an embed, a phone on its side): compact plates, so the
+   boss and partner plates stay in the top half and off the fight. */
+@media (max-height: 520px) {
+  .hud-top { top: 8px; }
+  .plate { padding: 5px 10px 6px; gap: 3px; }
+  .plate-title { display: none; }
+  .plate-name { font-size: 15px; }
+  .hp-text { font-size: 15px; }
+  .bar.hp { height: 14px; }
+  .plates-right { gap: 4px; }
+  .plate-partner .bar.hp { height: 10px; }
+  .plate-partner .plate-name, .plate-partner .hp-text { font-size: 13px; }
+  /* One row of power chips; the partner's are left out (its stage line stays). */
+  .plate.staged .plate-powers { flex-wrap: nowrap; overflow: hidden; }
+  .hud .plate-partner.staged .plate-powers { display: none; }
+}
+/* Very short (380 px and under): the rivals' ult bars and the partner's stage line go too. */
+@media (max-height: 380px) {
+  .hud-top { top: 4px; }
+  .plate { gap: 2px; padding: 4px 9px 5px; }
+  .plate-right .bar.ult { display: none; }
+  .hud .plate-partner.staged .plate-stage { display: none; }
+}
 
 /* ------------------------------------------------------- golden tickets */
 /* Mana boost: the bar turns gold and stretches to the bigger max (x1.5); a chip at its end counts down. */
