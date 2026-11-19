@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG, type Difficulty } from '../config';
 import { AssetLoader } from '../assets/AssetLoader';
+import { getLoadout } from '../staff/loadout';
 import { MODELS, type ModelKey } from '../assets/manifest';
 import { bossFighters, type BossDef, type BossPartner } from '../campaign/levels';
 import { BossStages } from '../campaign/BossStages';
@@ -245,7 +246,8 @@ export class Game {
   static async create(container: HTMLElement, ui: HTMLElement): Promise<Game> {
     const [physics, assets] = await Promise.all([Physics.create(), (async () => {
       const a = new AssetLoader();
-      await a.loadAll();
+      // Only the equipped staff blocks boot; the rest load when something equips them.
+      await a.loadAll(undefined, [getLoadout().staff]);
       return a;
     })()]);
     return new Game(container, ui, physics, assets);

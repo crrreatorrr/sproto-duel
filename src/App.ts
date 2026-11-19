@@ -303,8 +303,21 @@ export class App {
       wizard.visual.setStaff(equipped);
       return;
     }
+    const assets = this.game.assets;
     const path = staffModelPath(id);
-    const prop = this.game.assets.instantiateProp(path);
+    if (!assets.propSettled(path)) {
+      // Only the equipped staff loads at boot. Keep the staff on show (or a procedural one) until
+      // this one arrives, then swap it in if the wizard still holds it.
+      if (wizard.visual.mountedStaffId === null) wizard.visual.setStaff(equipped, null);
+      void assets.loadProp(path).then(() => {
+        if (wizard.staff?.id !== id) return;
+        const prop = assets.instantiateProp(path);
+        if (!prop) console.warn(`[staff] missing ${path}, using a placeholder staff`);
+        wizard.visual.setStaff(wizard.staff, prop);
+      });
+      return;
+    }
+    const prop = assets.instantiateProp(path);
     if (!prop) console.warn(`[staff] missing ${path}, using a placeholder staff`);
     wizard.visual.setStaff(equipped, prop);
   }

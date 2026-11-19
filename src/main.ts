@@ -52,7 +52,7 @@ async function boot() {
       if (app.state === 'menu' && app.menus.current === 'main') app.toMenu();
     }
     // QA scenarios dress bosses synchronously: every model is in before the harness appears.
-    await game.assets.prefetchBosses();
+    await Promise.all([game.assets.prefetchBosses(), game.assets.prefetchStaffs()]);
     const { installDevTools } = await import('./qa/dev');
     installDevTools(game, app);
   } else {

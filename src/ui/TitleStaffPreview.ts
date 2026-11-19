@@ -207,7 +207,21 @@ export class TitleStaffPreview {
   private prop(id: StaffId): StaffProp | null {
     if (this.props.has(id)) return this.props.get(id)!;
     if (!this.socket) return null;
-    const inst = this.assets.instantiateProp(staffModelPath(id));
+    const path = staffModelPath(id);
+    if (!this.assets.propSettled(path)) {
+      // Not fetched yet (boot loads the equipped staff only): show it once it lands, if still picked.
+      void this.assets.loadProp(path).then(() => {
+        if (this.disposed || this.selected !== id || this.props.has(id)) return;
+        const prop = this.prop(id);
+        if (prop) {
+          prop.root.scale.setScalar(0.001);
+          prop.root.visible = true;
+          this.popTime = 0;
+        }
+      });
+      return null;
+    }
+    const inst = this.assets.instantiateProp(path);
     let prop: StaffProp | null = null;
     if (inst) {
       const clip = inst.animations.find((c) => c.name === `staff_${staffSlug(id)}_idle`);
