@@ -26,6 +26,10 @@ Tuning per asset, all in `src/assets/manifest.ts`:
 Audio and textures may use any common extension: list `audio/bolt_cast.mp3`, save
 `audio/bolt_cast.wav`, it is still found.
 
+The shipped textures and UI images are WebP (`node scripts/convert-images-webp.mjs` re-encodes new
+PNG/JPG files at the same resolution and replaces them only when the WebP stays within 38 dB PSNR
+of the source). The manifest keeps the `.png` / `.jpg` names; the loader finds the `.webp`.
+
 ## Style guide (use in every prompt)
 
 - **Look:** stylized fantasy, hand-painted textures, chunky readable silhouettes, slightly
