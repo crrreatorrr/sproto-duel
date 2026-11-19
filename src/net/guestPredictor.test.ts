@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import { ONE, TU, TURN } from '../sim-core/fixed';
 import { SimWorld } from '../sim-core/world';
 import type { SimWizard } from '../sim-core/wizard';
-import { GuestPredictor, PredictionSmoother, frameToSimInput } from './GuestPredictor';
+import { GuestPredictor, PredictedView, PredictionSmoother, frameToSimInput } from './GuestPredictor';
 import { ACTION_BITS, quantizeAngle, type IntentFrame } from './intent';
 import { RemoteInputBuffer } from './RemoteInputBuffer';
 import { COOLDOWNS, decodeWizard, encodeWizard, type Snapshot, type WizardState } from './state';
@@ -210,5 +210,38 @@ describe('PredictionSmoother', () => {
     expect(s.offset[0]).toBe(0);
     s.correct([0, 0, 0], [5, 0, 0]);
     expect(s.offset).toEqual([0, 0, 0]);
+  });
+});
+
+describe('PredictedView', () => {
+  const fightSnap = (x: number, ack: number): Snapshot => {
+    const w = new SimWorld({ seed: 1, rules: 'online', arena: 'moonlit', staffs: [null, null] }).wizards[0];
+    const st = wireState(w);
+    st.pos = [x, 0, st.pos[2]];
+    return {
+      v: 1, tick: ack, ack, wizards: [st, wireState(w)], projectiles: [], arena: { fireRadius: 27.8, pillars: [], tickets: [] },
+      match: { phase: 'fight', round: 1, wins: [0, 0], timer: 0, phaseTime: 0, lastWinnerSeat: -1 },
+    };
+  };
+
+  it('eases a reconcile correction instead of jumping the shown wizard', () => {
+    const view = new PredictedView(new GuestPredictor(0, 'moonlit'), 90, 2);
+    view.reconcile(fightSnap(0, 0));
+    const a = [0, 0, 0], b = [0, 0, 0];
+    view.shown(a, b);
+    const before = b[0];
+    // The host says we are 0.5 m further along x (a knockback the predictor did not know about).
+    view.reconcile(fightSnap(0.5, 0));
+    view.shown(a, b);
+    expect(view.cur.pos[0]).toBeCloseTo(0.5, 2);
+    // Shown where it was; the offset carries the difference and decays.
+    expect(b[0]).toBeCloseTo(before, 2);
+    view.smoother.decay(90);
+    view.shown(a, b);
+    expect(b[0]).toBeCloseTo(0.5 - 0.5 * Math.exp(-1), 2);
+    // Past the snap distance it jumps.
+    view.reconcile(fightSnap(5, 0));
+    view.shown(a, b);
+    expect(b[0]).toBeCloseTo(5, 2);
   });
 });

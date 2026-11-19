@@ -27,7 +27,7 @@ import { chunkLog } from '../sim-core';
 import type { OnlineSession } from './OnlineSession';
 import type { StartMsg } from './protocol';
 import { RemoteSource } from './RemoteSource';
-import { GuestPredictor, PredictionSmoother, type PredictedPose } from './GuestPredictor';
+import { GuestPredictor, PredictedView } from './GuestPredictor';
 import { GuestTickMap } from './inputProof';
 import { applyProjectiles, applySnapshot, captureSnapshot } from './snapshot';
 import { emptyPose } from './SnapshotBuffer';
@@ -63,12 +63,10 @@ export class OnlineController {
   snapshots = 0;
   /** Guest: point the camera at the replicated pose on the next frame (match and round starts). */
   private needSnap = true;
-  /** Guest: our own wizard's prediction (null on the host, or with PREDICTION.enabled off). */
-  predictor: GuestPredictor | null = null;
-  private readonly smoother = new PredictionSmoother(PREDICTION.smoothMs, PREDICTION.snapDistance);
-  /** The predicted pose before and after the latest local tick (the visual interpolates between). */
-  private readonly predPrev = newPose();
-  private readonly predCur = newPose();
+  /** Guest: our own wizard's prediction as shown (null on the host, or with PREDICTION.enabled off). */
+  view: PredictedView | null = null;
+  private readonly shownPrev = [0, 0, 0];
+  private readonly shownCur = [0, 0, 0];
   private lastFrameMs = 0;
   /** Host: which guest frame each sim tick played, for the referee (OP.LOG `net.guestFrames`). */
   guestTicks = new GuestTickMap();
@@ -130,8 +128,7 @@ export class OnlineController {
       g.spells.pool.releaseAll();
       this.player = new EventPlayer(this.world(), (name, payload) => events.emit(name as keyof GameEvents, payload as never));
       // Online duels are fought in the arena dressed for them (moonlit; Match.startSimMatch).
-      this.predictor = PREDICTION.enabled ? new GuestPredictor(start.seat, g.arena.theme) : null;
-      this.smoother.clear();
+      this.view = PREDICTION.enabled ? new PredictedView(new GuestPredictor(start.seat, g.arena.theme), PREDICTION.smoothMs, PREDICTION.snapDistance) : null;
       this.offs.push(this.session.on('snapshot', (snap) => this.onSnapshot(snap)));
       g.replicaHooks.push(this.guestTick);
       // A new round on the host: clear the replica's arena the way Match.startRound does there.
@@ -181,12 +178,7 @@ export class OnlineController {
     const p = this.game.player;
     const frame = encodeIntent(p.intent, p.aimPoint, this.lastPresses, simTick);
     this.session.queueInput(frame);
-    const pred = this.predictor;
-    if (!pred) return;
-    pred.record(frame);
-    if (!pred.ready) return;
-    copyPose(this.predPrev, this.predCur);
-    pred.pose(this.predCur);
+    this.view?.record(frame);
   };
 
   private onSnapshot(snap: Snapshot): void {
@@ -194,18 +186,12 @@ export class OnlineController {
     applySnapshot(this.game, this.match, snap, { seats: this.seats, skipMovement: [0, 1], projectiles: false });
     if (snap.ev) this.player?.play(snap.ev);
     this.snapshots++;
-    const pred = this.predictor;
-    if (!pred) return;
-    const was = pred.ready;
-    if (!pred.reconcile(snap)) return;
-    const before = this.predCur.pos;
-    const prevDelta = [this.predPrev.pos[0] - before[0], this.predPrev.pos[1] - before[1], this.predPrev.pos[2] - before[2]];
-    pred.pose(this.predCur);
-    if (was) this.smoother.correct(before, this.predCur.pos);
-    else this.smoother.clear();
-    // Keep the last tick's step, so the in-between frames still interpolate one tick of motion.
-    copyPose(this.predPrev, this.predCur);
-    if (was) for (let i = 0; i < 3; i++) this.predPrev.pos[i] = this.predCur.pos[i] + prevDelta[i];
+    this.view?.reconcile(snap);
+  }
+
+  /** Guest: the predictor (tests, QA). */
+  get predictor(): GuestPredictor | null {
+    return this.view?.predictor ?? null;
   }
 
   /** Rejoins handled (QA). */
@@ -214,8 +200,7 @@ export class OnlineController {
   private onRejoin(): void {
     if (!this.active) return;
     this.rejoins++;
-    this.predictor?.reset();
-    this.smoother.clear();
+    this.view?.reset();
     this.lastFrameMs = 0;
   }
 
@@ -226,10 +211,11 @@ export class OnlineController {
     this.session.update(now);
     if (this.game.role !== 'replica' || !this.session.snapshots.newest) return;
     const pose = this.pose;
-    const predicted = !!this.predictor?.ready;
-    if (predicted) {
-      this.smoother.decay(this.lastFrameMs ? now - this.lastFrameMs : 0);
-      this.showPredicted();
+    const view = this.view;
+    const predicted = !!view?.ready;
+    if (view && predicted) {
+      view.smoother.decay(this.lastFrameMs ? now - this.lastFrameMs : 0);
+      this.showPredicted(view);
     }
     this.lastFrameMs = now;
     this.seats.forEach((w, seat) => {
@@ -258,17 +244,18 @@ export class OnlineController {
   }
 
   /** Our wizard at its predicted place (plus the easing offset); the visual interpolates the tick. */
-  private showPredicted(): void {
+  private showPredicted(view: PredictedView): void {
     const w = this.game.player;
-    const o = this.smoother.offset;
-    const a = this.predPrev, b = this.predCur;
-    w.prevPos.set(a.pos[0] + o[0], a.pos[1] + o[1], a.pos[2] + o[2]);
-    w.pos.set(b.pos[0] + o[0], b.pos[1] + o[1], b.pos[2] + o[2]);
-    w.vel.set(b.vel[0], 0, b.vel[1]);
-    w.vy = b.vy;
-    w.grounded = b.grounded;
-    w.facing = b.facing;
-    w.prevFacing = a.facing;
+    const a = this.shownPrev, b = this.shownCur;
+    view.shown(a, b);
+    const cur = view.cur;
+    w.prevPos.set(a[0], a[1], a[2]);
+    w.pos.set(b[0], b[1], b[2]);
+    w.vel.set(cur.vel[0], 0, cur.vel[1]);
+    w.vy = cur.vy;
+    w.grounded = cur.grounded;
+    w.facing = cur.facing;
+    w.prevFacing = view.prev.facing;
     w.placeBody();
   }
 
@@ -336,26 +323,9 @@ export class OnlineController {
     this.logSent = false;
     this.recorder = null;
     this.player = null;
-    this.predictor = null;
-    this.smoother.clear();
+    this.view = null;
     this.lastFrameMs = 0;
     this.active = false;
   }
 }
 
-function newPose(): PredictedPose {
-  return { pos: [0, 0, 0], vel: [0, 0], vy: 0, facing: 0, grounded: true, sprinting: false, dodging: false };
-}
-
-function copyPose(out: PredictedPose, from: PredictedPose): void {
-  out.pos[0] = from.pos[0];
-  out.pos[1] = from.pos[1];
-  out.pos[2] = from.pos[2];
-  out.vel[0] = from.vel[0];
-  out.vel[1] = from.vel[1];
-  out.vy = from.vy;
-  out.facing = from.facing;
-  out.grounded = from.grounded;
-  out.sprinting = from.sprinting;
-  out.dodging = from.dodging;
-}

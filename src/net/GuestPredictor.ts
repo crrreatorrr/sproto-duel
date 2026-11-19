@@ -334,3 +334,81 @@ export class PredictionSmoother {
     this.offset[0] = this.offset[1] = this.offset[2] = 0;
   }
 }
+
+export function newPose(): PredictedPose {
+  return { pos: [0, 0, 0], vel: [0, 0], vy: 0, facing: 0, grounded: true, sprinting: false, dodging: false };
+}
+
+export function copyPose(out: PredictedPose, from: PredictedPose): void {
+  out.pos[0] = from.pos[0];
+  out.pos[1] = from.pos[1];
+  out.pos[2] = from.pos[2];
+  out.vel[0] = from.vel[0];
+  out.vel[1] = from.vel[1];
+  out.vy = from.vy;
+  out.facing = from.facing;
+  out.grounded = from.grounded;
+  out.sprinting = from.sprinting;
+  out.dodging = from.dodging;
+}
+
+/**
+ * What the guest shows of its own wizard: the predicted pose before and after the latest local
+ * tick (the visual interpolates between them), plus the smoother's offset, which a reconcile sets
+ * so the shown wizard does not jump.
+ */
+export class PredictedView {
+  readonly prev = newPose();
+  readonly cur = newPose();
+  readonly smoother: PredictionSmoother;
+
+  constructor(
+    readonly predictor: GuestPredictor,
+    smoothMs?: number,
+    snapDistance?: number,
+  ) {
+    this.smoother = new PredictionSmoother(smoothMs, snapDistance);
+  }
+
+  get ready(): boolean {
+    return this.predictor.ready;
+  }
+
+  /** A local frame was sent: one predicted tick. */
+  record(frame: IntentFrame): void {
+    this.predictor.record(frame);
+    if (!this.predictor.ready) return;
+    copyPose(this.prev, this.cur);
+    this.predictor.pose(this.cur);
+  }
+
+  /** A snapshot: reconcile, and carry the jump in the prediction as an offset to ease away. */
+  reconcile(snap: Snapshot): boolean {
+    const was = this.predictor.ready;
+    if (!this.predictor.reconcile(snap)) return false;
+    // Copies: pose() overwrites cur in place.
+    const before = [this.cur.pos[0], this.cur.pos[1], this.cur.pos[2]];
+    const step = [this.prev.pos[0] - before[0], this.prev.pos[1] - before[1], this.prev.pos[2] - before[2]];
+    this.predictor.pose(this.cur);
+    if (was) this.smoother.correct(before, this.cur.pos);
+    else this.smoother.clear();
+    // Keep the last tick's step, so the in-between frames still interpolate one tick of motion.
+    copyPose(this.prev, this.cur);
+    if (was) for (let i = 0; i < 3; i++) this.prev.pos[i] = this.cur.pos[i] + step[i];
+    return true;
+  }
+
+  /** Where to draw: the two poses' positions plus the offset (written into `a` and `b`). */
+  shown(a: number[], b: number[]): void {
+    const o = this.smoother.offset;
+    for (let i = 0; i < 3; i++) {
+      a[i] = this.prev.pos[i] + o[i];
+      b[i] = this.cur.pos[i] + o[i];
+    }
+  }
+
+  reset(): void {
+    this.predictor.reset();
+    this.smoother.clear();
+  }
+}
