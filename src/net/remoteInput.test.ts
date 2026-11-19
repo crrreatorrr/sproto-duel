@@ -94,16 +94,33 @@ describe('RemoteInputBuffer catch-up', () => {
     const b = new RemoteInputBuffer({ delay: 2, maxLag: 30 });
     b.push([f(0), f(1), f(2)]);
     for (let i = 0; i < 3; i++) b.next();
-    // 3 s of the guest's frames land at once (a rejoin), two of them with presses.
+    // 2 s with nothing arriving: the host keeps ticking (holds).
+    for (let i = 0; i < 120; i++) b.next();
+    // Then the guest's frames land at once (a rejoin): an old press and a recent one.
     const late = [];
     for (let t = 3; t < 183; t++) late.push(f(t, t === 10 ? 1 : t === 170 ? 2 : 0));
     b.push(late);
     const out = b.next()!;
     expect(b.catchUps).toBe(1);
-    expect(out.tick).toBe(181);
-    // No press is lost: both ride on the first frame played.
-    expect(out.press).toBe(3);
-    expect(b.lastApplied).toBe(181);
+    // `delay` frames before the newest (the delay grew while the buffer ran dry).
+    expect(out.tick).toBe(182 - b.delay + 1);
+    // The press from 3 s ago does not fire; the one from 0.2 s ago does.
+    expect(out.press).toBe(2);
+    expect(b.lastApplied).toBe(out.tick);
+  });
+
+  it('a backlog without an outage (the host did not tick) still skips one frame per tick', () => {
+    const b = new RemoteInputBuffer({ delay: 2, maxLag: 30 });
+    const frames = [];
+    for (let t = 0; t < 60; t++) frames.push(f(t, t === 5 ? 1 : 0));
+    b.push(frames);
+    let presses = 0;
+    for (let x = b.next(); x; x = b.next()) {
+      presses |= x.press;
+      if (b.depth === 0) break;
+    }
+    expect(b.catchUps).toBe(0);
+    expect(presses).toBe(1);
   });
 
   it('keeps skipping one frame per tick for a small backlog', () => {

@@ -9,9 +9,11 @@
  *   or fills past `delay + slack` (overrun: skip a frame, carrying its presses into the next).
  * - A press is never lost: presses of frames that are skipped, or arrive after their tick was
  *   played, are merged into the next frame played (unless older than `maxLag`).
- * - Far behind (`delay + slack + catchUp` frames or more: the guest is back from an outage, or the
- *   host stalled), playback jumps straight to the newest frames instead of skipping one per tick,
- *   which would play the guest back at double speed for as long as the outage lasted.
+ * - Back from an outage (the buffer ran dry for `outageTicks` ticks in a row, then frames land
+ *   `delay + slack + catchUp` or more deep), playback jumps straight to the newest frames instead of
+ *   skipping one per tick, which would play the guest back at double speed for as long as the
+ *   outage lasted. Presses from the frames jumped over carry over only if within `maxLag`, like
+ *   late frames: a tap from seconds ago does not fire.
  */
 import type { IntentFrame } from './intent';
 
@@ -22,8 +24,10 @@ export interface RemoteInputOptions {
   maxLag: number;
   /** Depth above `delay` tolerated before skipping ahead. */
   slack?: number;
-  /** Depth above `delay + slack` at which playback jumps to the newest frames at once. */
+  /** Depth above `delay + slack` at which playback, back from an outage, jumps to the newest frames. */
   catchUp?: number;
+  /** Underruns in a row that count as an outage (default 10). */
+  outageTicks?: number;
 }
 
 export class RemoteInputBuffer {
@@ -41,8 +45,10 @@ export class RemoteInputBuffer {
   delay: number;
   underruns = 0;
   overruns = 0;
-  /** Jumps to the newest frames (a reconnect, a stall). */
+  /** Jumps to the newest frames (back from an outage). */
   catchUps = 0;
+  /** Underruns in a row, up to the latest next(). */
+  private starved = 0;
   /** Guest tick of the last frame played (the snapshot `ack`), -1 before any. */
   lastApplied = -1;
   /** What the latest `next()` played: a guest frame tick, or -1 (a hold, or nothing yet). */
@@ -98,14 +104,14 @@ export class RemoteInputBuffer {
       this.primed = true;
     }
     const slack = this.opts.slack ?? 3;
-    if (this.depth > this.delay + slack + (this.opts.catchUp ?? 20)) {
-      // Far behind: jump to `delay` frames before the newest. The presses of the frames jumped
-      // over carry into the next one played, as a one-frame skip's do.
+    if (this.starved >= (this.opts.outageTicks ?? 10) && this.depth > this.delay + slack + (this.opts.catchUp ?? 20)) {
+      // Back from an outage, far behind: jump to `delay` frames before the newest. Presses of the
+      // frames jumped over carry into the next one played only if recent (as late frames' do).
       const target = this.newest - this.delay + 1;
       for (let t = this.playhead; t < target; t++) {
         const f = this.frames.get(t);
         if (!f) continue;
-        this.owed |= f.press;
+        if (target - t <= this.opts.maxLag) this.owed |= f.press;
         this.frames.delete(t);
       }
       this.playhead = target;
@@ -124,9 +130,11 @@ export class RemoteInputBuffer {
     if (!f) {
       // Underrun: hold movement and held buttons, wait a tick (the delay grows by one).
       this.underruns++;
+      this.starved++;
       if (this.delay < this.opts.delay + 4) this.delay++;
       return this.last ? { ...this.last, press: 0 } : null;
     }
+    this.starved = 0;
     this.frames.delete(this.playhead);
     this.lastApplied = this.played = this.playhead;
     this.playhead++;
@@ -150,6 +158,7 @@ export class RemoteInputBuffer {
     this.last = null;
     this.owed = 0;
     this.primed = false;
+    this.starved = 0;
     this.delay = this.opts.delay;
     if (keepAck) this.floor = this.lastApplied;
     else {
