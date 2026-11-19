@@ -14,6 +14,21 @@ import { SPROTO_STAFF, STAFF_IDS, isStaffId, staffName, type StaffId } from './c
 export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
 
 /**
+ * The hub account playing (null: standalone, this browser's own choice). Each account keeps its
+ * equipped staff under `<key>@<playerId>`, like the campaign's run, so one account's choice on a
+ * shared browser never lands on another's. An account with no choice of its own yet reads the
+ * browser's (where every player's choice lived before), so existing players keep their staff; it
+ * is only a starting point, still checked against the account's own relics (getLoadout).
+ */
+let account: string | null = null;
+
+export function setLoadoutAccount(playerId: string | null): void {
+  account = playerId || null;
+}
+
+const storageKey = () => (account ? `${LOADOUT_STORAGE_KEY}@${account}` : LOADOUT_STORAGE_KEY);
+
+/**
  * Relic required for each staff in this game. One staff slot, so these never stack.
  * `breakwater_coin` is Sproto Arcade's: the hub grants it for beating Bront, the Arcade's first
  * boss, and it unlocks the Alien Ray Staff here.
@@ -72,7 +87,7 @@ function fresh(): Save {
 
 function read(): Save {
   try {
-    const raw = localStorage.getItem(LOADOUT_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey()) ?? (account ? localStorage.getItem(LOADOUT_STORAGE_KEY) : null);
     if (!raw) return fresh();
     const parsed = JSON.parse(raw) as Partial<Save>;
     return {
@@ -91,7 +106,7 @@ function read(): Save {
 
 function write(save: Save): void {
   try {
-    localStorage.setItem(LOADOUT_STORAGE_KEY, JSON.stringify(save));
+    localStorage.setItem(storageKey(), JSON.stringify(save));
   } catch {
     // Private mode and full disks: the rack still works for this session.
   }
@@ -143,6 +158,15 @@ function sameIds(saved: readonly string[], owned: readonly StaffId[]): boolean {
   const seen = new Set(saved);
   if (seen.size !== saved.length) return false;
   return owned.every((id) => seen.has(id));
+}
+
+/**
+ * The saved staff id as it stands, unchecked and without writing anything: a guess at what will
+ * be equipped, for loading its model at boot before the hub account and its relics are known.
+ */
+export function peekSavedStaff(): StaffId {
+  const saved = read().slots.staff;
+  return isStaffId(saved) ? saved : SPROTO_STAFF;
 }
 
 /**

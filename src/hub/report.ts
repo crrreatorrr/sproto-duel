@@ -12,7 +12,10 @@ export interface DuelWin {
   playerWon: boolean;
   /** Campaign boss id, or null for a Quick Duel. */
   bossId: string | null;
-  /** God mode was on during the live fight. Those wins skip the leaderboard. The boss event still posts. */
+  /**
+   * God mode was on at any point in the live fight (setup or a mid-fight toggle). Those wins report
+   * nothing: no leaderboard score and no `sproto.boss_defeated`, so a god-mode win can't earn Tickets.
+   */
   godMode: boolean;
   /** Ranked portal sessions are the only ones that post a score. */
   ranked: boolean;
@@ -48,11 +51,13 @@ export type HubCall = EventCall | ScoreCall;
  * A loss reports nothing, and so do Local Versus and online. Quick Duel posts no Tickets.
  * A Boss Gauntlet win against sahil, obama, broccoli, agent, or tinubu posts
  * `sproto.boss_defeated` with that id. The client does not mint Tickets.
- * God-mode and unranked wins skip the leaderboard.
+ * God-mode wins report nothing (no event, no score). Unranked wins skip the leaderboard.
  */
 export function planDuelWin(win: DuelWin): HubCall[] {
   if (!win.playerWon) return [];
   if (win.mode === 'versus' || win.mode === 'online') return [];
+  // God mode (?god, F9, Settings) is a testing aid anyone can switch on: its wins earn nothing.
+  if (win.godMode) return [];
   const calls: HubCall[] = [];
   // Boss Gauntlet only. Quick Duel is a free CPU fight and passes mode 'quick'.
   // Versus and online already returned. A caller that names a story boss and no mode
@@ -68,7 +73,7 @@ export function planDuelWin(win: DuelWin): HubCall[] {
       key: `${TINUBU_EVENT}:${win.matchId}`,
     });
   }
-  if (!win.godMode && win.ranked) {
+  if (win.ranked) {
     calls.push({
       kind: 'score',
       boardId: WINS_BOARD,

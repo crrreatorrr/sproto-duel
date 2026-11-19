@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TICKETS_PER_WIN, TINUBU_EVENT, WINS_BOARD } from './config';
+import { TICKETS_PER_WIN, WINS_BOARD } from './config';
 import { planDuelWin, type DuelWin } from './report';
 
 const win = (over: Partial<DuelWin> = {}): DuelWin => ({
@@ -41,15 +41,9 @@ describe('planDuelWin', () => {
     });
   });
 
-  it('posts the Tinubu event in god mode and skips the score', () => {
-    const calls = planDuelWin(win({ bossId: 'tinubu', godMode: true, ranked: true, elapsed: 90.6 }));
-    expect(calls.map((call) => call.kind)).toEqual(['event']);
-    expect(calls[0]).toEqual({
-      kind: 'event',
-      eventId: TINUBU_EVENT,
-      data: { boss: 'tinubu', elapsed: 91 },
-      key: 'sproto.boss_defeated:match-1',
-    });
+  it('reports nothing for a god-mode win (no boss event, no score)', () => {
+    expect(planDuelWin(win({ bossId: 'tinubu', godMode: true, ranked: true, elapsed: 90.6 }))).toEqual([]);
+    expect(planDuelWin(win({ mode: 'gauntlet', bossId: 'sahil', godMode: true, ranked: false }))).toEqual([]);
   });
 
   it('reports Tinubu with a ranked score when the fight was clean', () => {

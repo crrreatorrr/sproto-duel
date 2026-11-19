@@ -8,15 +8,51 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const ASSET_DIR = path.join(ROOT, 'public', 'assets');
 
+/**
+ * Files under public/assets that stay in git (authoring and reference copies) but that the game
+ * never loads: left out of `virtual:asset-index` and deleted from dist/ after a build.
+ * - the full-detail staff GLBs (2048² textures): the game loads the `-lod1` props only
+ *   (staffModelPath); tools/blender/finish-staff.mjs writes both,
+ * - ui/player.png: a portrait nothing displays.
+ */
+export const ARCHIVED_ASSETS: readonly RegExp[] = [/^models\/staffs\/staff_(?!.*-lod1\.glb$)[^/]+\.glb$/, /^ui\/player\.png$/];
+
+export const isArchivedAsset = (rel: string) => ARCHIVED_ASSETS.some((re) => re.test(rel));
+
 function listAssetFiles(dir: string, base = ''): string[] {
   if (!fs.existsSync(dir)) return [];
   const out: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const rel = base ? `${base}/${entry.name}` : entry.name;
     if (entry.isDirectory()) out.push(...listAssetFiles(path.join(dir, entry.name), rel));
-    else if (!entry.name.startsWith('.') && !entry.name.endsWith('.md')) out.push(rel);
+    else if (!entry.name.startsWith('.') && !entry.name.endsWith('.md') && !isArchivedAsset(rel)) out.push(rel);
   }
   return out;
+}
+
+/** Drops ARCHIVED_ASSETS and the folder READMEs from the copy of public/assets in dist/. */
+function pruneArchivedAssets(): Plugin {
+  let outDir = '';
+  return {
+    name: 'prune-archived-assets',
+    apply: 'build',
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    closeBundle() {
+      const dir = path.join(outDir, 'assets');
+      const walk = (d: string, base = '') => {
+        if (!fs.existsSync(d)) return;
+        for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+          const rel = base ? `${base}/${entry.name}` : entry.name;
+          const p = path.join(d, entry.name);
+          if (entry.isDirectory()) walk(p, rel);
+          else if (entry.name.endsWith('.md') || isArchivedAsset(rel)) fs.rmSync(p);
+        }
+      };
+      walk(dir);
+    },
+  };
 }
 
 /**
@@ -79,7 +115,7 @@ function buildId(): string {
 export default defineConfig(({ mode }) => ({
   define: { __BUILD_ID__: JSON.stringify(buildId()) },
   base: resolveBase(mode),
-  plugins: [assetIndex()],
+  plugins: [assetIndex(), pruneArchivedAssets()],
   build: {
     // public/assets holds game assets, so keep bundled JS/CSS in a separate folder.
     assetsDir: 'build',

@@ -26,6 +26,10 @@ Tuning per asset, all in `src/assets/manifest.ts`:
 Audio and textures may use any common extension: list `audio/bolt_cast.mp3`, save
 `audio/bolt_cast.wav`, it is still found.
 
+The shipped textures and UI images are WebP (`node scripts/convert-images-webp.mjs` re-encodes new
+PNG/JPG files at the same resolution and replaces them only when the WebP stays within 38 dB PSNR
+of the source). The manifest keeps the `.png` / `.jpg` names; the loader finds the `.webp`.
+
 ## Style guide (use in every prompt)
 
 - **Look:** stylized fantasy, hand-painted textures, chunky readable silhouettes, slightly
@@ -391,7 +395,11 @@ distance falloff and stereo panning. Loops must start and end seamlessly.
 | `musicBattle` | `audio/music_battle.mp3` | 60-120 s, loop | Intense fantasy duel battle music, driving percussion, staccato strings, 120 BPM, D minor, seamless loop |
 
 Volumes are set per sound in `src/assets/manifest.ts` (`volume`), and globally in the in-game
-Settings. To regenerate the placeholders after changing the synth script: `npm run gen:audio`.
+Settings. To regenerate the placeholders after changing the synth script: `npm run gen:audio` (it
+writes `audio/placeholder/<key>.mp3` through ffmpeg, or `.wav` where ffmpeg is missing).
+
+Only the menu's sounds (`uiClick`, `uiHover`, `musicMenu`) load with the page. The rest load once the
+first menu is idle, or when a match starts (`AudioManager.loadAll`).
 
 ## Spell effects
 

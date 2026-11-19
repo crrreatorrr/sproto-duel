@@ -6,8 +6,10 @@ import { connectHub } from './hub/link';
 import { HUB_GAME_ID } from './hub/config';
 import { hubVisitStarting } from '@metaverse/hub-sdk';
 import { crashGuard } from './core/crash';
+import { peekSavedStaff, setLoadoutAccount } from './staff/loadout';
+import { staffModelPath } from './staff/catalog';
+import { setSkinAccount } from './campaign/skins';
 import { showCrashPanel } from './ui/CrashPanel';
-import { installGameFeedback } from './hub/feedback';
 
 // Uncaught errors and rejections share the loop's counter; the panel opens once the game pauses.
 crashGuard.install(window, document);
@@ -35,13 +37,24 @@ async function boot() {
   const game = await Game.create(container, ui);
   const hub = await hubPromise;
   // A live session: the account's own progress, synced with its cloud save. Otherwise this browser's.
-  if (hub.connected && hub.playerId) void campaign.attach(hub.sdk, hub.playerId);
-  else campaign.release();
+  const attached = hub.connected && hub.playerId ? campaign.attach(hub.sdk, hub.playerId) : (campaign.release(), Promise.resolve());
+  // The equipped staff and the skin belong to the account too (App reads them as it starts).
+  const account = hub.connected && hub.playerId ? hub.playerId : null;
+  setLoadoutAccount(account);
+  setSkinAccount(account);
+  // Boot guessed the staff from the browser's choice; an account's own may differ: load it before
+  // the menu shows it (one staff model, as boot did).
+  if (account) await game.assets.loadProp(staffModelPath(peekSavedStaff()));
   loading.remove();
   const app = new App(game, campaign, hub);
-  // N twice (or the pause menu's button) opens the hub feedback window.
-  installGameFeedback(game, app, hub);
   game.start();
+  // N twice (or the pause menu's button) opens the hub feedback window. It and its screenshot code
+  // load after the first frames, off the boot path.
+  whenIdle(() => {
+    void import('./hub/feedback').then(({ installGameFeedback }) => installGameFeedback(game, app, hub)).catch((err) => console.warn('[feedback] not loaded', err));
+  }, import.meta.env.DEV ? 0 : 1000);
+  // Fight sounds and battle music (the menu's three sounds loaded with the page): once it is idle.
+  whenIdle(() => app.audio.loadAll(), import.meta.env.DEV ? 0 : 2500);
 
   if (import.meta.env.DEV) {
     const netsim = new URLSearchParams(location.search).get('netsim');
@@ -52,13 +65,24 @@ async function boot() {
       if (app.state === 'menu' && app.menus.current === 'main') app.toMenu();
     }
     // QA scenarios dress bosses synchronously: every model is in before the harness appears.
-    await game.assets.prefetchBosses();
+    await Promise.all([game.assets.prefetchBosses(), game.assets.prefetchStaffs()]);
     const { installDevTools } = await import('./qa/dev');
     installDevTools(game, app);
   } else {
-    // The gauntlet's boss models arrive in the background once the menu is up.
-    setTimeout(() => void game.assets.prefetchBosses(), 1500);
+    // The next gauntlet boss's models arrive in the background once the menu is up (not all 18
+    // stage models: the other bosses load when the gauntlet reaches them, see App.showBossCard),
+    // and once a hub account's cloud save is in, so it is that save's next boss.
+    const settled = attached.then(() => undefined, () => undefined);
+    setTimeout(() => void settled.then(() => app.prefetchNextBoss()), 1500);
   }
+}
+
+/** Run `fn` after `delayMs`, at the next idle moment (rIC where the browser has it). */
+function whenIdle(fn: () => void, delayMs: number): void {
+  setTimeout(() => {
+    if ('requestIdleCallback' in window) requestIdleCallback(() => fn(), { timeout: 2000 });
+    else fn();
+  }, delayMs);
 }
 
 // A failed boot (an asset, the physics module) shows the same panel, with Retry and the details.

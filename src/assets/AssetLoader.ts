@@ -4,7 +4,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import assetIndex from 'virtual:asset-index';
 import { isBossModelKey, MODELS, TEXTURES, WIZARD_CLIPS, type ModelAsset, type ModelKey, type RiggedModel, type TextureAsset, type TextureKey } from './manifest';
-import { STAFF_IDS, staffModelPath } from '../staff/catalog';
+import { STAFF_IDS, staffModelPath, type StaffId } from '../staff/catalog';
 import { prepareRig } from './rig';
 
 const available = new Set(assetIndex);
@@ -117,9 +117,11 @@ export class AssetLoader {
   /**
    * Everything the first menu, Quick Duel, Local Versus and online need: every manifest model but
    * the campaign bosses' stage models (about 5 MB; `ensureModels` loads them before a gauntlet
-   * fight, and `prefetchBosses` in the background), every texture and every staff.
+   * fight, and `prefetchBosses` in the background) and every texture. Of the staffs only `staffs`
+   * (the equipped one; every staff when omitted): the others load on demand (`loadProp`, or
+   * `prefetchStaffs`), since each is 0.2 to 1 MB and the player holds one.
    */
-  async loadAll(onProgress?: (done: number, total: number) => void): Promise<void> {
+  async loadAll(onProgress?: (done: number, total: number) => void, staffs: readonly StaffId[] = STAFF_IDS): Promise<void> {
     const jobs: Promise<void>[] = [];
     let done = 0;
     const tick = () => onProgress?.(++done, jobs.length);
@@ -130,8 +132,18 @@ export class AssetLoader {
     for (const key of Object.keys(TEXTURES) as TextureKey[]) {
       jobs.push(this.loadTextureAsset(TEXTURES[key] as TextureAsset).then((t) => void this.textures.set(key, t)).then(tick));
     }
-    for (const id of STAFF_IDS) jobs.push(this.loadProp(staffModelPath(id)).then(tick));
+    for (const id of staffs) jobs.push(this.loadProp(staffModelPath(id)).then(tick));
     await Promise.all(jobs);
+  }
+
+  /** Every staff model (QA and the dev build; production loads them as they are equipped). */
+  async prefetchStaffs(): Promise<void> {
+    await Promise.all(STAFF_IDS.map((id) => this.loadProp(staffModelPath(id))));
+  }
+
+  /** `loadProp(path)` has settled (loaded, or known missing): `instantiateProp` answers for it now. */
+  propSettled(path: string): boolean {
+    return this.readyProps.has(path);
   }
 
   /** Manifest models loading or loaded, by key. */

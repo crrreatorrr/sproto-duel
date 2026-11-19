@@ -7,7 +7,11 @@
  *
  * Host time comes from the snapshot tick (tick × tickMs). The host-to-local clock offset is the
  * smallest `arrival − hostTime` seen recently (the least-delayed packet), which jitter can only
- * push up, eased upward slowly so a lasting change in latency is followed.
+ * push up, eased upward slowly so a lasting change in latency is followed. A jump in latency (a
+ * reconnect, a route change) would take that easing tens of seconds to absorb, so `lateSnap`
+ * snapshots in a row arriving `lateSnapMs` or more behind the estimate move it at once, and
+ * `resync` (a rejoin) starts it over: for the next few snapshots it follows the least offset of
+ * the last three, then min-tracks again.
  */
 import type { ProjectileState, Snapshot, WizardState } from './state';
 
@@ -18,6 +22,9 @@ export interface SnapshotBufferOptions {
   tickMs: number;
   /** Snapshots kept. */
   capacity?: number;
+  /** Late by at least this much (ms) `lateSnap` times in a row: take the new latency at once. */
+  lateSnapMs?: number;
+  lateSnap?: number;
 }
 
 export interface WizardPose {
@@ -29,6 +36,9 @@ export interface WizardPose {
 }
 
 const TAU = Math.PI * 2;
+/** Snapshots after a resync whose offsets are taken as they come (see `settle`), and the window. */
+const SETTLE = 10;
+const SETTLE_WINDOW = 3;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 function lerpAngle(a: number, b: number, t: number): number {
   let d = (b - a) % TAU;
@@ -41,6 +51,17 @@ export class SnapshotBuffer {
   private readonly snaps: { snap: Snapshot; hostMs: number }[] = [];
   private offset: number | null = null;
   private lastArrival = 0;
+  /** Consecutive snapshots late by lateSnapMs or more, and the least late of them. */
+  private lateRun = 0;
+  private lateMin = Infinity;
+  /** Times the offset jumped to a new latency (tests, the debug HUD). */
+  resyncs = 0;
+  /**
+   * After a resync: the offsets of the last few snapshots, the estimate being their least until
+   * SETTLE snapshots are in. A packet already on its way before the outage (on the old, faster
+   * route) would otherwise pin the new estimate low.
+   */
+  private settle: number[] | null = null;
 
   constructor(private readonly opts: SnapshotBufferOptions) {}
 
@@ -58,13 +79,37 @@ export class SnapshotBuffer {
     if (n && snap.tick <= n.tick) return false;
     const hostMs = snap.tick * this.opts.tickMs;
     const off = arrivalMs - hostMs;
+    if (this.settle) {
+      this.settle.push(off);
+      if (this.settle.length > SETTLE) this.settle = null;
+      else this.offset = Math.min(...this.settle.slice(-SETTLE_WINDOW));
+      this.lastArrival = arrivalMs;
+      this.store(snap, hostMs);
+      return true;
+    }
+    if (this.offset !== null && off - this.offset >= (this.opts.lateSnapMs ?? 250)) {
+      this.lateRun++;
+      this.lateMin = Math.min(this.lateMin, off);
+    } else {
+      this.lateRun = 0;
+      this.lateMin = Infinity;
+    }
     if (this.offset === null || off < this.offset) this.offset = off;
-    else this.offset += Math.min(off - this.offset, (arrivalMs - this.lastArrival) * 0.002);
+    else if (this.lateRun >= (this.opts.lateSnap ?? 3)) {
+      this.offset = this.lateMin;
+      this.lateRun = 0;
+      this.lateMin = Infinity;
+      this.resyncs++;
+    } else this.offset += Math.min(off - this.offset, (arrivalMs - this.lastArrival) * 0.002);
     this.lastArrival = arrivalMs;
+    this.store(snap, hostMs);
+    return true;
+  }
+
+  private store(snap: Snapshot, hostMs: number): void {
     this.snaps.push({ snap, hostMs });
     const cap = this.opts.capacity ?? 32;
     if (this.snaps.length > cap) this.snaps.splice(0, this.snaps.length - cap);
-    return true;
   }
 
   /** The host time (ms) shown now: its estimated present minus the interpolation delay. */
@@ -110,9 +155,26 @@ export class SnapshotBuffer {
     }));
   }
 
+  /**
+   * Start the clock estimate over (a rejoin: latency may have changed): the next snapshot sets it
+   * afresh. Until then the old one stands. The snapshots stay, so a late copy of an old one is
+   * still refused.
+   */
+  resync(): void {
+    // The old estimate stays until the first new snapshot replaces it (settle), so the playout
+    // does not fall back to the oldest snapshot held in the meantime.
+    this.settle = [];
+    this.lateRun = 0;
+    this.lateMin = Infinity;
+    this.resyncs++;
+  }
+
   clear(): void {
     this.snaps.length = 0;
     this.offset = null;
+    this.settle = null;
+    this.lateRun = 0;
+    this.lateMin = Infinity;
   }
 }
 

@@ -9,6 +9,11 @@
  *   or fills past `delay + slack` (overrun: skip a frame, carrying its presses into the next).
  * - A press is never lost: presses of frames that are skipped, or arrive after their tick was
  *   played, are merged into the next frame played (unless older than `maxLag`).
+ * - Back from an outage (the buffer ran dry for `outageTicks` ticks in a row, then frames land
+ *   `delay + slack + catchUp` or more deep), playback jumps straight to the newest frames instead of
+ *   skipping one per tick, which would play the guest back at double speed for as long as the
+ *   outage lasted. Presses from the frames jumped over carry over only if within `maxLag`, like
+ *   late frames: a tap from seconds ago does not fire.
  */
 import type { IntentFrame } from './intent';
 
@@ -19,6 +24,10 @@ export interface RemoteInputOptions {
   maxLag: number;
   /** Depth above `delay` tolerated before skipping ahead. */
   slack?: number;
+  /** Depth above `delay + slack` at which playback, back from an outage, jumps to the newest frames. */
+  catchUp?: number;
+  /** Underruns in a row that count as an outage (default 10). */
+  outageTicks?: number;
 }
 
 export class RemoteInputBuffer {
@@ -29,13 +38,26 @@ export class RemoteInputBuffer {
   private last: IntentFrame | null = null;
   /** Press bits owed to the next played frame (late or skipped frames). */
   private owed = 0;
+  /** After reset(keepAck): frames at or before this tick were played already and are ignored. */
+  private floor = -Infinity;
   private primed = false;
   /** Current target depth (adapts within delay..delay+4). */
   delay: number;
   underruns = 0;
   overruns = 0;
+  /** Jumps to the newest frames (back from an outage). */
+  catchUps = 0;
+  /** Underruns in a row, up to the latest next(). */
+  private starved = 0;
   /** Guest tick of the last frame played (the snapshot `ack`), -1 before any. */
   lastApplied = -1;
+  /**
+   * What the latest `next()` played: a guest frame tick, -1 (a hold of the last frame, or nothing
+   * yet), or -2 (a hold after clearHeld: the peer left, so no movement and no held buttons).
+   */
+  played = -1;
+  /** clearHeld ran since the last frame played: holds are idle. */
+  private idleHold = false;
 
   constructor(private readonly opts: RemoteInputOptions) {
     this.delay = opts.delay;
@@ -48,6 +70,8 @@ export class RemoteInputBuffer {
 
   push(frames: readonly IntentFrame[]): void {
     for (const f of frames) {
+      // Played before a keepAck reset (a redundant copy, or one in flight): already applied.
+      if (f.tick <= this.floor) continue;
       if (this.playhead !== null && f.tick < this.playhead) {
         // Already played past it: keep its presses (a late tap still happens), unless far too late.
         if (!this.seen.has(f.tick) && this.playhead - f.tick <= this.opts.maxLag) this.owed |= f.press;
@@ -77,6 +101,7 @@ export class RemoteInputBuffer {
    * in), a hold of the last one (no presses) on underrun, or null before anything arrived.
    */
   next(): IntentFrame | null {
+    this.played = -1;
     if (this.playhead === null) return null;
     // Playback starts once `delay` frames are in (the jitter cushion).
     if (!this.primed) {
@@ -84,8 +109,20 @@ export class RemoteInputBuffer {
       this.primed = true;
     }
     const slack = this.opts.slack ?? 3;
-    // Overrun: too far behind the guest; skip one frame (its presses carry over).
-    if (this.depth > this.delay + slack) {
+    if (this.starved >= (this.opts.outageTicks ?? 10) && this.depth > this.delay + slack + (this.opts.catchUp ?? 20)) {
+      // Back from an outage, far behind: jump to `delay` frames before the newest. Presses of the
+      // frames jumped over carry into the next one played only if recent (as late frames' do).
+      const target = this.newest - this.delay + 1;
+      for (let t = this.playhead; t < target; t++) {
+        const f = this.frames.get(t);
+        if (!f) continue;
+        if (target - t <= this.opts.maxLag) this.owed |= f.press;
+        this.frames.delete(t);
+      }
+      this.playhead = target;
+      this.catchUps++;
+    } else if (this.depth > this.delay + slack) {
+      // Overrun: too far behind the guest; skip one frame (its presses carry over).
       const skipped = this.frames.get(this.playhead);
       if (skipped) {
         this.owed |= skipped.press;
@@ -98,11 +135,15 @@ export class RemoteInputBuffer {
     if (!f) {
       // Underrun: hold movement and held buttons, wait a tick (the delay grows by one).
       this.underruns++;
+      this.starved++;
       if (this.delay < this.opts.delay + 4) this.delay++;
+      if (this.idleHold && this.last) this.played = -2;
       return this.last ? { ...this.last, press: 0 } : null;
     }
+    this.starved = 0;
+    this.idleHold = false;
     this.frames.delete(this.playhead);
-    this.lastApplied = this.playhead;
+    this.lastApplied = this.played = this.playhead;
     this.playhead++;
     const out: IntentFrame = this.owed ? { ...f, press: f.press | this.owed } : f;
     this.owed = 0;
@@ -112,8 +153,11 @@ export class RemoteInputBuffer {
     return out;
   }
 
-  /** Forget everything (a new round, a reconnect). */
-  reset(): void {
+  /**
+   * Forget everything (a new round, a reconnect). `keepAck`: keep `lastApplied`, so the guest's
+   * prediction does not see its acknowledgement go backwards while the buffer primes again.
+   */
+  reset(keepAck = false): void {
     this.frames.clear();
     this.seen.clear();
     this.playhead = null;
@@ -121,12 +165,19 @@ export class RemoteInputBuffer {
     this.last = null;
     this.owed = 0;
     this.primed = false;
+    this.starved = 0;
+    this.idleHold = false;
     this.delay = this.opts.delay;
-    this.lastApplied = -1;
+    if (keepAck) this.floor = this.lastApplied;
+    else {
+      this.lastApplied = -1;
+      this.floor = -Infinity;
+    }
   }
 
   /** The peer stopped sending (dropped): hold nothing, so the wizard stops instead of running on. */
   clearHeld(): void {
     if (this.last) this.last = { ...this.last, mx: 0, mz: 0, held: 0, press: 0 };
+    this.idleHold = true;
   }
 }

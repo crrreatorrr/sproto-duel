@@ -285,8 +285,11 @@ export class App {
 
   /**
    * Equip the staff `getLoadout` allows. Ranked (`HubLink.ranked`, from the vendored SDK init)
-   * keeps the mesh and colours and uses starter stats. There is no mid-fight swap: menus call
-   * this, and every match start calls it again. Equipping does not report Tickets, Relics, or scores.
+   * keeps the mesh and colours and uses starter stats. There is no mid-fight swap of stats: menus
+   * call this, and every match start calls it again. A staff whose model is not loaded yet (only
+   * the equipped one loads at boot) shows the previous mesh, or a procedural one, until it lands
+   * (mountStaff). That is a look-only swap, which normally lands within the 2.4 s intro countdown.
+   * Equipping does not report Tickets, Relics, or scores.
    */
   private applyStaff(cosmetic = false): void {
     const load = getLoadout();
@@ -303,8 +306,21 @@ export class App {
       wizard.visual.setStaff(equipped);
       return;
     }
+    const assets = this.game.assets;
     const path = staffModelPath(id);
-    const prop = this.game.assets.instantiateProp(path);
+    if (!assets.propSettled(path)) {
+      // Only the equipped staff loads at boot. Keep the staff on show (or a procedural one) until
+      // this one arrives, then swap it in if the wizard still holds it.
+      if (wizard.visual.mountedStaffId === null) wizard.visual.setStaff(equipped, null);
+      void assets.loadProp(path).then(() => {
+        if (wizard.staff?.id !== id) return;
+        const prop = assets.instantiateProp(path);
+        if (!prop) console.warn(`[staff] missing ${path}, using a placeholder staff`);
+        wizard.visual.setStaff(wizard.staff, prop);
+      });
+      return;
+    }
+    const prop = assets.instantiateProp(path);
     if (!prop) console.warn(`[staff] missing ${path}, using a placeholder staff`);
     wizard.visual.setStaff(equipped, prop);
   }
@@ -1063,6 +1079,16 @@ export class App {
     this.showBossCard(true);
   }
 
+  /**
+   * Background download of the gauntlet boss models needed next: the saved fight's boss, or with
+   * `after` the one after it. Skipped while an online duel is set up or running (it needs none).
+   */
+  prefetchNextBoss(after = false): void {
+    if (this.onlineSession || this.mode === 'online') return;
+    const boss = after ? this.campaign.nextBoss : this.campaign.boss;
+    if (boss) void this.game.assets.ensureModels(bossModelKeys(boss)).catch(() => undefined);
+  }
+
   /** Boss Gauntlet from the saved fight. */
   continueGauntlet(): void {
     this.campaign.resume();
@@ -1087,6 +1113,8 @@ export class App {
     }
     this.enterMenuState('gauntlet');
     this.freshRun = freshRun;
+    // The fight after this one, while the card is read.
+    this.prefetchNextBoss(true);
     this.dressEnemy(boss);
     this.resetAttract();
     this.menus.showBossIntro(
@@ -1248,6 +1276,8 @@ export class App {
     if (replica) this.match.prepareReplica(r ?? ONLINE);
     else this.match.startMatch(boss, r);
     this.audio.setPaused(false);
+    // Usually fetched already, in the menu's idle time (main.ts); a quick start fetches them now.
+    this.audio.loadAll();
     this.audio.playMusic('musicBattle');
     this.audio.setAmbient(true);
     if (this.requireLock) {
@@ -1424,7 +1454,7 @@ export class App {
       }
     }
     // Hub reports go around Campaign.recordWin. A gauntlet win against a story boss posts
-    // sproto.boss_defeated (the hub pays). Quick Duel posts no Tickets. God mode skips the board.
+    // sproto.boss_defeated (the hub pays). Quick Duel posts no Tickets. A god-mode win reports nothing.
     // Local Versus and online report nothing from the client (rules.reportToHub; see planDuelWin).
     if (!this.game.qaMode && this.match.rules.reportToHub) {
       const bossId = this.match.boss?.id ?? null;

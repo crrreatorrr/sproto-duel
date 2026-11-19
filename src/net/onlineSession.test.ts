@@ -4,7 +4,8 @@ import { TINUBU_EVENT } from '../hub/config';
 import { HubLink } from '../hub/link';
 import { ONLINE } from '../core/rules';
 import { FakeArenaServer } from './FakeArenaServer';
-import type { IntentFrame } from './intent';
+import { unpackFrames, type IntentFrame } from './intent';
+import { digestFrames } from './inputProof';
 import { OnlineSession, type SessionState } from './OnlineSession';
 import { OP, type OutcomeMsg, type ResultMsg } from './protocol';
 import { encodeSnapshot, type Snapshot } from './state';
@@ -665,5 +666,138 @@ describe('replayed match messages', () => {
     expect(plays).toBe(1);
     expect(a.state).toBe('playing');
     expect(a.start?.seed).toBe(1234);
+  });
+});
+
+describe('OnlineSession rejoin', () => {
+  /**
+   * Silence a link both ways (a dead socket), and give it back with a new one-way latency. The
+   * fake server's links share one options object, so `restore` slows every link (host's too).
+   */
+  function outage(server: FakeArenaServer, userId: string) {
+    const { serverEnd, clientEnd } = ends(server, userId);
+    const sends = [serverEnd.send, clientEnd.send];
+    return {
+      clientEnd,
+      cut() {
+        serverEnd.send = () => {};
+        clientEnd.send = () => {};
+      },
+      restore(latencyMs: number) {
+        [serverEnd.send, clientEnd.send] = sends;
+        (serverEnd as unknown as { opts: { latencyMs: number } }).opts.latencyMs = latencyMs;
+      },
+    };
+  }
+
+  /** How far (ms) the guest's playout runs behind the newest snapshot it holds. */
+  const playoutLag = (b: OnlineSession, now: number) => b.snapshots.newest!.tick * TICK - b.snapshots.renderHostMs(now);
+
+  it('a guest back after a 3 s drop on a slower link resyncs its clock and its input', async () => {
+    const { clock, server, a, b } = await playing();
+    let guestTick = 0, hostTick = 0, rejoins = 0;
+    b.on('rejoin', () => rejoins++);
+    const each = () => {
+      b.queueInput(frame(++guestTick));
+      if (++hostTick % 2 === 0) a.sendSnapshot(encodeSnapshot(snap(hostTick)));
+      a.remoteInput.next();
+    };
+    await run(clock, 1000, [a, b], each);
+    // 40 ms each way: the playout sits the interpolation delay behind the newest snapshot.
+    expect(playoutLag(b, clock.now())).toBeGreaterThan(60);
+    expect(playoutLag(b, clock.now())).toBeLessThan(130);
+
+    const link = outage(server, 'bob');
+    link.cut();
+    await run(clock, 3000, [a, b], each);
+    const behind = guestTick - a.remoteInput.lastApplied;
+    expect(behind).toBeGreaterThan(100);
+    // Back, 100 ms slower on every link (a snapshot now takes 200 ms more to arrive); the
+    // transport reports the rejoin.
+    link.restore(140);
+    link.clientEnd.emitRejoin();
+    expect(rejoins).toBe(1);
+    expect(b.rejoins).toBe(1);
+    await run(clock, 1000, [a, b], each);
+    // The clock follows the new latency at once instead of easing for ~50 s: the playout is the
+    // interpolation delay behind again, not stuck on the newest snapshot (lag 0).
+    expect(playoutLag(b, clock.now())).toBeGreaterThan(60);
+    expect(playoutLag(b, clock.now())).toBeLessThan(150);
+    // The host plays the guest's current frames again (it skips the hole instead of crawling):
+    // its input delay plus the link, not the 3 s outage.
+    expect(guestTick - a.remoteInput.lastApplied).toBeLessThan(30);
+    expect(a.state).toBe('playing');
+    expect(b.state).toBe('playing');
+  });
+
+  it('a host rejoin primes its input buffer again but keeps the ack', async () => {
+    const { clock, server, a, b } = await playing();
+    let guestTick = 0;
+    const each = () => {
+      b.queueInput(frame(++guestTick));
+      a.remoteInput.next();
+    };
+    await run(clock, 500, [a, b], each);
+    const ack = a.remoteInput.lastApplied;
+    expect(ack).toBeGreaterThan(0);
+    const link = outage(server, 'alice');
+    link.cut();
+    await run(clock, 2000, [a, b], each);
+    link.restore(40);
+    link.clientEnd.emitRejoin();
+    expect(a.rejoins).toBe(1);
+    expect(a.remoteInput.lastApplied).toBeGreaterThanOrEqual(ack);
+    await run(clock, 500, [a, b], each);
+    expect(guestTick - a.remoteInput.lastApplied).toBeLessThan(30);
+  });
+
+  it('a START re-sent during play is the same match: no second start, clock resynced', async () => {
+    const { clock, server, b } = await playing();
+    let starts = 0;
+    b.on('start', () => starts++);
+    const before = b.snapshots.resyncs;
+    const { serverEnd } = ends(server, 'bob');
+    serverEnd.send(OP.START, JSON.stringify(b.start));
+    await run(clock, 200, [b]);
+    expect(starts).toBe(0);
+    expect(b.state).toBe('playing');
+    expect(b.snapshots.resyncs).toBe(before + 1);
+  });
+});
+
+describe('OnlineSession input proof', () => {
+  it("the guest's RESULT carries the digest of the frames the server relayed", async () => {
+    const { clock, server, a, b } = await playing();
+    const { clientEnd } = ends(server, 'bob');
+    const results: unknown[] = [];
+    const send = clientEnd.send.bind(clientEnd);
+    clientEnd.send = (op: number, data: string) => {
+      if (op === OP.RESULT) results.push(JSON.parse(data));
+      send(op, data);
+    };
+    // What the server relays to the host, captured at the host's end.
+    const relayed: IntentFrame[] = [];
+    const hostEnd = ends(server, 'alice').serverEnd;
+    const hostSend = hostEnd.send.bind(hostEnd);
+    hostEnd.send = (op: number, data: string) => {
+      if (op === OP.INPUT) relayed.push(...unpackFrames((JSON.parse(data) as { f: number[] }).f));
+      hostSend(op, data);
+    };
+    let t = 0;
+    // An odd number of frames: the last one is still queued (INPUT goes every 2 ticks) at RESULT.
+    await run(clock, 500, [a, b], () => b.queueInput(frame(++t, t % 30 === 0 ? 2 : 0)));
+    if (t % 2 === 0) b.queueInput(frame(++t));
+    b.sendResult({ winnerSeat: 0, wins: [2, 0], rounds: 2 });
+    const last = t;
+    // The guest keeps sending until OUTCOME: those frames are after its digest.
+    await run(clock, 300, [a, b], () => b.queueInput(frame(++t)));
+    expect(results).toHaveLength(1);
+    const r = results[0] as { inputs: { n: number; first: number; last: number }; winnerSeat: number };
+    expect(r.winnerSeat).toBe(0);
+    expect(r.inputs.n).toBe(last);
+    expect(r.inputs.last).toBe(last);
+    // The server's side: the relayed frames with ticks in [first, last].
+    expect(r.inputs).toEqual(digestFrames(relayed.filter((f) => f.tick >= r.inputs.first && f.tick <= r.inputs.last)));
+    expect(relayed.some((f) => f.tick > last)).toBe(true);
   });
 });

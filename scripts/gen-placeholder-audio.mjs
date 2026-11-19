@@ -1,7 +1,11 @@
-// Synthesizes placeholder sound effects and music loops as 16-bit mono WAVs into
-// public/assets/audio/placeholder/<key>.wav. Run with `npm run gen:audio`.
+// Synthesizes placeholder sound effects and music loops as 22.05 kHz mono and writes them to
+// public/assets/audio/placeholder/<key>.mp3 (LAME VBR -q:a 4 through ffmpeg: about a sixth of the
+// WAV's size, and decoders trim the encoder padding, so loops stay seamless). Without ffmpeg on
+// the PATH it writes 16-bit <key>.wav instead; the game plays either. Run with `npm run gen:audio`.
 // Real files at the manifest paths (public/assets/audio/<name>.mp3 etc.) always win.
 import fs from 'node:fs';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -93,7 +97,24 @@ function loopify(x, sec) {
   return out;
 }
 
-function writeWav(name, x) {
+const HAS_FFMPEG = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+const TMP = HAS_FFMPEG ? fs.mkdtempSync(path.join(os.tmpdir(), 'gen-audio-')) : null;
+
+/** Write `name` as MP3 (ffmpeg) or WAV. Returns the bytes written. */
+function writeSound(name, x) {
+  const wav = path.join(TMP ?? OUT, `${name}.wav`);
+  writeWav(wav, x);
+  if (!TMP) return fs.statSync(wav).size;
+  const mp3 = path.join(OUT, `${name}.mp3`);
+  const r = spawnSync('ffmpeg', ['-nostdin', '-loglevel', 'error', '-y', '-i', wav, '-c:a', 'libmp3lame', '-q:a', '4', '-map_metadata', '-1', mp3]);
+  if (r.status !== 0) throw new Error(`ffmpeg failed on ${name}: ${r.stderr}`);
+  fs.rmSync(wav);
+  // A WAV from an earlier run would shadow nothing (the MP3 is tried first) but would still ship.
+  fs.rmSync(path.join(OUT, `${name}.wav`), { force: true });
+  return fs.statSync(mp3).size;
+}
+
+function writeWav(file, x) {
   const data = Buffer.alloc(x.length * 2);
   for (let i = 0; i < x.length; i++) data.writeInt16LE(Math.max(-1, Math.min(1, x[i])) * 32767 | 0, i * 2);
   const h = Buffer.alloc(44);
@@ -101,7 +122,7 @@ function writeWav(name, x) {
   h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
   h.writeUInt32LE(SR, 24); h.writeUInt32LE(SR * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
   h.write('data', 36); h.writeUInt32LE(data.length, 40);
-  fs.writeFileSync(path.join(OUT, `${name}.wav`), Buffer.concat([h, data]));
+  fs.writeFileSync(file, Buffer.concat([h, data]));
 }
 
 const note = (n) => 440 * Math.pow(2, (n - 69) / 12); // MIDI -> Hz
@@ -532,7 +553,7 @@ S.spellLearned = () => {
 let total = 0;
 for (const [name, fn] of Object.entries(S)) {
   const x = normalize(fn(), name.startsWith('music') ? 0.7 : 0.89);
-  writeWav(name, x);
-  total += x.length * 2;
+  total += writeSound(name, x);
 }
+if (TMP) fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`Wrote ${Object.keys(S).length} placeholder sounds (${(total / 1024 / 1024).toFixed(1)} MB) to ${path.relative(process.cwd(), OUT)}`);

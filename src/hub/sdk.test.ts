@@ -103,7 +103,7 @@ describe('Sproto Duel hub integration', () => {
     expect(link.connected).toBe(true);
     const notes: string[] = [];
     await link.onDuelWin(
-      { playerWon: true, bossId: 'tinubu', godMode: true, elapsed: 40.4 },
+      { playerWon: true, bossId: 'tinubu', godMode: false, elapsed: 40.4 },
       (title, sub) => notes.push(`${title}|${sub}`),
     );
     expect(harness.events).toEqual([

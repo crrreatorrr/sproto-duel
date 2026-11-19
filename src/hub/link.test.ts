@@ -106,7 +106,7 @@ describe('HubLink', () => {
     const link = new HubLink(api);
     link.attach({ playerId: 'p', ranked: false, relics: [], effects: {}, ticketsCapLeft: 100, serverTime: 0 });
     const notes: string[] = [];
-    await link.onDuelWin({ playerWon: true, bossId: 'tinubu', godMode: true, elapsed: 40 }, (title, sub) => notes.push(`${title}|${sub}`));
+    await link.onDuelWin({ playerWon: true, bossId: 'tinubu', godMode: false, elapsed: 40 }, (title, sub) => notes.push(`${title}|${sub}`));
     expect(api.earnTickets).not.toHaveBeenCalled();
     expect(api.reportEvent).toHaveBeenCalledTimes(1);
     expect(api.reportEvent).toHaveBeenCalledWith(
@@ -118,6 +118,16 @@ describe('HubLink', () => {
     expect(api.submitScore).not.toHaveBeenCalled();
     expect(notes).toEqual(["Tinubu's Crown|Tinubu's Crown"]);
     expect(link.balance).toBe(20);
+  });
+
+  it('posts nothing for a god-mode boss win', async () => {
+    const api = fakeApi();
+    const link = new HubLink(api);
+    link.attach({ playerId: 'p', ranked: true, relics: [], effects: {}, ticketsCapLeft: 100, serverTime: 0 });
+    await link.onDuelWin({ mode: 'gauntlet', playerWon: true, bossId: 'tinubu', godMode: true, elapsed: 40 });
+    expect(api.reportEvent).not.toHaveBeenCalled();
+    expect(api.submitScore).not.toHaveBeenCalled();
+    expect(api.earnTickets).not.toHaveBeenCalled();
   });
 
   it('shows a portal error instead of calling exchange while standalone', async () => {

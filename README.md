@@ -36,7 +36,9 @@ health, speed, spells and staff stats don't change, and the look is scaled to Sp
 boss look keeps its own props (phone, vape, gun), so the equipped staff isn't shown on it; its
 stats still apply. Locked skins name the boss that unlocks them. God mode unlocks all of them for
 the session. Online, your opponent still sees the default rival look: the protocol carries no
-skin. The choice is saved in `localStorage` (`arcane-duel-skin`), and the beaten bosses are saved in
+skin. The choice is saved in `localStorage` (`arcane-duel-skin`; `arcane-duel-skin@<playerId>` for a
+hub account, which starts from the browser's choice, and the equipped staff likewise under
+`arcane-duel-loadout@<playerId>`), and the beaten bosses are saved in
 the campaign save's `defeated` list. Older saves fill it in from their progress. See
 `src/campaign/skins.ts`.
 
@@ -533,7 +535,8 @@ the next tick), by typing **9 9** quickly, with **F9**, or in Settings; start wi
 in the URL. Turning it off mid-fight takes back the boss spells you haven't earned. A **GOD MODE** badge shows on the
 HUD. It is never saved: a reload turns it off. Standing in lava or the fire ring doesn't flash you
 white (zero-damage hazard ticks skip the hit flash). The menus' background duel ignores it (stock
-stats until a match starts). Tuning: `CONFIG.debug`.
+stats until a match starts). A god-mode win reports nothing to the hub: no `sproto.boss_defeated`
+(so no Tickets) and no leaderboard score. Tuning: `CONFIG.debug`.
 
 ## Balancing
 

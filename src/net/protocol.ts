@@ -54,9 +54,20 @@ export const DEFAULT_STAFF = SPROTO_STAFF;
 
 export interface HelloMsg { v: string; staff: string }
 export interface StartMsg { seat: 0 | 1; hostSeat: 0 | 1; names: [string, string]; staffs: [string, string]; rules: 'online1'; seed: number }
+import type { InputDigestMsg } from './inputProof';
 export interface InputMsg { t: number; f: number[] }
 export interface RoundMsg { round: number; winnerSeat: 0 | 1 | null; reason: 'ko' | 'time'; wins: [number, number] }
-export interface ResultMsg { winnerSeat: 0 | 1 | null; wins: [number, number]; rounds: number }
+export interface ResultMsg {
+  winnerSeat: 0 | 1 | null;
+  wins: [number, number];
+  rounds: number;
+  /**
+   * Guest only: the digest of every intent frame it sent (src/net/inputProof.ts), for the server
+   * to compare with the frames it relayed. Optional; asResult (and a server that reads only the
+   * three fields above) ignores it.
+   */
+  inputs?: InputDigestMsg;
+}
 export type OutcomeStatus = 'verified' | 'disputed' | 'forfeit' | 'draw' | 'timeout' | 'both_left' | 'server_shutdown';
 export interface OutcomeMsg { status: OutcomeStatus; winnerSeat: 0 | 1 | null; reason: string; paid: Record<string, number>; balances?: Record<string, number> }
 export interface CancelMsg { reason: string; seat?: number }

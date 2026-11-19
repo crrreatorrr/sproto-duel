@@ -1,7 +1,7 @@
 import { Howl, Howler } from 'howler';
 import * as THREE from 'three';
 import { CONFIG } from '../config';
-import { resolveAudio, resolveAsset } from '../assets/AssetLoader';
+import { resolveAudio } from '../assets/AssetLoader';
 import { SOUNDS, type SoundAsset, type SoundKey } from '../assets/manifest';
 import type { PowerKind, ProjectileSkin } from '../campaign/levels';
 import type { CineCue } from '../campaign/transformStyles';
@@ -18,6 +18,9 @@ interface PlayOptions {
 }
 
 const tmp = new THREE.Vector3();
+
+/** Sounds the title screen and menus use: the only ones fetched at boot. */
+const MENU_SOUNDS: ReadonlySet<SoundKey> = new Set<SoundKey>(['uiClick', 'uiHover', 'musicMenu']);
 
 /**
  * Launch sound per object skin, with playback rate and volume for bolts and for blasts (skins that
@@ -108,11 +111,27 @@ export class AudioManager {
   constructor() {
     for (const key of Object.keys(SOUNDS) as SoundKey[]) {
       const spec = SOUNDS[key] as SoundAsset;
-      const url = resolveAudio(spec.path) ?? resolveAsset(`audio/placeholder/${key}.wav`);
+      // The placeholder under any audio extension (gen:audio writes MP3; WAV without ffmpeg).
+      const url = resolveAudio(spec.path) ?? resolveAudio(`audio/placeholder/${key}.mp3`);
       if (!url) continue;
-      this.howls.set(key, new Howl({ src: [url], loop: !!spec.loop, volume: spec.volume, preload: true }));
+      // Only the menu's sounds load at boot; the rest wait for `loadAll` (see MENU_SOUNDS).
+      this.howls.set(key, new Howl({ src: [url], loop: !!spec.loop, volume: spec.volume, preload: MENU_SOUNDS.has(key) }));
     }
     Howler.volume(CONFIG.audio.master);
+  }
+
+  /**
+   * Start fetching every sound not loaded yet (fight sounds, battle music). App calls it once the
+   * first menu is up and again as a match starts. Cheap to repeat.
+   */
+  loadAll(): void {
+    for (const howl of this.howls.values()) this.ensureLoaded(howl);
+  }
+
+  /** Start loading `howl` if nothing has yet. Music and ambience played before then wait for it (Howler queues them). */
+  private ensureLoaded(howl: Howl): Howl {
+    if (howl.state() === 'unloaded') howl.load();
+    return howl;
   }
 
   setVolumes(master: number, sfx: number, music: number): void {
@@ -134,6 +153,12 @@ export class AudioManager {
   play(key: SoundKey, opts: PlayOptions = {}): number | null {
     const howl = this.howls.get(key);
     if (!howl) return null;
+    // Not in yet (a match started within moments of boot): start the load and skip this one. A
+    // queued effect would play late, when the file lands, out of step with what made it.
+    if (howl.state() !== 'loaded') {
+      this.ensureLoaded(howl);
+      return null;
+    }
     const spec = SOUNDS[key] as SoundAsset;
     let volume = spec.volume * this.sfxVolume * (opts.volume ?? 1);
     let pan = 0;
@@ -177,6 +202,7 @@ export class AudioManager {
     if (!key) return;
     const howl = this.howls.get(key);
     if (!howl) return;
+    this.ensureLoaded(howl);
     const target = (SOUNDS[key] as SoundAsset).volume * this.musicVolume;
     this.musicId = howl.play();
     howl.volume(0, this.musicId);
@@ -187,6 +213,7 @@ export class AudioManager {
     const howl = this.howls.get('fireLoop');
     if (!howl) return;
     if (on && this.ambientId === null) {
+      this.ensureLoaded(howl);
       this.ambientId = howl.play();
       howl.volume(SOUNDS.fireLoop.volume * this.sfxVolume, this.ambientId);
     } else if (!on && this.ambientId !== null) {

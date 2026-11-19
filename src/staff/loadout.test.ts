@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LOADOUT_STORAGE_KEY, getLoadout, getOwnedStaffs, setSelectedStaff, setSessionRelics } from './loadout';
+import { LOADOUT_STORAGE_KEY, getLoadout, getOwnedStaffs, setLoadoutAccount, setSelectedStaff, setSessionRelics } from './loadout';
 
 function installLocalStorage(): Map<string, string> {
   const map = new Map<string, string>();
@@ -104,5 +104,43 @@ describe('staff ownership from relics', () => {
     expect(setSelectedStaff('duel_staff_nobu')).toBe(true);
     setSessionRelics([]);
     expect(getLoadout()).toMatchObject({ staff: 'duel_staff_sproto', replaced: 'Nobu Staff' });
+  });
+});
+
+describe('loadout per hub account', () => {
+  let store: Map<string, string>;
+  beforeEach(() => {
+    store = installLocalStorage();
+  });
+  afterEach(() => {
+    setLoadoutAccount(null);
+    setSessionRelics(null);
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps each account's equipped staff apart from the browser's and each other's", () => {
+    setSessionRelics(['cones_tip']);
+    expect(setSelectedStaff('duel_staff_nobu')).toBe(true);
+    setLoadoutAccount('player-a');
+    // An account with no choice of its own starts from the browser's (checked against its relics).
+    expect(getLoadout().staff).toBe('duel_staff_nobu');
+    expect(setSelectedStaff('duel_staff_sproto')).toBe(true);
+    setLoadoutAccount('player-b');
+    // Player A's choice stays A's: B still starts from the browser's.
+    expect(getLoadout().staff).toBe('duel_staff_nobu');
+    setLoadoutAccount('player-a');
+    expect(getLoadout().staff).toBe('duel_staff_sproto');
+    expect(store.has(`${LOADOUT_STORAGE_KEY}@player-a`)).toBe(true);
+    expect(store.has(`${LOADOUT_STORAGE_KEY}@player-b`)).toBe(false);
+    setLoadoutAccount(null);
+    expect(getLoadout().staff).toBe('duel_staff_nobu');
+  });
+
+  it("an account without the relic does not get the browser's staff", () => {
+    setSessionRelics(['cones_tip']);
+    expect(setSelectedStaff('duel_staff_nobu')).toBe(true);
+    setLoadoutAccount('player-c');
+    setSessionRelics([]);
+    expect(getLoadout().staff).toBe('duel_staff_sproto');
   });
 });
