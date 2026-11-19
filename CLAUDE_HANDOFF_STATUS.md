@@ -35,7 +35,7 @@ Status values: **done** (commit), **partial** (what remains), **skipped** (why),
 | §2.1 Guest movement prediction and reconciliation | done `fa1757e`, `2e8e587` | `src/net/GuestPredictor.ts` steps the guest's own wizard with sim-core's `SimWizard`/`SimArena` (the host's own movement, fixed point), one step per sent frame. It reconciles against each snapshot at `ack` and replays the unacked frames. It handles the countdown boundary (from the intro's `phaseTime`), rebuilds the sim's jump/roll input buffer (not for a jump the host already used), syncs broken cover and the fire ring, and applies the ring push. `PredictionSmoother` eases corrections (τ 90 ms) and snaps past 2 m. The opponent and projectiles stay interpolated/extrapolated. Visual only: the host's sim is the sole authority. Settings live in `OnlineController`'s `PREDICTION`, not `CONFIG`, because CONFIG is inside `dist/duel-sim.server.js` and adding to it would change `DUEL_SIM_VERSION`. Not predicted (corrected at the next snapshot, smoothed): spell knockback, stuns, casts started in the unacked window, moving cover (it stays at its rail start in the predictor). |
 | §2.1 Prediction tests | done `fa1757e` | `guestPredictor.test.ts` links a real host `SimWorld` (online rules) to the predictor over a delayed, lossy link with the real `RemoteInputBuffer` and wire-quantized snapshots. Worst error between the prediction shown for a frame and the host's state after it, 12 s of walking, sprinting, jumping and rolling: 0 ms RTT 1.2 cm, 60 ms 1.3 cm, 150 ms 3.2 cm (snapshot centimetre quantization). With 5% loss (both directions), the final error after standing still is ≤ 0.5 cm at every RTT. |
 | §2.2 `rejoin` handler | done `2e8e587` | `OnlineSession.onRejoin` resyncs the snapshot clock, drops stale queued input, re-primes a host's input buffer (keeping the ack), pings at once, then emits `'rejoin'`. `OnlineController` resets the prediction. A START re-sent while playing (same seat) resyncs the clock and is not a new match. A re-sent START with a *different* seat is still ignored, as before; the server should never send one. |
-| §2.2 SnapshotBuffer clock recovery | done `239e494` | Three snapshots in a row ≥ 250 ms late re-anchor the offset at once (a single spike doesn't). `resync()` follows the least offset of the last three for 10 snapshots, so a stale pre-outage packet can't pin it. Also: `RemoteInputBuffer` jumps to the newest frames when 20+ behind, instead of playing the guest at 2× for as long as the outage lasted. |
+| §2.2 SnapshotBuffer clock recovery | done `239e494` | Three snapshots in a row ≥ 250 ms late re-anchor the offset at once (a single spike doesn't). `resync()` follows the least offset of the last three for 10 snapshots, so a stale pre-outage packet can't pin it. Also: back from an outage (the buffer dry for 10+ ticks, then 20+ frames deep), `RemoteInputBuffer` jumps to the newest frames instead of playing the guest at 2× for as long as the outage lasted, dropping presses older than `maxLag` (`3575b96`). |
 | §2.2 Reconnect test | done `2e8e587` | `onlineSession.test.ts` › "OnlineSession rejoin": a 3 s guest drop with every link 100 ms slower on return (playout lag back to 60–150 ms; the host within 30 frames of the guest's newest), a host rejoin, a re-sent START. Without the fix, the first two fail (lag −112 ms; host 152 frames behind). |
 | §2.3.1 God-mode boss event | done `997ba85` | See Phase 0. |
 | §2.3.2 Guest input proof, client side | done `2e8e587` | The guest sends `inputs` (`InputDigestMsg`) in OP.RESULT. The host sends `net.guestFrames` in the OP.LOG JSON. Both are additive (see the server contract below). The OP.LOG format is backward compatible: `net` is a new top-level key that `setupFromLog`/`replay` ignore, and the sim log fields and the chunking are unchanged. |
@@ -95,6 +95,23 @@ I reviewed the whole diff against `origin/main` with `/code-review` (high effort
 | Boot boss prefetch could read the campaign before the account's cloud save arrived | `f4b0830`: waits for `campaign.attach` |
 | A not-yet-loaded staff swaps its mesh after a match starts | `f4b0830`: documented as look-only; it normally lands inside the 2.4 s intro |
 
+## QA playtest (`qa-tester` agent, HEAD `2e8e587`)
+
+Production and dev builds were compared side by side with `main` (SwiftShader, so frame rates are only comparable
+branch against main: no regression, p95 within noise). Bytes over the first ~40 s: about 3.5 MB here, about 20.5 MB on `main`.
+Staff lazy-loading, the deferred sounds and the next-boss-only prefetch all worked. `net.` QA scenarios: 4/4.
+
+| Finding | Severity | Status |
+| --- | --- | --- |
+| After an outage, the input-buffer catch-up fired presses seconds old, all on one frame | major | fixed `3575b96`: catch up only after the buffer ran dry for 10 ticks, and drop presses past `maxLag`; test |
+| The title preview showed an empty hand while a picked staff loaded (and for good if the load failed) | polish | fixed `4b9e3a0`; checked in the production build with the GLB held back 4 s |
+| Guest's own wizard: corrections of ~0.1 m (p95) under 60 ms jitter, and a snap (3.4 m) after a 1 s outage, because the host holds the guest's last movement for the whole outage | minor | not changed. The smoother eases the jitter corrections, and the outage snap is the correct catch-up to where the host had the wizard. Decaying the held movement during long underruns is a change to how the host plays the guest (input policy), so I left it to the owner. Possible tuning: `PREDICTION.smoothMs` 90 → 120. |
+| HUD and stats name the new staff while its model is still loading | minor | documented (`applyStaff`): look-only, normally done inside the 2.4 s intro. Blocking the match start on the download was judged worse. |
+| `/favicon.ico` 404 | polish | pre-existing on `main`; no new asset this pass |
+
+The guest-side prediction could not be played by hand: `?netsim` always makes the page the host. The probe and unit
+tests are the evidence. Suggested follow-up: a `net.guest-predicts` QA scenario and a `?netsim=80&seat=guest` dev mode.
+
 ## Measurements
 
 `node scripts/measure-boot.mjs` (Playwright Chromium, cache disabled, `vite preview` serves gzip). "Boot" counts requests
@@ -127,6 +144,10 @@ Run on this branch after Phase 1:
 | `npm run build` | pass. `dist/duel-sim.server.js` is unchanged (version `8f68aa09e9873540`). |
 | `npm run check:assets` | pass |
 | `npm run check:server-sim` | pass |
+
+Handoff Verification Checklist, golden replays on three engines: Node (`npm test`, server-bundle suite) 26/26;
+Chromium `npm run test:goldens-browser`: 26 goldens, 0 failed; Goja `npm run test:goja` (Go 1.24.7): 26 goldens,
+0 failed, slowest replay 51.4 s (§2.3.4's timeout concern, server-side).
 
 Final (after the review fixes, HEAD of this branch): typecheck pass, `npm test` pass (49 files, 391 tests), build
 pass (`dist/duel-sim.server.js` unchanged, version `8f68aa09e9873540`), check:assets pass, check:server-sim pass.
