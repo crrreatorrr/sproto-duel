@@ -74,3 +74,34 @@ describe('SnapshotBuffer', () => {
     expect(pose.pos[0]).toBe(4);
   });
 });
+
+describe('SnapshotBuffer clock recovery', () => {
+  it('takes a lasting rise in latency after a few late snapshots, not over tens of seconds', () => {
+    const b = make();
+    for (let i = 0; i < 10; i++) b.push(snap(i * 2, i), i * 2 * TICK + 40);
+    const before = b.renderHostMs(20 * TICK + 40);
+    // 140 ms instead of 40 from here on.
+    for (let i = 10; i < 13; i++) b.push(snap(i * 2, i), i * 2 * TICK + 340);
+    expect(b.resyncs).toBe(1);
+    expect(b.renderHostMs(26 * TICK + 340)).toBeCloseTo(26 * TICK - 100, 0);
+    expect(before).toBeCloseTo(20 * TICK - 100, 0);
+  });
+
+  it('ignores one late snapshot (jitter)', () => {
+    const b = make();
+    for (let i = 0; i < 10; i++) b.push(snap(i * 2, i), i * 2 * TICK + 40);
+    b.push(snap(20, 10), 20 * TICK + 400);
+    b.push(snap(22, 11), 22 * TICK + 40);
+    expect(b.resyncs).toBe(0);
+    expect(b.renderHostMs(22 * TICK + 40)).toBeCloseTo(22 * TICK - 100, 0);
+  });
+
+  it('resync starts the estimate over from the next snapshot and still refuses old ones', () => {
+    const b = make();
+    for (let i = 0; i < 5; i++) b.push(snap(i * 2, i), i * 2 * TICK + 40);
+    b.resync();
+    expect(b.push(snap(4, 2), 5000)).toBe(false);
+    expect(b.push(snap(200, 100), 200 * TICK + 140)).toBe(true);
+    expect(b.renderHostMs(200 * TICK + 140)).toBeCloseTo(200 * TICK - 100, 0);
+  });
+});

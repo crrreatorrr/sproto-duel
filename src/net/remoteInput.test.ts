@@ -86,3 +86,44 @@ describe('RemoteInputBuffer', () => {
     expect([hold?.mx, hold?.held, hold?.press]).toEqual([0, 0, 0]);
   });
 });
+
+describe('RemoteInputBuffer catch-up', () => {
+  const f = (tick: number, press = 0) => ({ tick, mx: 0, mz: 0, facing: 0, aim: [0, 0, 0] as [number, number, number], held: 0, press });
+
+  it('jumps to the newest frames after an outage instead of crawling', () => {
+    const b = new RemoteInputBuffer({ delay: 2, maxLag: 30 });
+    b.push([f(0), f(1), f(2)]);
+    for (let i = 0; i < 3; i++) b.next();
+    // 3 s of the guest's frames land at once (a rejoin), two of them with presses.
+    const late = [];
+    for (let t = 3; t < 183; t++) late.push(f(t, t === 10 ? 1 : t === 170 ? 2 : 0));
+    b.push(late);
+    const out = b.next()!;
+    expect(b.catchUps).toBe(1);
+    expect(out.tick).toBe(181);
+    // No press is lost: both ride on the first frame played.
+    expect(out.press).toBe(3);
+    expect(b.lastApplied).toBe(181);
+  });
+
+  it('keeps skipping one frame per tick for a small backlog', () => {
+    const b = new RemoteInputBuffer({ delay: 2, maxLag: 30 });
+    const frames = [];
+    for (let t = 0; t < 12; t++) frames.push(f(t));
+    b.push(frames);
+    b.next();
+    expect(b.catchUps).toBe(0);
+    expect(b.overruns).toBe(1);
+  });
+
+  it('reset(keepAck) keeps the last acknowledged tick', () => {
+    const b = new RemoteInputBuffer({ delay: 1, maxLag: 30 });
+    b.push([f(5)]);
+    b.next();
+    expect(b.lastApplied).toBe(5);
+    b.reset(true);
+    expect(b.lastApplied).toBe(5);
+    b.reset();
+    expect(b.lastApplied).toBe(-1);
+  });
+});

@@ -9,6 +9,9 @@
  *   or fills past `delay + slack` (overrun: skip a frame, carrying its presses into the next).
  * - A press is never lost: presses of frames that are skipped, or arrive after their tick was
  *   played, are merged into the next frame played (unless older than `maxLag`).
+ * - Far behind (`delay + slack + catchUp` frames or more: the guest is back from an outage, or the
+ *   host stalled), playback jumps straight to the newest frames instead of skipping one per tick,
+ *   which would play the guest back at double speed for as long as the outage lasted.
  */
 import type { IntentFrame } from './intent';
 
@@ -19,6 +22,8 @@ export interface RemoteInputOptions {
   maxLag: number;
   /** Depth above `delay` tolerated before skipping ahead. */
   slack?: number;
+  /** Depth above `delay + slack` at which playback jumps to the newest frames at once. */
+  catchUp?: number;
 }
 
 export class RemoteInputBuffer {
@@ -34,8 +39,12 @@ export class RemoteInputBuffer {
   delay: number;
   underruns = 0;
   overruns = 0;
+  /** Jumps to the newest frames (a reconnect, a stall). */
+  catchUps = 0;
   /** Guest tick of the last frame played (the snapshot `ack`), -1 before any. */
   lastApplied = -1;
+  /** What the latest `next()` played: a guest frame tick, or -1 (a hold, or nothing yet). */
+  played = -1;
 
   constructor(private readonly opts: RemoteInputOptions) {
     this.delay = opts.delay;
@@ -77,6 +86,7 @@ export class RemoteInputBuffer {
    * in), a hold of the last one (no presses) on underrun, or null before anything arrived.
    */
   next(): IntentFrame | null {
+    this.played = -1;
     if (this.playhead === null) return null;
     // Playback starts once `delay` frames are in (the jitter cushion).
     if (!this.primed) {
@@ -84,8 +94,20 @@ export class RemoteInputBuffer {
       this.primed = true;
     }
     const slack = this.opts.slack ?? 3;
-    // Overrun: too far behind the guest; skip one frame (its presses carry over).
-    if (this.depth > this.delay + slack) {
+    if (this.depth > this.delay + slack + (this.opts.catchUp ?? 20)) {
+      // Far behind: jump to `delay` frames before the newest. The presses of the frames jumped
+      // over carry into the next one played, as a one-frame skip's do.
+      const target = this.newest - this.delay + 1;
+      for (let t = this.playhead; t < target; t++) {
+        const f = this.frames.get(t);
+        if (!f) continue;
+        this.owed |= f.press;
+        this.frames.delete(t);
+      }
+      this.playhead = target;
+      this.catchUps++;
+    } else if (this.depth > this.delay + slack) {
+      // Overrun: too far behind the guest; skip one frame (its presses carry over).
       const skipped = this.frames.get(this.playhead);
       if (skipped) {
         this.owed |= skipped.press;
@@ -102,7 +124,7 @@ export class RemoteInputBuffer {
       return this.last ? { ...this.last, press: 0 } : null;
     }
     this.frames.delete(this.playhead);
-    this.lastApplied = this.playhead;
+    this.lastApplied = this.played = this.playhead;
     this.playhead++;
     const out: IntentFrame = this.owed ? { ...f, press: f.press | this.owed } : f;
     this.owed = 0;
@@ -112,8 +134,11 @@ export class RemoteInputBuffer {
     return out;
   }
 
-  /** Forget everything (a new round, a reconnect). */
-  reset(): void {
+  /**
+   * Forget everything (a new round, a reconnect). `keepAck`: keep `lastApplied`, so the guest's
+   * prediction does not see its acknowledgement go backwards while the buffer primes again.
+   */
+  reset(keepAck = false): void {
     this.frames.clear();
     this.seen.clear();
     this.playhead = null;
@@ -122,7 +147,7 @@ export class RemoteInputBuffer {
     this.owed = 0;
     this.primed = false;
     this.delay = this.opts.delay;
-    this.lastApplied = -1;
+    if (!keepAck) this.lastApplied = -1;
   }
 
   /** The peer stopped sending (dropped): hold nothing, so the wizard stops instead of running on. */
