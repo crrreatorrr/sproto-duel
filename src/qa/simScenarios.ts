@@ -9,6 +9,8 @@ import { CONFIG } from '../config';
 import type { Game } from '../core/Game';
 import { replay } from '../sim-core';
 import type { QAHarness } from './QAHarness';
+import { Campaign } from '../campaign/Campaign';
+import { withStashedSave } from './campaignScenarios';
 import { bossProbe, scripted, simSoak } from './simProbe';
 
 const DT = CONFIG.sim.fixedDt;
@@ -157,10 +159,10 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
   });
 
   qa.add('sim.live_practice_runs_every_lesson', (c) => {
-    // The Practice tutorial, played by a script that does what each lesson asks.
-    const saved = localStorage.getItem('arcane-duel-settings');
+    // The Practice tutorial, played by a script that does what each lesson asks. The browser's
+    // progress is put back afterwards (finishing Practice saves practiceDone into it).
     let menu = '';
-    live(game, app, () => {
+    withStashedSave(app, () => live(game, app, () => {
       app.startPractice();
       const d = game.sim, tut = app.tutorial;
       c.expect(!!d && d.world.setup.rules === 'versus' && tut.active && game.practice, 'Practice did not start on the sim');
@@ -207,10 +209,9 @@ export function registerSimScenarios(qa: QAHarness, game: Game, app: App): void 
       menu = app.menus.current ?? '';
       c.expect(menu === 'practice-done', `after the last lesson the menu is "${menu}"`);
       c.expect(game.sim === null && !game.practice && lessonEl.classList.contains('hidden'), 'Practice was not torn down');
-      c.expect(JSON.parse(localStorage.getItem('arcane-duel-settings') ?? '{}').practiceDone === true, 'practiceDone was not saved');
-    });
-    if (saved === null) localStorage.removeItem('arcane-duel-settings');
-    else localStorage.setItem('arcane-duel-settings', saved);
+      // Saved in the campaign progress (src/campaign/progress.ts): a fresh read, as after a reload, sees it.
+      c.expect(app.campaign.practiceDone && new Campaign().practiceDone, 'practiceDone was not saved');
+    }));
   });
 
   qa.add('sim.live_boss_checkpoint_restarts_the_stage', (c) => {
