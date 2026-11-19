@@ -127,7 +127,7 @@ tests are the evidence. Suggested follow-up: a `net.guest-predicts` QA scenario 
 
 ## Fixes after the merge (#50)
 
-The QA harness failures that were already failing on `main`, and the favicon 404:
+The QA harness failures that were already failing on `main`, and the favicon 404. Full `qa:headless` run after these: 273 passed, 0 failed (with the flaky probe below passing that time).
 
 | Item | Fix |
 | --- | --- |
@@ -135,7 +135,7 @@ The QA harness failures that were already failing on `main`, and the favicon 404
 | `sim.live_practice_runs_every_lesson` looked for `practiceDone` in the settings key | `6ace24c`: it checks the campaign progress (and a fresh read), with the save stashed and restored |
 | `duo.hud_cards_and_banners_name_both`: on short screens the boss and partner plates ran past the top half | `348d693`: compact plates under 520 px of height, more compact under 380 px; 640 px and taller unchanged |
 | `/favicon.ico` 404 at every boot | `53c34af`: an empty `data:` icon in `index.html` |
-| `campaign.ladder_escalates`: Broccoli Head's stage 3 deals less than stage 1 (1.40 vs 1.43 dps) | **not fixed**: a balance change to the sim (the version and goldens would move). Left for the owner. |
+| `campaign.ladder_escalates` fails about one run in three, on `main` and here, each time on a different boss | **not fixed, and not a balance bug** (I said it was, earlier). Runs of the same build give different stage numbers, even two runs in one page, although the probe seeds `Math.random`: something outside the seeded stream feeds the legacy `AIController` path it measures. Muting gameplay audio (which draws from `Math.random`) did not settle it, and the results fall into a few repeating patterns, so it is probably carried-over discrete state. The probe also measures the legacy Rapier AI, not the sim-core AI real gauntlet fights use. Follow-up: make it deterministic, or port it onto `SimWorld` (`src/qa/simProbe.ts` has the pieces). |
 
 ## Measurements
 
