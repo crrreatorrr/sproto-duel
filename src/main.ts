@@ -56,8 +56,9 @@ async function boot() {
     const { installDevTools } = await import('./qa/dev');
     installDevTools(game, app);
   } else {
-    // The gauntlet's boss models arrive in the background once the menu is up.
-    setTimeout(() => void game.assets.prefetchBosses(), 1500);
+    // The next gauntlet boss's models arrive in the background once the menu is up (not all 18
+    // stage models: the other bosses load when the gauntlet reaches them, see App.showBossCard).
+    setTimeout(() => app.prefetchNextBoss(), 1500);
   }
 }
 

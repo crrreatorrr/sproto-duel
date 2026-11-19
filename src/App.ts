@@ -1076,6 +1076,16 @@ export class App {
     this.showBossCard(true);
   }
 
+  /**
+   * Background download of the gauntlet boss models needed next: the saved fight's boss, or with
+   * `after` the one after it. Skipped while an online duel is set up or running (it needs none).
+   */
+  prefetchNextBoss(after = false): void {
+    if (this.onlineSession || this.mode === 'online') return;
+    const boss = after ? this.campaign.nextBoss : this.campaign.boss;
+    if (boss) void this.game.assets.ensureModels(bossModelKeys(boss)).catch(() => undefined);
+  }
+
   /** Boss Gauntlet from the saved fight. */
   continueGauntlet(): void {
     this.campaign.resume();
@@ -1100,6 +1110,8 @@ export class App {
     }
     this.enterMenuState('gauntlet');
     this.freshRun = freshRun;
+    // The fight after this one, while the card is read.
+    this.prefetchNextBoss(true);
     this.dressEnemy(boss);
     this.resetAttract();
     this.menus.showBossIntro(
