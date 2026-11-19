@@ -54,6 +54,8 @@ export class TitleStaffPreview {
   private readonly resize: ResizeObserver;
   private readonly onVisibility = () => this.wake();
   private selected: StaffId | null = null;
+  /** The staff in hand: the selected one, or the previous one while the selected one loads. */
+  private shown: StaffId | null = null;
   private popTime = POP_DURATION;
   private time = 0;
   private raf = 0;
@@ -160,20 +162,25 @@ export class TitleStaffPreview {
   /** Update the prop when the rack equips a different staff. */
   select(id: StaffId): void {
     if (this.disposed || this.character || id === this.selected) return;
-    const previous = this.selected && this.props.get(this.selected);
-    if (previous) previous.root.visible = false;
     this.selected = id;
-    const prop = this.prop(id);
-    if (prop) {
-      prop.root.scale.setScalar(0.001);
-      prop.root.visible = true;
-    }
     const card = staffCard(id);
+    this.showLabel(card.name, card.line, card.accent);
+    // Not loaded yet (boot loads the equipped staff only): the staff in hand stays until it lands.
+    const prop = this.prop(id);
+    if (prop) this.showProp(id, prop);
+  }
+
+  /** Swap the staff in hand for `id`'s, with the pop and the flash. */
+  private showProp(id: StaffId, prop: StaffProp): void {
+    const previous = this.shown !== null && this.shown !== id ? this.props.get(this.shown) : null;
+    if (previous) previous.root.visible = false;
+    this.shown = id;
+    prop.root.scale.setScalar(0.001);
+    prop.root.visible = true;
     this.popTime = 0;
-    this.flash.material.color.set(card.accent);
+    this.flash.material.color.set(staffCard(id).accent);
     this.flash.material.opacity = 1;
     this.flash.visible = true;
-    this.showLabel(card.name, card.line, card.accent);
   }
 
   dispose(): void {
@@ -212,12 +219,9 @@ export class TitleStaffPreview {
       // Not fetched yet (boot loads the equipped staff only): show it once it lands, if still picked.
       void this.assets.loadProp(path).then(() => {
         if (this.disposed || this.selected !== id || this.props.has(id)) return;
+        // A failed load keeps the staff in hand (no empty hand).
         const prop = this.prop(id);
-        if (prop) {
-          prop.root.scale.setScalar(0.001);
-          prop.root.visible = true;
-          this.popTime = 0;
-        }
+        if (prop) this.showProp(id, prop);
       });
       return null;
     }
@@ -277,7 +281,7 @@ export class TitleStaffPreview {
 
   private step(dt: number): void {
     this.time += dt;
-    const prop = this.selected && this.props.get(this.selected);
+    const prop = this.shown && this.props.get(this.shown);
     if (this.popTime < POP_DURATION) {
       this.popTime = Math.min(POP_DURATION, this.popTime + dt);
       if (prop) prop.root.scale.setScalar(Math.max(0.001, easeOutBack(this.popTime / POP_DURATION)));
