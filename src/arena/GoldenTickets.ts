@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import { CONFIG } from '../config';
 import type { AssetLoader } from '../assets/AssetLoader';
 import { events } from '../core/events';
 import { rand } from '../core/math';
 import type { Effects } from '../fx/Effects';
 import { glowTexture } from '../fx/textures';
-import { GROUP, type Physics } from '../physics/Physics';
+import { GROUP, rapier, type Physics } from '../physics/Physics';
 import type { Wizard } from '../wizard/Wizard';
 import type { Arena } from './Arena';
 
@@ -138,7 +138,7 @@ export class GoldenTickets {
   private visualTime = 0;
   private readonly auras: Aura[] = [];
   private readonly cardMaterial: THREE.MeshStandardMaterial;
-  private readonly probe = new RAPIER.Cylinder((T.hoverHeight + 1.5) / 2, T.obstacleClearance);
+  private readonly probe = new rapier.Cylinder((T.hoverHeight + 1.5) / 2, T.obstacleClearance);
   private readonly probePos = { x: 0, y: 0, z: 0 };
   private readonly identity = { x: 0, y: 0, z: 0, w: 1 };
   /** Everything solid except the floor and wizards: pillars, stumps, walls and any future obstacle. */
@@ -384,7 +384,7 @@ export class GoldenTickets {
     this.probePos.y = this.probe.halfHeight + 0.05;
     this.probePos.z = z;
     const hit = this.physics.world.intersectionWithShape(
-      this.probePos, this.identity, this.probe, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, this.queryGroups,
+      this.probePos, this.identity, this.probe, rapier.QueryFilterFlags.EXCLUDE_SENSORS, this.queryGroups,
       undefined, undefined, this.solidOnly,
     );
     return hit !== null;

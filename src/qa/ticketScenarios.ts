@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
+import { rapier } from '../physics/Physics';
 import { CONFIG } from '../config';
 import type { App } from '../App';
 import type { GoldenTicket } from '../arena/GoldenTickets';
@@ -189,9 +189,9 @@ export function registerTicketScenarios(qa: QAHarness, game: Game, app: App): vo
     }
     // A box-shaped obstacle (like a cubicle wall), rotated, and a crumbled pillar's stump.
     const box = { x: 4, z: 3, hx: 2.2, hz: 0.3, yaw: 0.6 };
-    const body = game.physics.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(box.x, 1.5, box.z)
+    const body = game.physics.world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(box.x, 1.5, box.z)
       .setRotation({ x: 0, y: Math.sin(box.yaw / 2), z: 0, w: Math.cos(box.yaw / 2) }));
-    game.physics.world.createCollider(RAPIER.ColliderDesc.cuboid(box.hx, 1.5, box.hz)
+    game.physics.world.createCollider(rapier.ColliderDesc.cuboid(box.hx, 1.5, box.hz)
       .setCollisionGroups(((GROUP.WORLD & 0xffff) << 16) | 0xffff), body);
     const stump = game.arena.pillars[0];
     stump.damage(1e4, stump.position);

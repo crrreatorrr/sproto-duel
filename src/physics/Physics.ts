@@ -1,4 +1,11 @@
-import RAPIER from '@dimforge/rapier3d-compat';
+import type RAPIER from '@dimforge/rapier3d-compat';
+
+/**
+ * The Rapier module, loaded by `Physics.create` (a dynamic import, so its ~1.6 MB chunk with the
+ * inlined WebAssembly downloads while the boot assets do, instead of before the game's code runs).
+ * Only read it after `Physics.create` has resolved.
+ */
+export let rapier: typeof RAPIER;
 import { Vector3 } from 'three';
 import type { ObstacleShape, Pillar } from '../arena/Pillar';
 import type { Wizard } from '../wizard/Wizard';
@@ -50,14 +57,14 @@ export class Physics {
   private readonly tags = new Map<number, ColliderTag>();
   private readonly characterController: RAPIER.KinematicCharacterController;
   private readonly ball = new Map<number, RAPIER.Ball>();
-  private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+  private readonly ray = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
   private readonly identity = { x: 0, y: 0, z: 0, w: 1 };
   private readonly unitDir = { x: 0, y: 0, z: 0 };
   private readonly losDir = new Vector3();
   /** The reused results of raycast and sphereCast (see QueryHit). */
   private readonly rayHit: QueryHit = { tag: null as unknown as ColliderTag, distance: 0, point: new Vector3(), normal: new Vector3() };
   private readonly sphereHit: QueryHit = { tag: null as unknown as ColliderTag, distance: 0, point: new Vector3(), normal: new Vector3() };
-  private readonly collision = new RAPIER.CharacterCollision();
+  private readonly collision = new rapier.CharacterCollision();
   private readonly down = { x: 0, y: -1, z: 0 };
   private readonly probePos = { x: 0, y: 0, z: 0 };
   /** Result of the latest `moveCharacter`. */
@@ -70,12 +77,13 @@ export class Physics {
   };
 
   static async create(): Promise<Physics> {
-    await RAPIER.init();
+    rapier ??= (await import('@dimforge/rapier3d-compat')).default;
+    await rapier.init();
     return new Physics();
   }
 
   private constructor() {
-    this.world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    this.world = new rapier.World({ x: 0, y: 0, z: 0 });
     this.characterController = this.world.createCharacterController(0.02);
     this.characterController.setSlideEnabled(true);
     this.characterController.setApplyImpulsesToDynamicBodies(false);
@@ -89,27 +97,27 @@ export class Physics {
   }
 
   addFloor(radius: number): void {
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.5, 0));
-    const desc = RAPIER.ColliderDesc.cylinder(0.5, radius).setCollisionGroups(groups(GROUP.GROUND, 0xffff));
+    const body = this.world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(0, -0.5, 0));
+    const desc = rapier.ColliderDesc.cylinder(0.5, radius).setCollisionGroups(groups(GROUP.GROUND, 0xffff));
     this.tags.set(this.world.createCollider(desc, body).handle, { kind: 'floor' });
   }
 
   /** A ring of boxes approximating a circular wall. */
   addRingWall(radius: number, height: number, segments = 40): void {
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    const body = this.world.createRigidBody(rapier.RigidBodyDesc.fixed());
     const thickness = 1;
     const halfLen = Math.tan(Math.PI / segments) * (radius + thickness) + 0.05;
     for (let i = 0; i < segments; i++) {
       const a = (i / segments) * Math.PI * 2;
       const r = radius + thickness / 2;
       const q = { x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) };
-      const desc = RAPIER.ColliderDesc.cuboid(halfLen, height / 2, thickness / 2)
+      const desc = rapier.ColliderDesc.cuboid(halfLen, height / 2, thickness / 2)
         .setTranslation(Math.sin(a) * r, height / 2, Math.cos(a) * r)
         .setRotation(q)
         .setCollisionGroups(groups(GROUP.WORLD, 0xffff));
       this.tags.set(this.world.createCollider(desc, body).handle, { kind: 'wall' });
       // Wizards-only extension above the visible wall. Spells, camera and line of sight ignore it.
-      const barrier = RAPIER.ColliderDesc.cuboid(halfLen, BARRIER_HEIGHT / 2, thickness / 2)
+      const barrier = rapier.ColliderDesc.cuboid(halfLen, BARRIER_HEIGHT / 2, thickness / 2)
         .setTranslation(Math.sin(a) * r, height + BARRIER_HEIGHT / 2, Math.cos(a) * r)
         .setRotation(q)
         .setCollisionGroups(groups(GROUP.BARRIER, GROUP.WIZARD));
@@ -124,13 +132,13 @@ export class Physics {
    */
   addPillar(x: number, z: number, shape: ObstacleShape, pillar: Pillar, moving = false) {
     const half = shape.yaw / 2;
-    const desc = moving ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
+    const desc = moving ? rapier.RigidBodyDesc.kinematicPositionBased() : rapier.RigidBodyDesc.fixed();
     const body = this.world.createRigidBody(desc.setTranslation(x, 0, z).setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) }));
     const make = (p: ObstacleShape['parts'][number], top: number, scale: number, enabled: boolean) => {
       const h = top - p.y0;
       const d = p.shape === 'box'
-        ? RAPIER.ColliderDesc.cuboid(p.halfX * scale, h / 2, p.halfZ * scale)
-        : RAPIER.ColliderDesc.cylinder(h / 2, p.radius * scale);
+        ? rapier.ColliderDesc.cuboid(p.halfX * scale, h / 2, p.halfZ * scale)
+        : rapier.ColliderDesc.cylinder(h / 2, p.radius * scale);
       d.setTranslation(p.x, p.y0 + h / 2, p.z)
         .setRotation({ x: 0, y: Math.sin(p.yaw / 2), z: 0, w: Math.cos(p.yaw / 2) })
         .setCollisionGroups(groups(GROUP.WORLD, 0xffff))
@@ -148,10 +156,10 @@ export class Physics {
 
   /** True if a wizard's capsule overlaps a box (half extents, turned by `yaw`) centred at (x, y, z). */
   boxTouchesWizard(x: number, y: number, z: number, hx: number, hy: number, hz: number, yaw: number): boolean {
-    const box = new RAPIER.Cuboid(hx, hy, hz);
+    const box = new rapier.Cuboid(hx, hy, hz);
     const hit = this.world.intersectionWithShape(
       { x, y, z }, { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, box,
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WIZARD),
+      rapier.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WIZARD),
     );
     return hit !== null;
   }
@@ -159,8 +167,8 @@ export class Physics {
   /** Kinematic capsule whose bottom sits on y = 0 when the body is at `capsuleCenterY`. */
   addWizard(radius: number, height: number, wizard: Wizard) {
     const centerY = height / 2 + 0.02;
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, centerY, 0));
-    const desc = RAPIER.ColliderDesc.capsule(capsuleHalfHeight(radius, height), radius).setCollisionGroups(groups(GROUP.WIZARD, 0xffff));
+    const body = this.world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased().setTranslation(0, centerY, 0));
+    const desc = rapier.ColliderDesc.capsule(capsuleHalfHeight(radius, height), radius).setCollisionGroups(groups(GROUP.WIZARD, 0xffff));
     const collider = this.world.createCollider(desc, body);
     this.tags.set(collider.handle, { kind: 'wizard', wizard });
     return { body, collider, centerY };
@@ -193,7 +201,7 @@ export class Physics {
     kcc.computeColliderMovement(
       collider,
       { x: delta.x, y: delta.y, z: delta.z },
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+      rapier.QueryFilterFlags.EXCLUDE_SENSORS,
       groups(0xffff, GROUP.WORLD | GROUP.WIZARD | GROUP.BARRIER),
     );
     const m = kcc.computedMovement();
@@ -216,13 +224,13 @@ export class Physics {
   groundHeightBelow(pos: Vector3, radius: number): number {
     if (pos.y <= 0) return 0;
     let shape = this.ball.get(radius);
-    if (!shape) this.ball.set(radius, (shape = new RAPIER.Ball(radius)));
+    if (!shape) this.ball.set(radius, (shape = new rapier.Ball(radius)));
     this.probePos.x = pos.x;
     this.probePos.y = pos.y + radius;
     this.probePos.z = pos.z;
     const hit = this.world.castShape(
       this.probePos, this.identity, this.down, shape, 0, pos.y + radius, true,
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WORLD),
+      rapier.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WORLD),
     );
     return hit ? Math.max(0, Math.min(pos.y, hit.witness1.y)) : 0;
   }
@@ -235,13 +243,13 @@ export class Physics {
   surfaceBelow(x: number, z: number, radius: number, maxY: number): number {
     if (maxY <= 0) return 0;
     let shape = this.ball.get(radius);
-    if (!shape) this.ball.set(radius, (shape = new RAPIER.Ball(radius)));
+    if (!shape) this.ball.set(radius, (shape = new rapier.Ball(radius)));
     this.probePos.x = x;
     this.probePos.y = maxY + radius;
     this.probePos.z = z;
     const hit = this.world.castShape(
       this.probePos, this.identity, this.down, shape, 0, maxY, true,
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WORLD),
+      rapier.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, GROUP.WORLD),
     );
     if (!hit) return 0;
     if (hit.time_of_impact < 1e-4) return Infinity;
@@ -266,7 +274,7 @@ export class Physics {
       0,
       maxDist,
       true,
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+      rapier.QueryFilterFlags.EXCLUDE_SENSORS,
       groups(0xffff, GROUP.WORLD | GROUP.BARRIER),
       collider,
     );
@@ -288,7 +296,7 @@ export class Physics {
     const len = motion.length();
     if (len < 1e-6) return null;
     let shape = this.ball.get(radius);
-    if (!shape) this.ball.set(radius, (shape = new RAPIER.Ball(radius)));
+    if (!shape) this.ball.set(radius, (shape = new rapier.Ball(radius)));
     this.activeSkip = skip ?? null;
     this.unitDir.x = motion.x / len;
     this.unitDir.y = motion.y / len;
@@ -301,7 +309,7 @@ export class Physics {
       0,
       len,
       true,
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+      rapier.QueryFilterFlags.EXCLUDE_SENSORS,
       groups(0xffff, mask),
       exclude,
       undefined,
@@ -333,7 +341,7 @@ export class Physics {
       this.ray,
       maxDistance,
       true,
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+      rapier.QueryFilterFlags.EXCLUDE_SENSORS,
       groups(0xffff, mask),
       exclude,
       undefined,
@@ -363,7 +371,7 @@ export class Physics {
   private rayBlocked(origin: Vector3, dir: Vector3, maxDistance: number, mask: number, skip?: (tag: ColliderTag) => boolean): boolean {
     this.setRay(origin, dir);
     this.activeSkip = skip ?? null;
-    const hit = this.world.castRay(this.ray, maxDistance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, mask), undefined, undefined, skip ? this.predicate : undefined);
+    const hit = this.world.castRay(this.ray, maxDistance, true, rapier.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xffff, mask), undefined, undefined, skip ? this.predicate : undefined);
     this.activeSkip = null;
     return hit !== null && this.tags.has(hit.collider.handle);
   }
