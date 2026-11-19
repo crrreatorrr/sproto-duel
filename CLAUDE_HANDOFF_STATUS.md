@@ -72,7 +72,12 @@ I could not read metaverse-hub from this session (the repo isn't attached), so t
 
 ## Phase 3: polish (§3)
 
-Not started yet (see below).
+| Item | Status | Notes |
+| --- | --- | --- |
+| §3.1 Second WebGL context in `TitleStaffPreview` | skipped | There are two ways, and both risk a visible change on the title screen. (a) Draw the stage into the main canvas with a scissor pass after the composer. The stage then sits *under* the menu's DOM layer instead of inside it, so the menu backdrop and gradients would cover the character. It also has to redraw every main frame (the composer clears the canvas), and it touches the split-screen viewport code. (b) Render to a target and copy it into the stage's 2D canvas each frame: `readPixels` stalls the GPU. The second context is small (`low-power`, capped size) and is disposed when a match starts (`disposeTitleStage`). Worth a follow-up with someone checking the title screen. |
+| §3.2 Lazy hub feedback | done `655a679` | `installGameFeedback` is a dynamic import, installed on idle about 1 s after boot. Main chunk 936.6 → 911.8 kB raw. The handoff's 93 KB is too high: the SDK's feedback code is 25 kB, and `modern-screenshot` was already a lazy chunk. Until it's installed (the first second), N-N and the pause menu's button do nothing, and early crashes aren't listed in feedback notes. |
+| §3.3 Account-scoped staff and skin | done `a30ba0a` | `<key>@<playerId>` with a hub session (the campaign run's convention), set in `main.ts` before `App` reads them. A new account starts on Sproto and the starter staff. Standalone keeps the browser's keys. Not handled: switching accounts without a reload (the session is set once at boot, as for the campaign). |
+| §3.4 Non-blocking fonts | done `28af583` | `media="print" onload="this.media='all'"` plus a `<noscript>` copy. Not self-hosted: that needs the font files in the repo (no new assets this pass). |
 
 ## Measurements
 
