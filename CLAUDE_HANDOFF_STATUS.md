@@ -52,7 +52,9 @@ I could not read metaverse-hub from this session (the repo isn't attached), so t
    held | press << 2`). Keep the **first** copy seen per tick (INPUTs repeat recent frames for redundancy).
 2. **Digest check.** `digestFrames(frames)` is FNV-1a 32 over the unique frames in ascending tick order. Each
    frame is the 8 packed numbers, each as a little-endian int32 (`v | 0`); start 0x811c9dc5, prime 0x01000193,
-   output 8 lowercase hex digits. Compare it with the guest's OP.RESULT `inputs` = `{ n, first, last, fnv }`.
+   output 8 lowercase hex digits. Compare it with the guest's OP.RESULT `inputs` = `{ n, first, last, fnv }`,
+   computing the server side over the relayed frames with `first <= tick <= last` only. The guest flushes its
+   queued frames just before RESULT and seals the digest there, then keeps sending until OUTCOME.
    Equal means the relay and the guest agree on every frame. Expect a mismatch, and don't treat it as cheating,
    when the guest dropped and rejoined (frames sent into the dead socket never reached the server) or sent no
    RESULT. A RESULT without `inputs` comes from an older client: skip the check.
@@ -79,6 +81,20 @@ I could not read metaverse-hub from this session (the repo isn't attached), so t
 | §3.3 Account-scoped staff and skin | done `a30ba0a` | `<key>@<playerId>` with a hub session (the campaign run's convention), set in `main.ts` before `App` reads them. A new account starts on Sproto and the starter staff. Standalone keeps the browser's keys. Not handled: switching accounts without a reload (the session is set once at boot, as for the campaign). |
 | §3.4 Non-blocking fonts | done `28af583` | `media="print" onload="this.media='all'"` plus a `<noscript>` copy. Not self-hosted: that needs the font files in the repo (no new assets this pass). |
 
+## Final review
+
+I reviewed the whole diff against `origin/main` with `/code-review` (high effort). It found seven issues, all fixed:
+
+| Finding | Fix |
+| --- | --- |
+| Prediction corrections were never smoothed: `before` aliased the array `pose()` overwrites | `ff9de26`: the bookkeeping moved into `PredictedView` (copies first), with a test |
+| The guest digest hashed frames at queue time and after RESULT, so it would never match the server's | `a437a2d`: hash as INPUT sends, flush before RESULT, seal at RESULT; test checks the `[first, last]` range |
+| After a host rejoin, `reset(keepAck)` let redundant copies of frames already played play again | `cd03a31`: frames at or before the kept ack are ignored; test |
+| The boot staff preload ran `getLoadout()` before relics were known (could reset the saved staff) | `2d917b9`: `peekSavedStaff()` reads without validating or writing |
+| SFX played before loading were queued and burst out late | `be83fab`: skipped, and the load starts; music and ambience still wait |
+| Boot boss prefetch could read the campaign before the account's cloud save arrived | `f4b0830`: waits for `campaign.attach` |
+| A not-yet-loaded staff swaps its mesh after a match starts | `f4b0830`: documented as look-only; it normally lands inside the 2.4 s intro |
+
 ## Measurements
 
 `node scripts/measure-boot.mjs` (Playwright Chromium, cache disabled, `vite preview` serves gzip). "Boot" counts requests
@@ -87,13 +103,14 @@ built in a worktree and measured with the same script.
 
 | | `main` | this branch |
 | --- | --- | --- |
-| Boot requests / bytes | 105 / 10.62 MB | 23 / 3.10 MB |
+| Boot requests / bytes | 105 / 10.62 MB | 20–23 / 3.04–3.10 MB |
 | — of which models | 10 / 4.32 MB (8 staffs) | 3 / 0.55 MB (player, life pack, equipped staff) |
 | — audio | 54 / 3.31 MB | 3 / 0.08 MB |
 | — images | 1 / 0.89 MB | 1 / 0.36 MB |
 | — JS (Rapier 1.65 MB) | 3 / 2.03 MB | 3 / 2.03 MB |
-| After 6 s idle | 147 / 16.96 MB | 85 / 4.87 MB |
-| Menu up, 10 Mbit/s 40 ms RTT (`--mbps 10 --latency 40`) | 6.8 s | 3.2 s |
+| After 6 s idle | 147 / 16.96 MB | 86 / 4.86 MB |
+| Menu up, 10 Mbit/s 40 ms RTT (`--mbps 10 --latency 40`) | 6.8–6.9 s | 3.1–3.7 s (run to run) |
+| Main JS chunk (raw) | 935.3 kB | 912.1 kB (feedback is a 25 kB lazy chunk) |
 | `public/assets/` | 48.53 MB | 32.92 MB (6.9 MB of it archived, not shipped) |
 | `dist/` | 54.62 MB | 32.53 MB |
 
@@ -111,12 +128,15 @@ Run on this branch after Phase 1:
 | `npm run check:assets` | pass |
 | `npm run check:server-sim` | pass |
 
+Final (after the review fixes, HEAD of this branch): typecheck pass, `npm test` pass (49 files, 391 tests), build
+pass (`dist/duel-sim.server.js` unchanged, version `8f68aa09e9873540`), check:assets pass, check:server-sim pass.
+
 After Phase 2: typecheck pass, `npm test` pass (49 files, 388 tests), build pass (`dist/duel-sim.server.js`
 unchanged, version `8f68aa09e9873540`), check:assets pass, check:server-sim pass.
 
 `npm run qa:headless` (in-browser QA harness, SwiftShader): the `net.` scenarios pass (4/4) after Phase 2. The full run
-started after Phase 1 failed 4 scenarios: `campaign.ladder_escalates`, `duo.hud_cards_and_banners_name_both`,
-`rewards.unlock_per_boss_and_persist` and `rewards.save_migration`. All four fail the same way on `main` (checked in a
+started after Phase 1 (268 passed, 5 failed) failed these: `campaign.ladder_escalates`, `duo.hud_cards_and_banners_name_both`,
+`rewards.unlock_per_boss_and_persist`, `rewards.save_migration` and `sim.live_practice_runs_every_lesson`. All five fail the same way on `main` (checked in a
 `main` worktree), so this branch didn't cause them.
 
 ## Cross-repo follow-ups
