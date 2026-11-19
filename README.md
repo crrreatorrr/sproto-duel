@@ -36,7 +36,9 @@ health, speed, spells and staff stats don't change, and the look is scaled to Sp
 boss look keeps its own props (phone, vape, gun), so the equipped staff isn't shown on it; its
 stats still apply. Locked skins name the boss that unlocks them. God mode unlocks all of them for
 the session. Online, your opponent still sees the default rival look: the protocol carries no
-skin. The choice is saved in `localStorage` (`arcane-duel-skin`), and the beaten bosses are saved in
+skin. The choice is saved in `localStorage` (`arcane-duel-skin`; `arcane-duel-skin@<playerId>` for a
+hub account, which starts on Sproto, and the equipped staff likewise under
+`arcane-duel-loadout@<playerId>`), and the beaten bosses are saved in
 the campaign save's `defeated` list. Older saves fill it in from their progress. See
 `src/campaign/skins.ts`.
 

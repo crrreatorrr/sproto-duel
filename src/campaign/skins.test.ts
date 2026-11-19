@@ -3,7 +3,7 @@ import { MODELS } from '../assets/manifest';
 import { CAMPAIGN_STORAGE_KEY, Campaign, migratedDefeated } from './Campaign';
 import { LEGACY_CAMPAIGN_KEY } from './progress';
 import { BOSSES } from './levels';
-import { DEFAULT_SKIN, SKINS, SKIN_STORAGE_KEY, getSelectedSkin, setSelectedSkin, skinDef, skinScale } from './skins';
+import { DEFAULT_SKIN, SKINS, SKIN_STORAGE_KEY, getSelectedSkin, setSelectedSkin, setSkinAccount, skinDef, skinScale } from './skins';
 
 function installLocalStorage(): Map<string, string> {
   const map = new Map<string, string>();
@@ -38,6 +38,19 @@ describe('character skins', () => {
     expect(setSelectedSkin('nobody')).toBe(false);
     store.set(SKIN_STORAGE_KEY, 'nobody');
     expect(getSelectedSkin()).toBe(DEFAULT_SKIN);
+  });
+
+  it("keeps each hub account's skin apart from the browser's", () => {
+    expect(setSelectedSkin('broccoli')).toBe(true);
+    setSkinAccount('player-a');
+    try {
+      expect(getSelectedSkin()).toBe(DEFAULT_SKIN);
+      expect(setSelectedSkin('sahil')).toBe(true);
+      expect(store.get(`${SKIN_STORAGE_KEY}@player-a`)).toBe('sahil');
+    } finally {
+      setSkinAccount(null);
+    }
+    expect(getSelectedSkin()).toBe('broccoli');
   });
 
   it('a saved win unlocks the boss (and its partner); a skipped run unlocks nothing', () => {

@@ -6,6 +6,8 @@ import { connectHub } from './hub/link';
 import { HUB_GAME_ID } from './hub/config';
 import { hubVisitStarting } from '@metaverse/hub-sdk';
 import { crashGuard } from './core/crash';
+import { setLoadoutAccount } from './staff/loadout';
+import { setSkinAccount } from './campaign/skins';
 import { showCrashPanel } from './ui/CrashPanel';
 
 // Uncaught errors and rejections share the loop's counter; the panel opens once the game pauses.
@@ -36,6 +38,10 @@ async function boot() {
   // A live session: the account's own progress, synced with its cloud save. Otherwise this browser's.
   if (hub.connected && hub.playerId) void campaign.attach(hub.sdk, hub.playerId);
   else campaign.release();
+  // The equipped staff and the skin belong to the account too (App reads them as it starts).
+  const account = hub.connected && hub.playerId ? hub.playerId : null;
+  setLoadoutAccount(account);
+  setSkinAccount(account);
   loading.remove();
   const app = new App(game, campaign, hub);
   game.start();

@@ -14,6 +14,19 @@ import { SPROTO_STAFF, STAFF_IDS, isStaffId, staffName, type StaffId } from './c
 export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
 
 /**
+ * The hub account playing (null: standalone, this browser's own choice). Each account keeps its
+ * equipped staff under `<key>@<playerId>`, like the campaign's run, so a shared browser does not
+ * hand one account's choice to the next. A new account starts on the starter staff.
+ */
+let account: string | null = null;
+
+export function setLoadoutAccount(playerId: string | null): void {
+  account = playerId || null;
+}
+
+const storageKey = () => (account ? `${LOADOUT_STORAGE_KEY}@${account}` : LOADOUT_STORAGE_KEY);
+
+/**
  * Relic required for each staff in this game. One staff slot, so these never stack.
  * `breakwater_coin` is Sproto Arcade's: the hub grants it for beating Bront, the Arcade's first
  * boss, and it unlocks the Alien Ray Staff here.
@@ -72,7 +85,7 @@ function fresh(): Save {
 
 function read(): Save {
   try {
-    const raw = localStorage.getItem(LOADOUT_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return fresh();
     const parsed = JSON.parse(raw) as Partial<Save>;
     return {
@@ -91,7 +104,7 @@ function read(): Save {
 
 function write(save: Save): void {
   try {
-    localStorage.setItem(LOADOUT_STORAGE_KEY, JSON.stringify(save));
+    localStorage.setItem(storageKey(), JSON.stringify(save));
   } catch {
     // Private mode and full disks: the rack still works for this session.
   }
