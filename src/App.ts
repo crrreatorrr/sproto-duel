@@ -1424,7 +1424,7 @@ export class App {
       }
     }
     // Hub reports go around Campaign.recordWin. A gauntlet win against a story boss posts
-    // sproto.boss_defeated (the hub pays). Quick Duel posts no Tickets. God mode skips the board.
+    // sproto.boss_defeated (the hub pays). Quick Duel posts no Tickets. A god-mode win reports nothing.
     // Local Versus and online report nothing from the client (rules.reportToHub; see planDuelWin).
     if (!this.game.qaMode && this.match.rules.reportToHub) {
       const bossId = this.match.boss?.id ?? null;

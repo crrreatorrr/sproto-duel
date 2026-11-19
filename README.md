@@ -533,7 +533,8 @@ the next tick), by typing **9 9** quickly, with **F9**, or in Settings; start wi
 in the URL. Turning it off mid-fight takes back the boss spells you haven't earned. A **GOD MODE** badge shows on the
 HUD. It is never saved: a reload turns it off. Standing in lava or the fire ring doesn't flash you
 white (zero-damage hazard ticks skip the hit flash). The menus' background duel ignores it (stock
-stats until a match starts). Tuning: `CONFIG.debug`.
+stats until a match starts). A god-mode win reports nothing to the hub: no `sproto.boss_defeated`
+(so no Tickets) and no leaderboard score. Tuning: `CONFIG.debug`.
 
 ## Balancing
 
