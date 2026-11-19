@@ -128,7 +128,7 @@ export class AudioManager {
     for (const howl of this.howls.values()) this.ensureLoaded(howl);
   }
 
-  /** A sound that is played before it loaded plays once it has (Howler queues it). */
+  /** Start loading `howl` if nothing has yet. Music and ambience played before then wait for it (Howler queues them). */
   private ensureLoaded(howl: Howl): Howl {
     if (howl.state() === 'unloaded') howl.load();
     return howl;
@@ -153,7 +153,12 @@ export class AudioManager {
   play(key: SoundKey, opts: PlayOptions = {}): number | null {
     const howl = this.howls.get(key);
     if (!howl) return null;
-    this.ensureLoaded(howl);
+    // Not in yet (a match started within moments of boot): start the load and skip this one. A
+    // queued effect would play late, when the file lands, out of step with what made it.
+    if (howl.state() !== 'loaded') {
+      this.ensureLoaded(howl);
+      return null;
+    }
     const spec = SOUNDS[key] as SoundAsset;
     let volume = spec.volume * this.sfxVolume * (opts.volume ?? 1);
     let pan = 0;
