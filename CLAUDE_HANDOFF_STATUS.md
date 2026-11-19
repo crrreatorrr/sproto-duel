@@ -69,6 +69,8 @@ I could not read metaverse-hub from this session (the repo isn't attached), so t
      (RemoteInputBuffer's "owed" rule). So check `logged.press ⊆ F.press | presses of relayed frames in
      (previous g, g)`.
    - hold (−1): movement, held and facing of the last played frame, `press = 0`; idle before any frame.
+   - idle hold (−2): the guest had left (PEER absent; `RemoteInputBuffer.clearHeld`): no movement, `held = 0`,
+     `press = 0`, facing of the last played frame.
    - `g` not in the relay record: the host invented a frame → dispute.
    A log without `net` comes from an older client: fall back to today's behaviour.
 
@@ -78,7 +80,7 @@ I could not read metaverse-hub from this session (the repo isn't attached), so t
 | --- | --- | --- |
 | §3.1 Second WebGL context in `TitleStaffPreview` | skipped | There are two ways, and both risk a visible change on the title screen. (a) Draw the stage into the main canvas with a scissor pass after the composer. The stage then sits *under* the menu's DOM layer instead of inside it, so the menu backdrop and gradients would cover the character. It also has to redraw every main frame (the composer clears the canvas), and it touches the split-screen viewport code. (b) Render to a target and copy it into the stage's 2D canvas each frame: `readPixels` stalls the GPU. The second context is small (`low-power`, capped size) and is disposed when a match starts (`disposeTitleStage`). Worth a follow-up with someone checking the title screen. |
 | §3.2 Lazy hub feedback | done `655a679` | `installGameFeedback` is a dynamic import, installed on idle about 1 s after boot. Main chunk 936.6 → 911.8 kB raw. The handoff's 93 KB is too high: the SDK's feedback code is 25 kB, and `modern-screenshot` was already a lazy chunk. Until it's installed (the first second), N-N and the pause menu's button do nothing, and early crashes aren't listed in feedback notes. |
-| §3.3 Account-scoped staff and skin | done `a30ba0a` | `<key>@<playerId>` with a hub session (the campaign run's convention), set in `main.ts` before `App` reads them. A new account starts on Sproto and the starter staff. Standalone keeps the browser's keys. Not handled: switching accounts without a reload (the session is set once at boot, as for the campaign). |
+| §3.3 Account-scoped staff and skin | done `a30ba0a`, `53e4f6d` | `<key>@<playerId>` with a hub session (the campaign run's convention), set in `main.ts` before `App` reads them. An account with no choice of its own starts from the browser's (checked against its relics and unlocks), so existing players keep theirs. Standalone keeps the browser's keys. Not handled: switching accounts without a reload (the session is set once at boot, as for the campaign). |
 | §3.4 Non-blocking fonts | done `28af583` | `media="print" onload="this.media='all'"` plus a `<noscript>` copy. Not self-hosted: that needs the font files in the repo (no new assets this pass). |
 
 ## Final review
@@ -94,6 +96,17 @@ I reviewed the whole diff against `origin/main` with `/code-review` (high effort
 | SFX played before loading were queued and burst out late | `be83fab`: skipped, and the load starts; music and ambience still wait |
 | Boot boss prefetch could read the campaign before the account's cloud save arrived | `f4b0830`: waits for `campaign.attach` |
 | A not-yet-loaded staff swaps its mesh after a match starts | `f4b0830`: documented as look-only; it normally lands inside the 2.4 s intro |
+
+## Independent review (fresh subagent, given the diff and the rules, not my conclusions)
+
+It found no important bugs and confirmed that `src/sim-core/`, `src/config.ts` and `dist/` are untouched and that the protocol is still compatible. Its four nits are fixed:
+
+| Finding | Fix |
+| --- | --- |
+| After a rejoin, the playout fell back to the oldest buffered snapshot for a round trip (wizards jumped back about 1 s) | `4ac3234`: the old clock estimate stands until a new snapshot replaces it; test |
+| Holds after the guest left are idle (clearHeld), not "the last frame again": the documented rule would dispute an honest host | `285c3a1`: those ticks are `-2` in `net.guestFrames`; contract below updated |
+| The boot staff guess read the browser's key for hub players | `53e4f6d`: once the account is known, `main.ts` loads its staff before App shows it |
+| Existing hub players would lose their staff and skin choice once (no migration to the per-account keys) | `53e4f6d`: an account with no choice of its own reads the browser's, still checked against its relics and unlocks |
 
 ## QA playtest (`qa-tester` agent, HEAD `2e8e587`)
 
@@ -149,7 +162,10 @@ Handoff Verification Checklist, golden replays on three engines: Node (`npm test
 Chromium `npm run test:goldens-browser`: 26 goldens, 0 failed; Goja `npm run test:goja` (Go 1.24.7): 26 goldens,
 0 failed, slowest replay 51.4 s (§2.3.4's timeout concern, server-side).
 
-Final (after the review fixes, HEAD of this branch): typecheck pass, `npm test` pass (49 files, 391 tests), build
+Final (after both reviews and the playtest fixes, HEAD of this branch): typecheck pass, `npm test` pass (49 files,
+394 tests), `test:goldens-browser` 26/26, `qa:headless net.` 4/4. The server bundle is byte-identical to `main`'s:
+`dist/duel-sim.server.js`, sha256 `e41e427fb55c6307029548e3b4af986027f8fa359dd5653a10ee5a33ed98503c`, built by
+`npm run build:server-sim` (part of `npm run build`), so the Goja result above still applies. Earlier final pass: `npm test` pass (49 files, 391 tests), build
 pass (`dist/duel-sim.server.js` unchanged, version `8f68aa09e9873540`), check:assets pass, check:server-sim pass.
 
 After Phase 2: typecheck pass, `npm test` pass (49 files, 388 tests), build pass (`dist/duel-sim.server.js`
