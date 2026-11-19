@@ -391,7 +391,11 @@ distance falloff and stereo panning. Loops must start and end seamlessly.
 | `musicBattle` | `audio/music_battle.mp3` | 60-120 s, loop | Intense fantasy duel battle music, driving percussion, staccato strings, 120 BPM, D minor, seamless loop |
 
 Volumes are set per sound in `src/assets/manifest.ts` (`volume`), and globally in the in-game
-Settings. To regenerate the placeholders after changing the synth script: `npm run gen:audio`.
+Settings. To regenerate the placeholders after changing the synth script: `npm run gen:audio` (it
+writes `audio/placeholder/<key>.mp3` through ffmpeg, or `.wav` where ffmpeg is missing).
+
+Only the menu's sounds (`uiClick`, `uiHover`, `musicMenu`) load with the page. The rest load once the
+first menu is idle, or when a match starts (`AudioManager.loadAll`).
 
 ## Spell effects
 
