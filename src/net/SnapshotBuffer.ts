@@ -156,11 +156,13 @@ export class SnapshotBuffer {
   }
 
   /**
-   * Forget the clock estimate (a rejoin: latency may have changed): the next snapshot sets it
-   * afresh. The snapshots stay, so a late copy of an old one is still refused.
+   * Start the clock estimate over (a rejoin: latency may have changed): the next snapshot sets it
+   * afresh. Until then the old one stands. The snapshots stay, so a late copy of an old one is
+   * still refused.
    */
   resync(): void {
-    this.offset = null;
+    // The old estimate stays until the first new snapshot replaces it (settle), so the playout
+    // does not fall back to the oldest snapshot held in the meantime.
     this.settle = [];
     this.lateRun = 0;
     this.lateMin = Infinity;

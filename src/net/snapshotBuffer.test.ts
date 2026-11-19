@@ -99,7 +99,10 @@ describe('SnapshotBuffer clock recovery', () => {
   it('resync starts the estimate over from the next snapshot and still refuses old ones', () => {
     const b = make();
     for (let i = 0; i < 5; i++) b.push(snap(i * 2, i), i * 2 * TICK + 40);
+    const held = b.renderHostMs(9 * TICK + 40);
     b.resync();
+    // Until a new snapshot arrives the old estimate stands (no fall back to the oldest snapshot).
+    expect(b.renderHostMs(9 * TICK + 40)).toBe(held);
     expect(b.push(snap(4, 2), 5000)).toBe(false);
     expect(b.push(snap(200, 100), 200 * TICK + 140)).toBe(true);
     expect(b.renderHostMs(200 * TICK + 140)).toBeCloseTo(200 * TICK - 100, 0);
