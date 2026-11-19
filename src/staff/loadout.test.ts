@@ -122,16 +122,25 @@ describe('loadout per hub account', () => {
     setSessionRelics(['cones_tip']);
     expect(setSelectedStaff('duel_staff_nobu')).toBe(true);
     setLoadoutAccount('player-a');
-    // A new account starts on the starter, not on what the browser had equipped.
-    expect(getLoadout().staff).toBe('duel_staff_sproto');
-    expect(setSelectedStaff('duel_staff_nobu')).toBe(true);
-    setLoadoutAccount('player-b');
-    expect(getLoadout().staff).toBe('duel_staff_sproto');
-    setLoadoutAccount('player-a');
+    // An account with no choice of its own starts from the browser's (checked against its relics).
     expect(getLoadout().staff).toBe('duel_staff_nobu');
+    expect(setSelectedStaff('duel_staff_sproto')).toBe(true);
+    setLoadoutAccount('player-b');
+    // Player A's choice stays A's: B still starts from the browser's.
+    expect(getLoadout().staff).toBe('duel_staff_nobu');
+    setLoadoutAccount('player-a');
+    expect(getLoadout().staff).toBe('duel_staff_sproto');
     expect(store.has(`${LOADOUT_STORAGE_KEY}@player-a`)).toBe(true);
     expect(store.has(`${LOADOUT_STORAGE_KEY}@player-b`)).toBe(false);
     setLoadoutAccount(null);
     expect(getLoadout().staff).toBe('duel_staff_nobu');
+  });
+
+  it("an account without the relic does not get the browser's staff", () => {
+    setSessionRelics(['cones_tip']);
+    expect(setSelectedStaff('duel_staff_nobu')).toBe(true);
+    setLoadoutAccount('player-c');
+    setSessionRelics([]);
+    expect(getLoadout().staff).toBe('duel_staff_sproto');
   });
 });

@@ -44,8 +44,10 @@ describe('character skins', () => {
     expect(setSelectedSkin('broccoli')).toBe(true);
     setSkinAccount('player-a');
     try {
-      expect(getSelectedSkin()).toBe(DEFAULT_SKIN);
+      // No choice of its own yet: the browser's (App checks it is unlocked).
+      expect(getSelectedSkin()).toBe('broccoli');
       expect(setSelectedSkin('sahil')).toBe(true);
+      expect(getSelectedSkin()).toBe('sahil');
       expect(store.get(`${SKIN_STORAGE_KEY}@player-a`)).toBe('sahil');
     } finally {
       setSkinAccount(null);

@@ -22,7 +22,10 @@ export interface SkinDef {
 export const DEFAULT_SKIN = 'sproto';
 export const SKIN_STORAGE_KEY = 'arcane-duel-skin';
 
-/** The hub account playing (null: standalone): its skin choice is kept under `<key>@<playerId>`. */
+/**
+ * The hub account playing (null: standalone): its skin choice is kept under `<key>@<playerId>`.
+ * With none of its own yet, it reads the browser's choice (App still checks the skin is unlocked).
+ */
 let account: string | null = null;
 
 export function setSkinAccount(playerId: string | null): void {
@@ -54,7 +57,7 @@ export function skinScale(skin: SkinDef): number {
 /** The saved choice (it may since have become locked: App falls back to Sproto). */
 export function getSelectedSkin(): string {
   try {
-    const id = localStorage.getItem(storageKey());
+    const id = localStorage.getItem(storageKey()) ?? (account ? localStorage.getItem(SKIN_STORAGE_KEY) : null);
     if (id && skinDef(id)) return id;
   } catch {
     // Storage blocked: the default.

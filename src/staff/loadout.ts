@@ -15,8 +15,10 @@ export const LOADOUT_STORAGE_KEY = 'arcane-duel-loadout';
 
 /**
  * The hub account playing (null: standalone, this browser's own choice). Each account keeps its
- * equipped staff under `<key>@<playerId>`, like the campaign's run, so a shared browser does not
- * hand one account's choice to the next. A new account starts on the starter staff.
+ * equipped staff under `<key>@<playerId>`, like the campaign's run, so one account's choice on a
+ * shared browser never lands on another's. An account with no choice of its own yet reads the
+ * browser's (where every player's choice lived before), so existing players keep their staff; it
+ * is only a starting point, still checked against the account's own relics (getLoadout).
  */
 let account: string | null = null;
 
@@ -85,7 +87,7 @@ function fresh(): Save {
 
 function read(): Save {
   try {
-    const raw = localStorage.getItem(storageKey());
+    const raw = localStorage.getItem(storageKey()) ?? (account ? localStorage.getItem(LOADOUT_STORAGE_KEY) : null);
     if (!raw) return fresh();
     const parsed = JSON.parse(raw) as Partial<Save>;
     return {

@@ -6,7 +6,8 @@ import { connectHub } from './hub/link';
 import { HUB_GAME_ID } from './hub/config';
 import { hubVisitStarting } from '@metaverse/hub-sdk';
 import { crashGuard } from './core/crash';
-import { setLoadoutAccount } from './staff/loadout';
+import { peekSavedStaff, setLoadoutAccount } from './staff/loadout';
+import { staffModelPath } from './staff/catalog';
 import { setSkinAccount } from './campaign/skins';
 import { showCrashPanel } from './ui/CrashPanel';
 
@@ -41,6 +42,9 @@ async function boot() {
   const account = hub.connected && hub.playerId ? hub.playerId : null;
   setLoadoutAccount(account);
   setSkinAccount(account);
+  // Boot guessed the staff from the browser's choice; an account's own may differ: load it before
+  // the menu shows it (one staff model, as boot did).
+  if (account) await game.assets.loadProp(staffModelPath(peekSavedStaff()));
   loading.remove();
   const app = new App(game, campaign, hub);
   game.start();
