@@ -271,6 +271,25 @@ export function createProgressStore(options) {
             status = 'local';
             emit();
         },
+        flushKeepalive() {
+            if (owner.kind !== 'account' || !cloud?.writeSave || !isDirty(owner))
+                return false;
+            if (pushTimer) {
+                clearTimeout(pushTimer);
+                pushTimer = null;
+            }
+            value = model.merge(value, readSlot(owner));
+            const body = toCloud(value);
+            try {
+                encodeSave(body);
+            }
+            catch (error) {
+                options.onError?.(error);
+                return false;
+            }
+            void cloud.writeSave(body, { keepalive: true }).catch((error) => options.onError?.(error));
+            return true;
+        },
         flush() {
             if (owner.kind !== 'account' || !cloud)
                 return Promise.resolve();

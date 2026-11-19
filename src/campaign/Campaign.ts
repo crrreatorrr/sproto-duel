@@ -305,6 +305,14 @@ export class Campaign {
     return this.store.flush();
   }
 
+  /**
+   * For page exit (`pagehide`, which also fires when Return to Hub navigates): send unsynced
+   * account progress as one keepalive `save.put` that outlives the page. False when nothing was sent.
+   */
+  flushKeepalive(): boolean {
+    return this.store.flushKeepalive();
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

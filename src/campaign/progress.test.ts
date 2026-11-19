@@ -104,6 +104,29 @@ describe('campaign progress per hub account', () => {
     expect(c.saved.next).toBe(2);
   });
 
+  it('sends unsynced account progress with keepalive on page exit, and nothing for a device', async () => {
+    const saves: { data: Record<string, unknown>; keepalive: boolean }[] = [];
+    const cloud: ProgressCloud = {
+      loadSave: async () => ({ data: null, updatedAt: 0 }),
+      writeSave: async (data, opts) => {
+        saves.push({ data: JSON.parse(JSON.stringify(data)) as Record<string, unknown>, keepalive: !!opts?.keepalive });
+        return { data, updatedAt: Date.now() };
+      },
+    };
+    const device = new Campaign({ storage: disk(), pushDelayMs: 60_000 });
+    winFights(device, 1);
+    expect(device.flushKeepalive()).toBe(false);
+
+    const c = new Campaign({ storage: disk(), pushDelayMs: 60_000 });
+    await c.attach(cloud, 'alice');
+    saves.length = 0;
+    winGauntlet(c);
+    expect(c.flushKeepalive()).toBe(true);
+    expect(saves).toHaveLength(1);
+    expect(saves[0].keepalive).toBe(true);
+    expect(saves[0].data).toMatchObject({ clears: 1 });
+  });
+
   it('never moves device progress into an account, before or after it attaches', async () => {
     const browser = disk();
     const server = hub();

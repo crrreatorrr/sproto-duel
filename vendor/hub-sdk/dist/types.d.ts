@@ -50,6 +50,11 @@ export interface InitResult {
     playerId: string;
     ranked: boolean;
     relics: RelicId[];
+    /**
+     * Relic ids the server reports that this SDK version does not know (0.9.0), for example a
+     * Relic from a newer hub release. Absent when there are none. Re-vendor the SDK to type them.
+     */
+    otherRelics?: string[];
     /** Resolved effects for this game only. Empty until the server ships the matrix. */
     effects: Record<string, number | boolean | string>;
     ticketsCapLeft: number;
@@ -115,8 +120,13 @@ export interface EventResult {
      * without a second credit: show it, do not add it to a balance; read `getBalance` for that.
      */
     tickets?: number;
-    /** Cosmetic items (pets) this event granted, from the live server (migration 0030). `[]` when none. */
+    /**
+     * Cosmetic items (pets) this event granted, from the live server (migration 0030). `[]` when
+     * none; absent from a standalone session or an older server. Returned by `reportEvent` since 0.9.0.
+     */
     granted_items?: string[];
+    /** A Relic the server granted that this SDK version does not know (0.9.0). `granted` stays unset. */
+    grantedOther?: string;
 }
 /** Nakama session from `redeemTicket`. The HTTP key is not involved. */
 export interface RedeemedSession {
@@ -168,7 +178,9 @@ export interface HubSdk {
      * Replace this game's cloud save (`save.put`). Errors throw `HubSdkError`
      * (`bad_save`, `save_too_large`). Standalone resolves `{ data: null, updatedAt: 0 }`.
      */
-    writeSave?(data: Record<string, unknown>): Promise<SaveResult>;
+    writeSave?(data: Record<string, unknown>, opts?: {
+        keepalive?: boolean;
+    }): Promise<SaveResult>;
     /**
      * May this player send in-game feedback (`feedback.can`)? Signed-in hub accounts only:
      * standalone play answers `{ ok: false, reason: 'standalone' }`, a guest `sign_in_required`.

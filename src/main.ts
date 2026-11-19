@@ -30,7 +30,10 @@ async function boot() {
   addEventListener('storage', (e) => {
     if (campaign.watches(e.key)) campaign.refresh();
   });
-  addEventListener('pagehide', () => void campaign.flush());
+  // A keepalive save outlives the page; this also covers Return to Hub, which navigates away.
+  addEventListener('pagehide', () => {
+    if (!campaign.flushKeepalive()) void campaign.flush();
+  });
 
   // A portal ticket is redeemed while the arena loads. No ticket: standalone, same as before.
   const hubPromise = connectHub();

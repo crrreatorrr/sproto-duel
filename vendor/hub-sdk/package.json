@@ -1,10 +1,13 @@
 {
   "name": "@metaverse/hub-sdk",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": false,
   "type": "module",
   "sideEffects": false,
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/crrreatorrr/metaverse-hub.git",
@@ -15,6 +18,36 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/entry/core.d.ts",
+      "import": "./dist/entry/core.js",
+      "default": "./dist/entry/core.js"
+    },
+    "./realtime": {
+      "types": "./dist/entry/realtime.d.ts",
+      "import": "./dist/entry/realtime.js",
+      "default": "./dist/entry/realtime.js"
+    },
+    "./mock": {
+      "types": "./dist/entry/mock.d.ts",
+      "import": "./dist/entry/mock.js",
+      "default": "./dist/entry/mock.js"
+    },
+    "./feedback": {
+      "types": "./dist/entry/feedback.d.ts",
+      "import": "./dist/entry/feedback.js",
+      "default": "./dist/entry/feedback.js"
+    },
+    "./progress": {
+      "types": "./dist/entry/progress.d.ts",
+      "import": "./dist/entry/progress.js",
+      "default": "./dist/entry/progress.js"
+    },
+    "./pb-shop": {
+      "types": "./dist/entry/pb-shop.d.ts",
+      "import": "./dist/entry/pb-shop.js",
+      "default": "./dist/entry/pb-shop.js"
     }
   },
   "scripts": {
