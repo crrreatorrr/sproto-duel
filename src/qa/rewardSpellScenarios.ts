@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { App } from '../App';
 import type { ArenaThemeId } from '../arena/themes';
 import { Campaign } from '../campaign/Campaign';
+import { LEGACY_CAMPAIGN_KEY, PROGRESS_KEY } from '../campaign/progress';
 import { BOSSES, bossDisplayName, rewardsBefore } from '../campaign/levels';
 import { CONFIG, type AIProfile } from '../config';
 import { events } from '../core/events';
@@ -86,8 +87,10 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
       c.expect(a.lastLearned === null && a.unlocked.length === REWARD_SPELLS.length, `a repeat win: last ${a.lastLearned}, ${a.unlocked.length} spells`);
       a.startNew();
       c.expect(new Campaign(key).unlocked.length === REWARD_SPELLS.length, 'New Gauntlet forgot the spells');
+      // The progress store's format (src/campaign/progress.ts): spell id -> the `forgets` count it was learned at.
       const raw = JSON.parse(localStorage.getItem(key) ?? '{}');
-      c.expect(raw.version === 2 && Array.isArray(raw.unlockedSpells), `save format ${JSON.stringify(raw)}`);
+      const savedSpells = raw.spells && typeof raw.spells === 'object' ? Object.keys(raw.spells) : [];
+      c.expect(typeof raw.forgets === 'number' && savedSpells.length === REWARD_SPELLS.length, `save format ${JSON.stringify(raw)}`);
       a.forgetSpells();
       const f = new Campaign(key);
       c.expect(f.unlocked.length === 0 && f.saved.clears === 1, `forget: ${JSON.stringify(f.saved)}`);
@@ -101,32 +104,27 @@ export function registerRewardSpellScenarios(qa: QAHarness, game: Game, app: App
   });
 
   qa.add('rewards.save_migration', (c) => {
-    const key = 'arcane-duel-campaign-qa-migrate';
-    const put = (v: unknown) => localStorage.setItem(key, JSON.stringify(v));
-    try {
-      // A save from before the spells: every boss before `next` was beaten.
-      put({ next: 3, clears: 0 });
-      const a = new Campaign(key);
-      c.expect(a.unlocked.join() === 'carpet,pump,vape' && a.saved.next === 3, `next 3 -> ${a.unlocked.join()}`);
-      const written = JSON.parse(localStorage.getItem(key)!);
-      c.expect(written.version === 2 && written.unlockedSpells.join() === 'carpet,pump,vape', `not written back: ${JSON.stringify(written)}`);
-      // A cleared gauntlet: all five.
-      put({ next: 0, clears: 2 });
-      c.expect(new Campaign(key).unlocked.length === REWARD_SPELLS.length, 'a cleared save did not get all five');
-      put({ next: 0, clears: 0 });
-      c.expect(new Campaign(key).unlocked.length === 0, 'a fresh old save got spells');
-      // Junk and duplicates are dropped; the order is the gauntlet's.
-      put({ version: 2, next: 1, clears: 0, unlockedSpells: ['vape', 'bogus', 'carpet', 'vape', 7] });
-      c.expect(new Campaign(key).unlocked.join() === 'carpet,vape', `cleaned: ${new Campaign(key).unlocked.join()}`);
-      localStorage.setItem(key, '{oops');
-      c.expect(new Campaign(key).unlocked.length === 0, 'a corrupt save learned something');
-    } finally {
-      try {
-        localStorage.removeItem(key);
-      } catch {
-        // ignore
-      }
-    }
+    // Saves of earlier builds (the campaign key, versions 1 and 2) move into the progress store the
+    // first time a device Campaign opens on them. A private store, so the browser's save is untouched.
+    const store = new Map<string, string>();
+    const kv = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    const legacy = (v: unknown) => {
+      store.clear();
+      store.set(LEGACY_CAMPAIGN_KEY, typeof v === 'string' ? v : JSON.stringify(v));
+      return new Campaign({ storage: kv });
+    };
+    // A save from before the spells: every boss before `next` was beaten.
+    const a = legacy({ next: 3, clears: 0 });
+    c.expect(a.unlocked.join() === 'carpet,pump,vape' && a.saved.next === 3, `next 3 -> ${a.unlocked.join()} (next ${a.saved.next})`);
+    const written = JSON.parse(store.get(PROGRESS_KEY) ?? '{}');
+    c.expect(Object.keys(written.spells ?? {}).join() === 'carpet,pump,vape', `not written back: ${JSON.stringify(written)}`);
+    // A cleared gauntlet: all five.
+    c.expect(legacy({ next: 0, clears: 2 }).unlocked.length === REWARD_SPELLS.length, 'a cleared save did not get all five');
+    c.expect(legacy({ next: 0, clears: 0 }).unlocked.length === 0, 'a fresh old save got spells');
+    // Junk and duplicates are dropped; the order is the gauntlet's.
+    const cleaned = legacy({ version: 2, next: 1, clears: 0, unlockedSpells: ['vape', 'bogus', 'carpet', 'vape', 7] });
+    c.expect(cleaned.unlocked.join() === 'carpet,vape', `cleaned: ${cleaned.unlocked.join()}`);
+    c.expect(legacy('{oops').unlocked.length === 0, 'a corrupt save learned something');
   });
 
   qa.add('rewards.duo_teaches_once_both_are_down', (c) => {
