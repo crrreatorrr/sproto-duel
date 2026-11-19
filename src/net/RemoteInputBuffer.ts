@@ -51,8 +51,13 @@ export class RemoteInputBuffer {
   private starved = 0;
   /** Guest tick of the last frame played (the snapshot `ack`), -1 before any. */
   lastApplied = -1;
-  /** What the latest `next()` played: a guest frame tick, or -1 (a hold, or nothing yet). */
+  /**
+   * What the latest `next()` played: a guest frame tick, -1 (a hold of the last frame, or nothing
+   * yet), or -2 (a hold after clearHeld: the peer left, so no movement and no held buttons).
+   */
   played = -1;
+  /** clearHeld ran since the last frame played: holds are idle. */
+  private idleHold = false;
 
   constructor(private readonly opts: RemoteInputOptions) {
     this.delay = opts.delay;
@@ -132,9 +137,11 @@ export class RemoteInputBuffer {
       this.underruns++;
       this.starved++;
       if (this.delay < this.opts.delay + 4) this.delay++;
+      if (this.idleHold && this.last) this.played = -2;
       return this.last ? { ...this.last, press: 0 } : null;
     }
     this.starved = 0;
+    this.idleHold = false;
     this.frames.delete(this.playhead);
     this.lastApplied = this.played = this.playhead;
     this.playhead++;
@@ -159,6 +166,7 @@ export class RemoteInputBuffer {
     this.owed = 0;
     this.primed = false;
     this.starved = 0;
+    this.idleHold = false;
     this.delay = this.opts.delay;
     if (keepAck) this.floor = this.lastApplied;
     else {
@@ -170,5 +178,6 @@ export class RemoteInputBuffer {
   /** The peer stopped sending (dropped): hold nothing, so the wizard stops instead of running on. */
   clearHeld(): void {
     if (this.last) this.last = { ...this.last, mx: 0, mz: 0, held: 0, press: 0 };
+    this.idleHold = true;
   }
 }

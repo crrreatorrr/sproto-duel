@@ -133,6 +133,21 @@ describe('RemoteInputBuffer catch-up', () => {
     expect(b.overruns).toBe(1);
   });
 
+  it('reports idle holds after the peer left', () => {
+    const b = new RemoteInputBuffer({ delay: 1, maxLag: 30 });
+    b.push([f(0)]);
+    b.next();
+    expect(b.played).toBe(0);
+    b.next();
+    expect(b.played).toBe(-1);
+    b.clearHeld();
+    expect(b.next()!.mx).toBe(0);
+    expect(b.played).toBe(-2);
+    b.push([f(1)]);
+    b.next();
+    expect(b.played).toBe(1);
+  });
+
   it('reset(keepAck) keeps the last acknowledged tick', () => {
     const b = new RemoteInputBuffer({ delay: 1, maxLag: 30 });
     b.push([f(5)]);

@@ -78,27 +78,29 @@ export function digestFrames(frames: Iterable<IntentFrame>): InputDigestMsg {
 
 /**
  * Host: guest frame tick played per sim tick, as runs `[simTick, guestTick, count]`. Within a run
- * the guest tick goes up by one per sim tick; `guestTick` -1 is a run of holds (the buffer ran
- * dry, or had not started: the guest's last frame again, presses cleared, or idle before any).
+ * the guest tick goes up by one per sim tick. Negative ticks are runs of holds: -1, the buffer ran
+ * dry or had not started (the guest's last frame again with presses cleared, or idle before any);
+ * -2, the guest had left (RemoteInputBuffer.clearHeld: idle, no movement or held buttons).
  */
 export class GuestTickMap {
   readonly runs: [number, number, number][] = [];
 
-  /** Sim tick `simTick` (0-based, as the log counts) played guest frame `guestTick` (-1: a hold). */
+  /** Sim tick `simTick` (0-based, as the log counts) played guest frame `guestTick` (-1 / -2: holds). */
   record(simTick: number, guestTick: number): void {
+    const g = guestTick < 0 ? (guestTick === -2 ? -2 : -1) : guestTick;
     const r = this.runs[this.runs.length - 1];
-    if (r && r[0] + r[2] === simTick && (guestTick < 0 ? r[1] < 0 : r[1] >= 0 && r[1] + r[2] === guestTick)) {
+    if (r && r[0] + r[2] === simTick && (g < 0 ? r[1] === g : r[1] >= 0 && r[1] + r[2] === g)) {
       r[2]++;
       return;
     }
-    this.runs.push([simTick, guestTick < 0 ? -1 : guestTick, 1]);
+    this.runs.push([simTick, g, 1]);
   }
 
-  /** The guest frame tick played at `simTick`: -1 for a hold, null when not recorded. */
+  /** The guest frame tick played at `simTick`: -1 / -2 for holds, null when not recorded. */
   at(simTick: number): number | null {
     for (const [s, g, n] of this.runs) {
       if (simTick < s || simTick >= s + n) continue;
-      return g < 0 ? -1 : g + (simTick - s);
+      return g < 0 ? g : g + (simTick - s);
     }
     return null;
   }

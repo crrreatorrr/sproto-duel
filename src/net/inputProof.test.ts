@@ -53,5 +53,11 @@ describe('GuestTickMap', () => {
     expect(m.at(10)).toBe(-1);
     expect(m.at(14)).toBe(12);
     expect(m.at(15)).toBeNull();
+    // A guest who left: idle holds get their own runs.
+    m.record(15, -2);
+    m.record(16, -2);
+    m.record(17, -1);
+    expect(m.runs.slice(-2)).toEqual([[15, -2, 2], [17, -1, 1]]);
+    expect(m.at(16)).toBe(-2);
   });
 });
