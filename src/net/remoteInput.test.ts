@@ -123,6 +123,11 @@ describe('RemoteInputBuffer catch-up', () => {
     expect(b.lastApplied).toBe(5);
     b.reset(true);
     expect(b.lastApplied).toBe(5);
+    // Copies of frames already played (INPUT repeats the last few) are not played again.
+    b.push([f(4, 1), f(5, 1), f(6), f(7)]);
+    expect(b.next()!.tick).toBe(6);
+    expect(b.next()!.press).toBe(0);
+    expect(b.lastApplied).toBe(7);
     b.reset();
     expect(b.lastApplied).toBe(-1);
   });

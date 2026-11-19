@@ -34,6 +34,8 @@ export class RemoteInputBuffer {
   private last: IntentFrame | null = null;
   /** Press bits owed to the next played frame (late or skipped frames). */
   private owed = 0;
+  /** After reset(keepAck): frames at or before this tick were played already and are ignored. */
+  private floor = -Infinity;
   private primed = false;
   /** Current target depth (adapts within delay..delay+4). */
   delay: number;
@@ -57,6 +59,8 @@ export class RemoteInputBuffer {
 
   push(frames: readonly IntentFrame[]): void {
     for (const f of frames) {
+      // Played before a keepAck reset (a redundant copy, or one in flight): already applied.
+      if (f.tick <= this.floor) continue;
       if (this.playhead !== null && f.tick < this.playhead) {
         // Already played past it: keep its presses (a late tap still happens), unless far too late.
         if (!this.seen.has(f.tick) && this.playhead - f.tick <= this.opts.maxLag) this.owed |= f.press;
@@ -147,7 +151,11 @@ export class RemoteInputBuffer {
     this.owed = 0;
     this.primed = false;
     this.delay = this.opts.delay;
-    if (!keepAck) this.lastApplied = -1;
+    if (keepAck) this.floor = this.lastApplied;
+    else {
+      this.lastApplied = -1;
+      this.floor = -Infinity;
+    }
   }
 
   /** The peer stopped sending (dropped): hold nothing, so the wizard stops instead of running on. */
