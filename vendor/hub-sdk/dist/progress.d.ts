@@ -80,6 +80,13 @@ export interface ProgressStore<T> {
     release(): void;
     /** Pushes any unsynced account progress now. Resolves when done or failed. */
     flush(): Promise<void>;
+    /**
+     * For page exit (`exitToHub`, `pagehide`): sends the unsynced account copy as one
+     * `save.put` with `keepalive`, so the write outlives the page (0.9.0). It skips the cloud
+     * read, so it writes this tab's merged copy; the unsynced mark stays set and the next
+     * visit's push merges with the cloud as usual. Returns false when there was nothing to send.
+     */
+    flushKeepalive(): boolean;
 }
 /**
  * One game's progress, owned by the device or by a hub account.

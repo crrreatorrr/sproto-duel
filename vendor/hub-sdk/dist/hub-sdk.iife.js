@@ -1,4 +1,4 @@
-/*! @metaverse/hub-sdk 0.8.0 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
+/*! @metaverse/hub-sdk 0.9.0 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
 "use strict";
 var HubSDK = (() => {
   var __defProp = Object.defineProperty;
@@ -2271,6 +2271,23 @@ var HubSDK = (() => {
         status = "local";
         emit();
       },
+      flushKeepalive() {
+        if (owner.kind !== "account" || !cloud?.writeSave || !isDirty(owner)) return false;
+        if (pushTimer) {
+          clearTimeout(pushTimer);
+          pushTimer = null;
+        }
+        value = model.merge(value, readSlot(owner));
+        const body = toCloud(value);
+        try {
+          encodeSave(body);
+        } catch (error) {
+          options.onError?.(error);
+          return false;
+        }
+        void cloud.writeSave(body, { keepalive: true }).catch((error) => options.onError?.(error));
+        return true;
+      },
       flush() {
         if (owner.kind !== "account" || !cloud) return Promise.resolve();
         if (pushTimer) {
@@ -2565,6 +2582,23 @@ var HubSDK = (() => {
     if (!Array.isArray(value)) return [];
     return value.filter((item) => typeof item === "string" && isRelicId(item));
   }
+  var RELIC_ID_SHAPE = /^[a-z0-9_]{1,48}$/;
+  var warnedRelics = /* @__PURE__ */ new Set();
+  function otherRelicIds(value) {
+    if (!Array.isArray(value)) return [];
+    const out = [];
+    for (const item of value) {
+      if (typeof item !== "string" || isRelicId(item) || !RELIC_ID_SHAPE.test(item) || out.includes(item)) continue;
+      out.push(item);
+      noteUnknownRelic(item);
+    }
+    return out;
+  }
+  function noteUnknownRelic(id) {
+    if (warnedRelics.has(id)) return;
+    warnedRelics.add(id);
+    if (typeof console !== "undefined") console.warn(`[hub-sdk] Relic "${id}" is newer than this SDK; re-vendor @metaverse/hub-sdk to type it.`);
+  }
   function clockMs(value) {
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
   }
@@ -2574,16 +2608,34 @@ var HubSDK = (() => {
   function useIndexedDb() {
     return typeof indexedDB !== "undefined";
   }
+  var outboxDb = null;
   function openOutbox() {
-    return new Promise((resolve, reject) => {
+    if (outboxDb) return outboxDb;
+    const opening = new Promise((resolve, reject) => {
       const request = indexedDB.open(HUB_OUTBOX_DB, 1);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains(OUTBOX_STORE)) db.createObjectStore(OUTBOX_STORE, { keyPath: "key" });
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const db = request.result;
+        const forget2 = () => {
+          if (outboxDb === opening) outboxDb = null;
+        };
+        db.onversionchange = () => {
+          forget2();
+          db.close();
+        };
+        db.onclose = forget2;
+        resolve(db);
+      };
       request.onerror = () => reject(request.error ?? new Error("indexedDB open failed"));
     });
+    outboxDb = opening;
+    opening.catch(() => {
+      if (outboxDb === opening) outboxDb = null;
+    });
+    return opening;
   }
   function requestDone(request) {
     return new Promise((resolve, reject) => {
@@ -2599,16 +2651,24 @@ var HubSDK = (() => {
     });
   }
   async function withStore(mode, run) {
-    const db = await openOutbox();
+    let db = await openOutbox();
+    let tx;
     try {
-      const tx = db.transaction(OUTBOX_STORE, mode);
-      const done = transactionDone(tx);
-      const result = await run(tx.objectStore(OUTBOX_STORE));
-      await done;
-      return result;
-    } finally {
-      db.close();
+      tx = db.transaction(OUTBOX_STORE, mode);
+    } catch (error) {
+      if (error?.name !== "InvalidStateError") throw error;
+      outboxDb = null;
+      try {
+        db.close();
+      } catch {
+      }
+      db = await openOutbox();
+      tx = db.transaction(OUTBOX_STORE, mode);
     }
+    const done = transactionDone(tx);
+    const result = await run(tx.objectStore(OUTBOX_STORE));
+    await done;
+    return result;
   }
   async function readWrite(key) {
     if (!useIndexedDb()) return memoryWrites.get(key) ?? null;
@@ -2753,6 +2813,7 @@ var HubSDK = (() => {
         playerId: session.playerId,
         ranked: session.ranked,
         relics: [...session.relics],
+        ...session.otherRelics?.length ? { otherRelics: [...session.otherRelics] } : {},
         effects: { ...session.effects },
         ticketsCapLeft: session.ticketsCapLeft,
         serverTime
@@ -2772,7 +2833,15 @@ var HubSDK = (() => {
     function noteGrant(session, response) {
       if (!response || typeof response !== "object") return;
       const granted = response.granted;
-      if (typeof granted !== "string" || !isRelicId(granted) || session.relics.includes(granted)) return;
+      if (typeof granted !== "string") return;
+      if (!isRelicId(granted)) {
+        const other = otherRelicIds([granted]);
+        if (!other.length || session.otherRelics?.includes(granted)) return;
+        session.otherRelics = [...session.otherRelics ?? [], granted];
+        writeCached(session);
+        return;
+      }
+      if (session.relics.includes(granted)) return;
       session.relics.push(granted);
       writeCached(session);
     }
@@ -2962,6 +3031,7 @@ var HubSDK = (() => {
             } else if (profile) {
               const loaded = profile;
               current.relics = asRelics(loaded.relics);
+              current.otherRelics = otherRelicIds(loaded.relics);
               readInventory(loaded);
               if (loaded.playerId) current.playerId = loaded.playerId;
               if (typeof loaded.ticketsCapLeft === "number") current.ticketsCapLeft = loaded.ticketsCapLeft;
@@ -2984,8 +3054,17 @@ var HubSDK = (() => {
         const result = await sendOnce(active, "session.event", key, { eventId, data });
         const answer = result && typeof result === "object" ? result : {};
         const out = {};
-        if (typeof answer.granted === "string" && isRelicId(answer.granted)) out.granted = answer.granted;
+        if (typeof answer.granted === "string") {
+          if (isRelicId(answer.granted)) out.granted = answer.granted;
+          else {
+            const [other] = otherRelicIds([answer.granted]);
+            if (other) out.grantedOther = other;
+          }
+        }
         if (typeof answer.tickets === "number" && Number.isSafeInteger(answer.tickets) && answer.tickets >= 0) out.tickets = answer.tickets;
+        if (Array.isArray(answer.granted_items)) {
+          out.granted_items = answer.granted_items.filter((item) => typeof item === "string" && item.length > 0);
+        }
         return out;
       },
       async submitScore(boardId, value, meta) {
@@ -3033,10 +3112,11 @@ var HubSDK = (() => {
         if (!active) return { ...EMPTY_SAVE };
         return readSaveResult(await client.rpc("save.get", {}, { token: active.token }));
       },
-      async writeSave(data) {
+      async writeSave(data, opts) {
         encodeSave(data);
         if (!active) return { ...EMPTY_SAVE };
-        return readSaveResult(await client.rpc("save.put", { data }, { token: active.token }));
+        const rpcOpts = opts?.keepalive ? { token: active.token, keepalive: true } : { token: active.token };
+        return readSaveResult(await client.rpc("save.put", { data }, rpcOpts));
       },
       async feedbackAccess() {
         if (!active) return { ok: false, reason: "standalone" };
