@@ -9,6 +9,7 @@ import {
   asAcceptEnd, asCancel, asFound, asInput, asOutcome, asPeer, asPing, asRematchState, asStart, NET_VERSION, normalizeRoomCode, OP, parseJson,
   type AcceptEndMsg, type FoundMsg, type OnlineCount, type OutcomeMsg, type PeerMsg, type RematchStateMsg, type ResultMsg, type RoundMsg, type StartMsg,
 } from './protocol';
+import { InputDigest } from './inputProof';
 import { RemoteInputBuffer } from './RemoteInputBuffer';
 import { SnapshotBuffer } from './SnapshotBuffer';
 import { decodeSnapshot, SnapshotVersionError, type EncodedSnapshot, type Snapshot } from './state';
@@ -108,6 +109,8 @@ export class OnlineSession {
   /** Local copy of the server's rematch clock, plus a short grace before we give up. */
   private rematchClockEnd = Infinity;
   private readonly sentFrames: IntentFrame[] = [];
+  /** Guest: the digest of every frame queued this match, sent with RESULT (src/net/inputProof.ts). */
+  inputDigest = new InputDigest();
   private unsent = 0;
   private readonly listeners: { [K in keyof SessionEvents]?: ((v: SessionEvents[K]) => void)[] } = {};
 
@@ -230,6 +233,7 @@ export class OnlineSession {
     this.peerGraceS = 0;
     this.sentFrames.length = 0;
     this.unsent = 0;
+    this.inputDigest = new InputDigest();
     this.badSnapshots = 0;
     this.remoteInput.reset();
     this.snapshots.clear();
@@ -241,7 +245,7 @@ export class OnlineSession {
     this.subs.push(
       t.onMessage((op, data) => this.onMessage(op, data)),
       t.onPresence(() => {}),
-      t.onRejoin(() => this.emit('rejoin', undefined)),
+      t.onRejoin(() => this.onRejoin()),
       t.onClose((reason) => {
         if (this.active) this.end(reason === 'ended' ? 'match_ended' : 'disconnected');
       }),
@@ -250,6 +254,25 @@ export class OnlineSession {
     else if (this.state !== 'hosting-room') this.setState('starting');
     this.startDeadline = this.opts.scheduler.now() + (this.opts.startTimeoutMs ?? 30_000);
     this.send(OP.HELLO, { v: this.opts.version ?? NET_VERSION, staff: this.opts.staff });
+  }
+
+  /** Times the realtime link came back within the grace window. */
+  rejoins = 0;
+
+  /**
+   * The realtime link came back within the grace window. The match went on without us: our
+   * snapshot clock may be off by the outage's change in latency, input we queued before it is
+   * stale, and a host's buffer of the guest's frames has a hole. Start those over, ping at once
+   * for a fresh RTT, then tell the controller ('rejoin').
+   */
+  private onRejoin(): void {
+    this.rejoins++;
+    this.snapshots.resync();
+    this.sentFrames.length = 0;
+    this.unsent = 0;
+    if (this.isHost) this.remoteInput.reset(true);
+    this.nextPing = 0;
+    this.emit('rejoin', undefined);
   }
 
   private detachTransport(): void {
@@ -273,6 +296,12 @@ export class OnlineSession {
         // START begins the match we are still waiting on: the accept window, a room, or the
         // new match joined after REMATCH_STATE started. A replay on a match that already
         // started (including one sitting in the rematch window) is not another fight.
+        if (this.state === 'playing' && this.start && s.seat === this.start.seat) {
+          // The server re-sends START to a player who rejoins: the same match, so not a new
+          // fight, but our clock estimate is from before the outage.
+          this.snapshots.resync();
+          return;
+        }
         if (this.state !== 'accepting' && this.state !== 'starting' && this.state !== 'hosting-room' && this.state !== 'joining-room') return;
         const first = this.start === null;
         this.start = s;
@@ -450,6 +479,7 @@ export class OnlineSession {
   queueInput(frame: IntentFrame): void {
     if (this.state !== 'playing' || this.isHost) return;
     this.sentFrames.push(frame);
+    this.inputDigest.add(frame);
     const per = this.opts.inputFramesPerMessage ?? 4;
     if (this.sentFrames.length > per) this.sentFrames.splice(0, this.sentFrames.length - per);
     if (++this.unsent < (this.opts.inputEveryTicks ?? 2)) return;
@@ -469,7 +499,9 @@ export class OnlineSession {
 
   /** Both: how the match ended, as this client saw it. The server's OUTCOME follows. */
   sendResult(msg: ResultMsg): void {
-    if (this.state === 'playing') this.send(OP.RESULT, msg);
+    if (this.state !== 'playing') return;
+    // The guest vouches for its own input (the host's log is checked against it).
+    this.send(OP.RESULT, this.isHost ? msg : { ...msg, inputs: this.inputDigest.value });
   }
 
   forfeit(): void {

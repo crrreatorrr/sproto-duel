@@ -9,8 +9,11 @@
  * a RemoteSource from the session's input buffer; every `snapEveryTicks` a snapshot (with the
  * events recorded since the last one) goes out; ROUND after each round and RESULT at the end.
  * Guest (replica): no gameplay runs; local input is sampled per tick and sent; snapshots are
- * applied (both wizards interpolated, projectiles extrapolated) and the host's events re-emitted,
+ * applied (the opponent interpolated, projectiles extrapolated) and the host's events re-emitted,
  * so HUD, audio and effects behave as offline. RESULT goes out from the replicated matchEnd.
+ * The guest's own wizard is predicted (GuestPredictor: sim-core movement stepped on each local
+ * frame, reconciled against every snapshot's `ack`) and shown with corrections eased away, so it
+ * answers the guest's input at once instead of a round trip plus the interpolation delay later.
  */
 import * as THREE from 'three';
 import { CONFIG } from '../config';
@@ -24,12 +27,27 @@ import { chunkLog } from '../sim-core';
 import type { OnlineSession } from './OnlineSession';
 import type { StartMsg } from './protocol';
 import { RemoteSource } from './RemoteSource';
+import { GuestPredictor, PredictionSmoother, type PredictedPose } from './GuestPredictor';
+import { GuestTickMap } from './inputProof';
 import { applyProjectiles, applySnapshot, captureSnapshot } from './snapshot';
 import { emptyPose } from './SnapshotBuffer';
 import { encodeSnapshot, type Snapshot } from './state';
 import type { Scheduler } from './transport';
 
 const N = CONFIG.net;
+
+/**
+ * Guest prediction settings. Kept here, not in CONFIG: CONFIG is part of the server sim bundle
+ * (dist/duel-sim.server.js), whose version must not move for a client-only change.
+ */
+export const PREDICTION = {
+  /** The guest predicts its own wizard's movement (GuestPredictor). Visual only. */
+  enabled: true,
+  /** Time constant (ms) over which a prediction correction is eased away on screen. */
+  smoothMs: 90,
+  /** A correction longer than this (m) is shown at once (a respawn, a long stall). */
+  snapDistance: 2,
+};
 
 export class OnlineController {
   /** Wizards by network seat. */
@@ -45,6 +63,16 @@ export class OnlineController {
   snapshots = 0;
   /** Guest: point the camera at the replicated pose on the next frame (match and round starts). */
   private needSnap = true;
+  /** Guest: our own wizard's prediction (null on the host, or with PREDICTION.enabled off). */
+  predictor: GuestPredictor | null = null;
+  private readonly smoother = new PredictionSmoother(PREDICTION.smoothMs, PREDICTION.snapDistance);
+  /** The predicted pose before and after the latest local tick (the visual interpolates between). */
+  private readonly predPrev = newPose();
+  private readonly predCur = newPose();
+  private lastFrameMs = 0;
+  /** Host: which guest frame each sim tick played, for the referee (OP.LOG `net.guestFrames`). */
+  guestTicks = new GuestTickMap();
+  private lastMappedTick = -1;
   active = false;
 
   constructor(
@@ -89,6 +117,8 @@ export class OnlineController {
     if (this.isHost) {
       g.role = 'host';
       g.controllers[1] = new RemoteSource(g.enemy, this.session.remoteInput);
+      this.guestTicks = new GuestTickMap();
+      this.lastMappedTick = -1;
       const rec = (this.recorder = new EventRecorder(this.world()));
       for (const name of NET_EVENT_NAMES) {
         this.offs.push(events.on(name as keyof GameEvents, (p) => rec.record(name, p as unknown as Record<string, unknown>)));
@@ -99,6 +129,9 @@ export class OnlineController {
       g.controllers[1] = null;
       g.spells.pool.releaseAll();
       this.player = new EventPlayer(this.world(), (name, payload) => events.emit(name as keyof GameEvents, payload as never));
+      // Online duels are fought in the arena dressed for them (moonlit; Match.startSimMatch).
+      this.predictor = PREDICTION.enabled ? new GuestPredictor(start.seat, g.arena.theme) : null;
+      this.smoother.clear();
       this.offs.push(this.session.on('snapshot', (snap) => this.onSnapshot(snap)));
       g.replicaHooks.push(this.guestTick);
       // A new round on the host: clear the replica's arena the way Match.startRound does there.
@@ -110,6 +143,9 @@ export class OnlineController {
         this.needSnap = true;
       }));
     }
+    // Our link came back inside the grace window (OnlineSession already restarted its clock and
+    // input queues): predict again from the next snapshot instead of from before the outage.
+    this.offs.push(this.session.on('rejoin', () => this.onRejoin()));
     // The other player left for good: the host's log records the forfeit before it goes out.
     this.offs.push(this.session.on('outcome', (o) => {
       const sim = this.game.sim;
@@ -123,7 +159,14 @@ export class OnlineController {
 
   /** Host, every fixed tick (a Game tick hook): stream a snapshot every snapEveryTicks. */
   private readonly hostTick = (): void => {
-    if (!this.active || this.game.role !== 'host' || this.session.state !== 'playing') return;
+    if (!this.active || this.game.role !== 'host') return;
+    // RemoteSource played this tick's guest frame just before the sim stepped (Game.tick).
+    const sim = this.game.sim;
+    if (sim && sim.world.tick - 1 > this.lastMappedTick) {
+      this.lastMappedTick = sim.world.tick - 1;
+      this.guestTicks.record(this.lastMappedTick, this.session.remoteInput.played);
+    }
+    if (this.session.state !== 'playing') return;
     if (this.game.simTick % N.snapEveryTicks !== 0) return;
     const snap = captureSnapshot(this.game, this.match, this.game.simTick, this.session.remoteInput.lastApplied, this.seats);
     const ev = this.recorder?.take();
@@ -136,7 +179,14 @@ export class OnlineController {
   private readonly guestTick = (_dt: number, simTick: number): void => {
     if (!this.active || this.session.state !== 'playing') return;
     const p = this.game.player;
-    this.session.queueInput(encodeIntent(p.intent, p.aimPoint, this.lastPresses, simTick));
+    const frame = encodeIntent(p.intent, p.aimPoint, this.lastPresses, simTick);
+    this.session.queueInput(frame);
+    const pred = this.predictor;
+    if (!pred) return;
+    pred.record(frame);
+    if (!pred.ready) return;
+    copyPose(this.predPrev, this.predCur);
+    pred.pose(this.predCur);
   };
 
   private onSnapshot(snap: Snapshot): void {
@@ -144,6 +194,29 @@ export class OnlineController {
     applySnapshot(this.game, this.match, snap, { seats: this.seats, skipMovement: [0, 1], projectiles: false });
     if (snap.ev) this.player?.play(snap.ev);
     this.snapshots++;
+    const pred = this.predictor;
+    if (!pred) return;
+    const was = pred.ready;
+    if (!pred.reconcile(snap)) return;
+    const before = this.predCur.pos;
+    const prevDelta = [this.predPrev.pos[0] - before[0], this.predPrev.pos[1] - before[1], this.predPrev.pos[2] - before[2]];
+    pred.pose(this.predCur);
+    if (was) this.smoother.correct(before, this.predCur.pos);
+    else this.smoother.clear();
+    // Keep the last tick's step, so the in-between frames still interpolate one tick of motion.
+    copyPose(this.predPrev, this.predCur);
+    if (was) for (let i = 0; i < 3; i++) this.predPrev.pos[i] = this.predCur.pos[i] + prevDelta[i];
+  }
+
+  /** Rejoins handled (QA). */
+  rejoins = 0;
+
+  private onRejoin(): void {
+    if (!this.active) return;
+    this.rejoins++;
+    this.predictor?.reset();
+    this.smoother.clear();
+    this.lastFrameMs = 0;
   }
 
   /** Every rendered frame: PINGs, and on a replica the interpolated wizards and projectiles. */
@@ -153,7 +226,14 @@ export class OnlineController {
     this.session.update(now);
     if (this.game.role !== 'replica' || !this.session.snapshots.newest) return;
     const pose = this.pose;
+    const predicted = !!this.predictor?.ready;
+    if (predicted) {
+      this.smoother.decay(this.lastFrameMs ? now - this.lastFrameMs : 0);
+      this.showPredicted();
+    }
+    this.lastFrameMs = now;
     this.seats.forEach((w, seat) => {
+      if (predicted && seat === this.session.seat) return;
       if (!this.session.snapshots.sampleWizard(seat, now, pose)) return;
       w.pos.set(pose.pos[0], pose.pos[1], pose.pos[2]);
       w.prevPos.copy(w.pos);
@@ -175,6 +255,21 @@ export class OnlineController {
     }
     applyProjectiles(this.game, this.session.snapshots.extrapolatedProjectiles(now), this.seats);
     for (const p of this.game.spells.pool.active) p.prevPos.copy(p.pos);
+  }
+
+  /** Our wizard at its predicted place (plus the easing offset); the visual interpolates the tick. */
+  private showPredicted(): void {
+    const w = this.game.player;
+    const o = this.smoother.offset;
+    const a = this.predPrev, b = this.predCur;
+    w.prevPos.set(a.pos[0] + o[0], a.pos[1] + o[1], a.pos[2] + o[2]);
+    w.pos.set(b.pos[0] + o[0], b.pos[1] + o[1], b.pos[2] + o[2]);
+    w.vel.set(b.vel[0], 0, b.vel[1]);
+    w.vy = b.vy;
+    w.grounded = b.grounded;
+    w.facing = b.facing;
+    w.prevFacing = a.facing;
+    w.placeBody();
   }
 
   private winsBySeat(): [number, number] {
@@ -207,7 +302,11 @@ export class OnlineController {
     const sim = this.game.sim;
     if (!this.isHost || !sim || this.logSent) return;
     this.logSent = true;
-    this.session.sendLog(chunkLog(JSON.stringify(sim.log()), `m${this.game.simSeed ?? 0}`));
+    // `net` rides beside the sim log's fields (the replay ignores keys it does not know): which
+    // guest frame each tick played, so the referee can check the guest's inputs (inputProof.ts).
+    const guestSeat = 1 - this.session.seat;
+    const log = { ...sim.log(), net: { v: 1, guestSeat, guestFrames: this.guestTicks.runs } };
+    this.session.sendLog(chunkLog(JSON.stringify(log), `m${this.game.simSeed ?? 0}`));
   }
 
   /** Our own forfeit (Resume / Forfeit): the log records it before it goes to the referee. */
@@ -237,6 +336,26 @@ export class OnlineController {
     this.logSent = false;
     this.recorder = null;
     this.player = null;
+    this.predictor = null;
+    this.smoother.clear();
+    this.lastFrameMs = 0;
     this.active = false;
   }
+}
+
+function newPose(): PredictedPose {
+  return { pos: [0, 0, 0], vel: [0, 0], vy: 0, facing: 0, grounded: true, sprinting: false, dodging: false };
+}
+
+function copyPose(out: PredictedPose, from: PredictedPose): void {
+  out.pos[0] = from.pos[0];
+  out.pos[1] = from.pos[1];
+  out.pos[2] = from.pos[2];
+  out.vel[0] = from.vel[0];
+  out.vel[1] = from.vel[1];
+  out.vy = from.vy;
+  out.facing = from.facing;
+  out.grounded = from.grounded;
+  out.sprinting = from.sprinting;
+  out.dodging = from.dodging;
 }
