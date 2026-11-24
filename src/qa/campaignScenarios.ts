@@ -271,10 +271,15 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
     // Fights are long now (one life, five-minute stages), so compare the pressure per second.
     c.expect(first.dps < apprentice.dps, `fight 1 (${first.dps.toFixed(2)} dps) hits harder than the Apprentice (${apprentice.dps.toFixed(2)} dps)`);
     // Every boss hits harder stage by stage.
-    for (const smp of samples) {
+    for (const [i, smp] of samples.entries()) {
       const d = smp.stageDps!;
       // (Short probes of slow, burst-y bosses are noisy: the later stages must beat stage 1, one of them clearly.)
-      c.expect(d[2] > d[0] && Math.max(d[1], d[2]) > d[0] * 1.2, `${smp.name}: stages ${d.map((x) => x.toFixed(2)).join(' / ')} dps do not escalate`);
+      // A boss whose first stage aims sharper on purpose (stageAim, Sahil: so a player who stands
+      // still falls) hits this strafing target about as often in stage 1 as later, and his stage 1
+      // reads 0.7 to 1.2 dps run to run: there the later two stages together must beat it.
+      const sharpFirst = (BOSSES[i].stageAim?.[0] ?? 1) < 1;
+      const ok = sharpFirst ? (d[1] + d[2]) / 2 > d[0] : d[2] > d[0] && Math.max(d[1], d[2]) > d[0] * 1.2;
+      c.expect(ok, `${smp.name}: stages ${d.map((x) => x.toFixed(2)).join(' / ')} dps do not escalate`);
     }
     c.note(`stage dps ${samples.map((x) => x.stageDps!.map((d) => d.toFixed(2)).join('/')).join(' | ')}`);
   });
