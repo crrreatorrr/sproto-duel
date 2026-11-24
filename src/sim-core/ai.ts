@@ -143,6 +143,9 @@ const F_0_05 = F(0.05), F_0_25 = F(0.25), F_0_3 = F(0.3), F_0_35 = F(0.35);
 const F_0_45 = F(0.45), F_0_5 = F(0.5), F_0_6 = F(0.6), F_0_7 = F(0.7), F_0_8 = F(0.8), F_0_9 = F(0.9), F_1_1 = F(1.1), F_1_2 = F(1.2), F_1_25 = F(1.25), F_1_3 = F(1.3);
 const F_1_4 = F(1.4), F_1_5 = F(1.5), F_1_6 = F(1.6), F_2 = F(2), F_22 = F(22), F_0_4 = F(0.4), F_0_01 = F(0.01), F_0_85 = F(0.85), F_1_15 = F(1.15), F_50 = F(50), F_6 = F(6);
 
+/** Approaching without line of sight: staying within STALL_RADIUS for STALL_TIME starts a sidestep of STALL_DETOUR (and longer). */
+const STALL_RADIUS = F(3), STALL_TIME = sec(2), STALL_DETOUR = sec(1.2);
+
 export class SimAI {
   state: State = 'approach';
   private p: Profile;
@@ -186,6 +189,16 @@ export class SimAI {
   private readonly planned: number[] = [];
   private readonly escape: V3 = { x: 0, y: 0, z: 0 };
   private escapeUntil = -1;
+  /**
+   * Walking at cover it cannot see past: where it last made headway, how long it has hung about
+   * that spot without line of sight, and the sidestep that takes it round (see `steer`).
+   */
+  private stallX = 0;
+  private stallZ = 0;
+  private stallTime = 0;
+  private detourUntil = -1;
+  private detourDir = 1;
+  private detours = 0;
   private lookAwayAngle = 0;
   private lookAwayUntil = -1;
 
@@ -268,6 +281,8 @@ export class SimAI {
     this.lastHurtAt = -1e12;
     this.noticedIds.length = this.noticedAt.length = this.planned.length = 0;
     this.escapeUntil = this.lookAwayUntil = -1;
+    this.stallTime = this.detours = 0;
+    this.detourUntil = -1;
     this.armPowers();
   }
 
@@ -772,6 +787,27 @@ export class SimAI {
         if (!this.hasLos) {
           mx += mul(sx, F_0_6);
           mz += mul(sz, F_0_6);
+        }
+        // Pinned against cover with the target behind it (a rock on one side, lava on the other):
+        // walking at the target gets nowhere, so step sideways round the cover, longer each try
+        // and on alternate sides, until it has moved on or sees the target again.
+        if (this.hasLos || len2(w.pos.x - this.stallX, w.pos.z - this.stallZ) > STALL_RADIUS) {
+          this.stallX = w.pos.x;
+          this.stallZ = w.pos.z;
+          this.stallTime = 0;
+          if (this.hasLos) this.detours = 0;
+        } else if (this.time >= this.detourUntil) {
+          this.stallTime += dt;
+          if (this.stallTime > STALL_TIME) {
+            this.stallTime = 0;
+            this.detourDir = this.detours % 2 === 0 ? this.strafeDir : -this.detourDir;
+            this.detourUntil = this.time + STALL_DETOUR * (1 + (this.detours >= 6 ? 3 : this.detours >> 1));
+            this.detours++;
+          }
+        }
+        if (this.time < this.detourUntil && !this.hasLos) {
+          mx = -tz * this.detourDir - mul(tx, F_0_25);
+          mz = tx * this.detourDir - mul(tz, F_0_25);
         }
         break;
       case 'attack': {

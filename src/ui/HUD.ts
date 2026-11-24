@@ -545,7 +545,8 @@ export class HUD {
       this.packIcons.forEach((el, i) => this.set(`pack${i}`, el, 'class', i < gone ? 'used' : i < lp.spawned ? 'live' : ''));
     }
     this.healFlash = Math.max(0, this.healFlash - dt);
-    this.set('god', this.godBadge, 'class', CONFIG.debug.godMode ? 'god-badge on' : 'god-badge');
+    // Not where the rules switch god mode off (Local Versus, online): it does nothing there.
+    this.set('god', this.godBadge, 'class', CONFIG.debug.godMode && this.match.rules.godModeAllowed ? 'god-badge on' : 'god-badge');
     for (const side of [0, 1]) {
       this.pips[side].forEach((pip, i) => this.set(`pip${side}${i}`, pip, 'class', i < this.match.wins[side] ? 'won' : ''));
     }
