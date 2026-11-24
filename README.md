@@ -534,7 +534,7 @@ the Apprentice were softened for a player who only strafes and holds Bolt. Sahil
 1870 / 1910 / 1970 to 1400 / 1450 / 1500, `damageMultiplier` 0.77 to 0.55, and a sharper aim in
 stage 1 only (`stageAim` 0.2 / 1 / 1 on his `aimError`, still with no lead), so his bolts find a
 player who stands still and miss one who keeps moving. On the sim, with scripted players and the
-stock staff: the bolt-only player wins about one fight in four (6 of 24; 0 of 6 before, in about 19
+stock staff: the bolt-only player wins about one fight in four (12 of 48; 0 of 6 before, in about 19
 minutes either way), a mid-skill player wins every fight in about 9 minutes (12 before), and a
 player who stands still falls in about 4 minutes (12 before). The Apprentice: `aimError` 0.17 to
 0.2, `dodgeChance` 0.25 to 0.12, `blastChance` 0.25 to 0.2, `stunChance` 0.15 to 0.1 and
