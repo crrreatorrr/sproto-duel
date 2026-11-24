@@ -115,7 +115,7 @@ export class SimDriver {
   log(): DuelLog {
     const m = this.world.match;
     return this.recorder.log({
-      winnerSeat: this.world.over ? (m.winner as 0 | 1) : null,
+      winnerSeat: this.world.over && (m.winner === 0 || m.winner === 1) ? m.winner : null,
       wins: [m.wins[0], m.wins[1]],
       rounds: m.roundWinners.length,
       ticks: this.world.tick,

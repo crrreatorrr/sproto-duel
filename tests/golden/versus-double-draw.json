@@ -1,0 +1,39 @@
+{
+ "name": "versus-double-draw",
+ "log": {
+  "schema": 1,
+  "simVersion": "any",
+  "seed": 107,
+  "rules": "versus",
+  "staffs": [
+   null,
+   null
+  ],
+  "ticks": 10272,
+  "inputs": [
+   "AA==",
+   "AA=="
+  ],
+  "claimed": {
+   "winnerSeat": null,
+   "wins": [
+    0,
+    0
+   ],
+   "rounds": 2,
+   "ticks": 10272
+  }
+ },
+ "expect": {
+  "ok": true,
+  "winnerSeat": null,
+  "wins": [
+   0,
+   0
+  ],
+  "rounds": 2,
+  "ticks": 10272,
+  "endHash": "58d68d54bdba84c9",
+  "endReason": "time"
+ }
+}

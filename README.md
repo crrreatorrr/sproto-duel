@@ -180,6 +180,9 @@ arena. Main menu → **Local Versus** → Player 2 presses A on a controller →
 - Even rules: both staffs are looks only (starter stats), no boss reward spells, no life packs, no
   god mode (F9, "99" and `?god` are ignored mid-match). Golden tickets still spawn.
 - Nothing is reported to the hub (no Tickets, no board): one screen could farm it.
+- A round that runs out the clock with both players on equal health is a draw and is played
+  again. A second drawn round in a row ends the match: whoever is ahead on rounds wins it, and
+  with the rounds level the results say **Draw** (`world.nextRound`; Quick Duel and online are unchanged).
 - Pause works from either side (Esc, or Start on any controller in play).
 - Rendering: each half has its own camera and composer, a slightly wider field of view
   (`CONFIG.versus.fov`), bloom at half strength and quarter resolution, and the shadow map drops to

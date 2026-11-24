@@ -32,6 +32,8 @@ export const GOLDEN_CASES: GoldenCase[] = [
   // Round 1: nobody fights (a draw on time); round 2: a timeout won on health; round 3 a KO.
   { name: 'online-draw-timeout-ko', setup: { seed: 104, rules: 'online', arena: 'moonlit', staffs: [null, null] }, styles: [[DUMMY, CALM, BUSY], [DUMMY, DUMMY, CALM]], botSeeds: [7, 8] },
   { name: 'versus-timeouts', setup: { seed: 106, rules: 'versus', arena: 'moonlit', staffs: [null, null] }, styles: [[CALM], [DUMMY]], botSeeds: [11, 12] },
+  // Local Versus with nobody fighting: two drawn rounds end the match as a draw (winnerSeat null).
+  { name: 'versus-double-draw', setup: { seed: 107, rules: 'versus', arena: 'moonlit', staffs: [null, null] }, styles: [[DUMMY], [DUMMY]], botSeeds: [13, 14] },
   // Quick Duel against the CPU rival, one per staff (staff stats apply here).
   ...STAFF_LIST.map((staff, i) => ({ name: 'quick-' + staff.replace('duel_staff_', ''), setup: { seed: 200 + i, rules: 'quick' as const, arena: 'moonlit' as const, staffs: [staff, null] }, styles: [BUSY], botSeeds: [20 + i] })),
   { name: 'quick-learned-spells', setup: { seed: 210, rules: 'quick', arena: 'moonlit', staffs: ['duel_staff_momentum', null], learned: ALL_SPELLS }, styles: [BUSY], botSeeds: [30] },
