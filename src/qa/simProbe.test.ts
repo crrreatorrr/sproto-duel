@@ -49,18 +49,27 @@ describe('roll (plan B2)', () => {
 
 describe('Quick Duel rivals', () => {
   it('a simple attacker beats the Apprentice most rounds, the Adept some, the Archmage almost never', () => {
-    // 'attacker': strafes, holds fire, casts what it can afford. About 65% / 39% / 0% over 400 rounds.
+    // 'attacker': strafes, holds fire, casts what it can afford. About 97% / 38% / 0%. The Apprentice
+    // is the beginner's rival (a player who only strafes and holds Bolt wins a little under half
+    // their matches), so anyone who uses the other spells beats it nearly every round.
     const won = (['easy', 'normal', 'hard'] as const).map((d) => {
       const r = scripted('attacker', d, 16, { seed: 31000 });
       return r.roundsWon / r.rounds;
     });
-    expect(won[0]).toBeGreaterThan(0.5);
-    expect(won[0]).toBeLessThan(0.9);
+    expect(won[0]).toBeGreaterThan(0.8);
     expect(won[1]).toBeGreaterThan(0.22);
     expect(won[1]).toBeLessThan(0.55);
     expect(won[1]).toBeLessThan(won[0]);
     expect(won[2]).toBeLessThan(0.15);
   }, 60000);
+});
+
+describe('standing still loses', () => {
+  it('to the Apprentice, every round', () => {
+    const r = scripted('idle', 'easy', 6);
+    expect(r.roundsWon).toBe(0);
+    expect(r.rounds).toBe(12);
+  }, 30000);
 });
 
 describe('staff standing', () => {

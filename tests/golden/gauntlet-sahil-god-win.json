@@ -9,9 +9,9 @@
    "duel_staff_fighters_might",
    null
   ],
-  "ticks": 2853,
+  "ticks": 2300,
   "inputs": [
-   "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"
+   "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"
   ],
   "bossId": "sahil",
   "godMode": true,
@@ -22,7 +22,7 @@
     0
    ],
    "rounds": 1,
-   "ticks": 2853
+   "ticks": 2300
   }
  },
  "expect": {
@@ -33,8 +33,8 @@
    0
   ],
   "rounds": 1,
-  "ticks": 2853,
-  "endHash": "ad2f8b448e78d9ae",
+  "ticks": 2300,
+  "endHash": "45752ae8b40161a0",
   "endReason": "ko",
   "bossId": "sahil",
   "checkpoints": 0
