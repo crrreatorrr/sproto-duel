@@ -61,6 +61,24 @@ export function registerVersusScenarios(qa: QAHarness, game: Game, app: App): vo
     });
   });
 
+  qa.add('versus.no_god_badge', (c) => {
+    // God mode left on from a Quick Duel does nothing under Versus rules, so the HUD must not say it is on.
+    const prev = CONFIG.debug.godMode;
+    game.setGodMode(true);
+    try {
+      withVersus(game, app, () => {
+        app.hud.update(1 / 60);
+        c.expect(!app.match.rules.godModeAllowed && !game.player.immune, 'god mode applies in Versus');
+        c.expect(app.hud.root.querySelector('.god-badge.on') === null, 'the GOD MODE badge shows in Local Versus');
+      });
+      app.hud.update(1 / 60);
+      c.expect(app.hud.root.querySelector('.god-badge.on') !== null, 'no GOD MODE badge back where god mode applies');
+    } finally {
+      game.setGodMode(prev);
+      app.hud.update(1 / 60);
+    }
+  });
+
   qa.add('versus.both-cast', (c) => {
     withVersus(game, app, () => {
       c.setup({ player: [0, -8], enemy: [0, 8] });
