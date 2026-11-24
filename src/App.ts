@@ -212,6 +212,7 @@ export class App {
     };
     this.attract = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');
     this.attract.useRewards = false; // the menu's background duel never shows off learned spells
+    game.residentBrains.push(this.ai, this.partnerAi, this.attract);
     game.onTick((dt) => this.attractTick(dt));
 
     this.hud = new HUD(game.ui, game, this.match);

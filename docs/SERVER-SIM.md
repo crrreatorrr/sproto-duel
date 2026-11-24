@@ -85,8 +85,8 @@ read.
 The scripted bots in `src/sim-core/testing/bot.ts` play busier than most people do: they change
 direction constantly and fire in bursts. A full three-round online match (13 464 ticks, both seats
 logged) takes about 7 to 12 KB of JSON. Gauntlet and Quick Duel logs carry one seat, but a boss
-fight is much longer: the scripted bot's honest fights in the golden set (sim version `a0d619ba52c1c873`)
-are 4.8 KB (11 500 ticks, 3.2 minutes) to 31.8 KB (91 400 ticks, 25.4 minutes, the first boss), about
+fight is much longer: the scripted bot's losses in the golden set (sim version `aa28581e6acaa4b8`)
+are 4.8 KB (11 500 ticks, 3.2 minutes) to 27.6 KB (80 300 ticks, 22.3 minutes, the first boss), about
 1.2 to 1.6 KB a minute, and a fight that uses both checkpoints and runs to its caps can be longer
 still. A hub limit of 16 KB rejects honest boss fights, and 32 KB is too close to the longest golden:
 allow 64 KB. At the bot's rate the 45-minute tick bound is about 56 to 68 KB; people press less than

@@ -475,8 +475,11 @@ export function registerArenaKitScenarios(qa: QAHarness, game: Game): void {
   qa.add('arenas.ai_duels_in_every_boss_arena', (c) => {
     const notes: string[] = [];
     // Seeded so the duel replays identically (unseeded, the void's sliding blocks made it flaky).
+    // The seed starts after the theme is up: building a theme draws from Math.random (three.js
+    // names every mesh, geometry and texture with it), and how much it builds depends on what
+    // earlier scenarios already loaded, so seeding first made the duel depend on the run order.
     for (const [i, id] of BOSS_ARENAS.entries()) {
-      withSeededRandom(4100 + i, () => inTheme(id, () => {
+      inTheme(id, () => withSeededRandom(4100 + i, () => {
         c.setup();
         game.spawnWizards();
         const a = new AIController(game.player, game.enemy, game.spells, game.physics, game.arena, 'normal');

@@ -38,8 +38,7 @@ export const GOLDEN_CASES: GoldenCase[] = [
   ...STAFF_LIST.map((staff, i) => ({ name: 'quick-' + staff.replace('duel_staff_', ''), setup: { seed: 200 + i, rules: 'quick' as const, arena: 'moonlit' as const, staffs: [staff, null] }, styles: [BUSY], botSeeds: [20 + i] })),
   { name: 'quick-learned-spells', setup: { seed: 210, rules: 'quick', arena: 'moonlit', staffs: ['duel_staff_momentum', null], learned: ALL_SPELLS }, styles: [BUSY], botSeeds: [30] },
   { name: 'quick-god-mode', setup: { seed: 211, rules: 'quick', arena: 'moonlit', staffs: [null, null], godMode: true }, styles: [CALM], botSeeds: [31] },
-  // Boss Gauntlet: a god-mode win through all three stages, and an honest fight, per boss (the
-  // '-loss' cases: the bot falls to every boss but the first, which it now beats on its last life).
+  // Boss Gauntlet: a god-mode win through all three stages, and an honest loss, per boss.
   ...BOSS_LIST.map((boss, i) => ({ name: 'gauntlet-' + boss + '-god-win', setup: { seed: 300 + i, rules: 'gauntlet' as const, arena: 'moonlit' as const, staffs: ['duel_staff_fighters_might', null], bossId: boss, learned: ALL_SPELLS.slice(0, i), godMode: true }, styles: [BUSY], botSeeds: [40 + i] })),
   // Checkpoints: god mode carries the player into a later stage, then goes off; the knockout there
   // restarts the stage once and the next one is the defeat.

@@ -111,6 +111,8 @@ export class Game {
   readonly shifts: ArenaShifts;
   /** Drives the enemies inside the fixed tick (App: the rival's AI, and the partner's in a double fight). */
   enemyController: TickController | null = null;
+  /** The app's long-lived AI controllers (rival, partner, menu duel): the QA sandbox mutes them while a scenario runs. */
+  readonly residentBrains: { muted: boolean }[] = [];
   /** The campaign boss the rival is dressed as, or null for the default rival. */
   boss: BossDef | null = null;
   /** The boss's three in-round stages (evolution, stage looks and attacks). Idle without a boss. */

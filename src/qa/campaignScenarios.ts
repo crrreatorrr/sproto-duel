@@ -92,7 +92,7 @@ function fightThreat(name: string, dpsBy: number[], hpBy: number[], hitRate: num
  * runs both bosses (each its own AI, in the same stage, damage counted per boss) and the shooter
  * aims at the nearest; you have to get through both health bars (fightThreat).
  */
-export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile: AIProfile, seconds = 12, trials = 2, stage?: number): ThreatSample {
+export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile: AIProfile, seconds = 12, trials = 2, stage?: number, seed?: number): ThreatSample {
   const prevBoss = game.boss;
   game.setupEnemy(boss);
   const p = game.player;
@@ -123,7 +123,7 @@ export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile:
     p.health = p.maxHealth;
     for (const w of game.enemies) w.health = w.maxHealth;
   };
-  try {
+  const play = () => {
     for (let trial = 0; trial < trials; trial++) {
       // Offense: the target strafes, reversing every ~1.3 s, and never fires.
       c.setup();
@@ -155,6 +155,12 @@ export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile:
       hits += p.stats.hits;
       shots += p.stats.casts;
     }
+  };
+  try {
+    // `seed`: Math.random is seeded from here, after the rival is dressed (dressing builds models,
+    // and three.js draws their ids from Math.random, more or fewer by what is already loaded).
+    if (seed === undefined) play();
+    else withSeededRandom(seed, play);
   } finally {
     off();
     for (const ai of ais) ai.dispose();
@@ -169,7 +175,7 @@ export function measureThreat(c: Ctx, game: Game, boss: BossDef | null, profile:
  * stages. In a double fight the survivor fights on in its own stage (the other's fall changes nothing).
  */
 function measureBossThreat(c: Ctx, game: Game, boss: BossDef, seed: number, seconds: number, trials: number): ThreatSample {
-  const per = Array.from({ length: STAGE_COUNT }, (_, s) => withSeededRandom(seed + s * 101, () => measureThreat(c, game, boss, boss.ai, seconds, trials, s)));
+  const per = Array.from({ length: STAGE_COUNT }, (_, s) => measureThreat(c, game, boss, boss.ai, seconds, trials, s, seed + s * 101));
   const dpsBy = per[0].dpsBy.map((_, i) => per.reduce((a, x) => a + x.dpsBy[i], 0) / per.length);
   const hitRate = per.reduce((a, x) => a + x.hitRate, 0) / per.length;
   const out = fightThreat(bossDisplayName(boss), dpsBy, fightHp(boss), hitRate);
@@ -256,7 +262,7 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
     // boss's AI attacks a strafing target that never shoots back, and takes perfectly-led bolts,
     // in each stage (stage profile, attacks and damage). Seeded; 3 trials of 12 s + 9 s per stage.
     const samples = BOSSES.map((b, i) => measureBossThreat(c, game, b, 1000 + i, 12, 3));
-    const apprentice = withSeededRandom(999, () => measureThreat(c, game, null, CONFIG.ai.difficulty.easy, 12, 4));
+    const apprentice = measureThreat(c, game, null, CONFIG.ai.difficulty.easy, 12, 4, undefined, 999);
     c.note(samples.map(fmt).join(' | '));
     c.note(`ref ${fmt(apprentice)}`);
     const first = samples[0], last = samples[samples.length - 1];
@@ -485,7 +491,9 @@ export function registerCampaignScenarios(qa: QAHarness, game: Game, app: App): 
       arena.devTheme = null;
       BOSSES.forEach((boss, bi) => {
         void arena.applyTheme(boss.theme);
-        rows.push(summarizeFights(boss, Array.from({ length: n[bi] }, (_, i) => withSeededRandom(500 + bi * 100 + i, () => fightBoss(qa, game, boss)))));
+        // Seeded from after the boss is dressed (fightBoss `around`), so the fights do not depend on
+        // which models earlier scenarios had already loaded.
+        rows.push(summarizeFights(boss, Array.from({ length: n[bi] }, (_, i) => fightBoss(qa, game, boss, 'normal', false, undefined, (fn) => withSeededRandom(500 + bi * 100 + i, fn)))));
       });
     } finally {
       arena.devTheme = prevDev;

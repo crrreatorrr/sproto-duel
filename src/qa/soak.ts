@@ -281,6 +281,11 @@ export function fightBoss(
   qa: QAHarness, game: Game, boss: BossDef, reference: Difficulty = 'normal', immortal = false,
   /** The reference player's reward spells: by default the ones it would have learned on the way here. */
   spells: readonly RewardSpellId[] = rewardsBefore(BOSSES.indexOf(boss)),
+  /**
+   * Wraps the fight itself (a seeded Math.random, say), after the boss is dressed: dressing builds
+   * models, and three.js draws their ids from Math.random, more or fewer by what is already loaded.
+   */
+  around: <T>(fn: () => T) => T = (fn) => fn(),
 ): FightResult {
   const p = game.player, e = game.enemy, q = game.partner;
   const prevLearned = [...p.learned];
@@ -299,14 +304,16 @@ export function fightBoss(
   }
   for (const b of enemyBrains) b.allies = game.enemies;
   try {
-    qa.reset();
-    p.maxHealth = CONFIG.wizard.maxHealth;
-    p.health = p.maxHealth;
-    p.damageMultiplier = 1;
-    p.learned.clear();
-    for (const id of spells) p.learned.add(id);
-    for (const b of [brainA, ...enemyBrains]) b.reset();
-    return playFight(game, brainA, enemyBrains, immortal);
+    return around(() => {
+      qa.reset();
+      p.maxHealth = CONFIG.wizard.maxHealth;
+      p.health = p.maxHealth;
+      p.damageMultiplier = 1;
+      p.learned.clear();
+      for (const id of spells) p.learned.add(id);
+      for (const b of [brainA, ...enemyBrains]) b.reset();
+      return playFight(game, brainA, enemyBrains, immortal);
+    });
   } finally {
     p.learned.clear();
     for (const id of prevLearned) p.learned.add(id);

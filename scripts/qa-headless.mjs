@@ -124,6 +124,10 @@ async function evaluate(expression, ms = 60_000) {
 
 await send('Runtime.enable');
 await send('Page.enable');
+// The page gets the size asked for: with --window-size alone, headless Chrome takes its window
+// chrome out of it and the page was 800x250, too short for the HUD checks.
+const [winW, winH] = (process.env.QA_WINDOW || '800,450').split(',').map(Number);
+await send('Emulation.setDeviceMetricsOverride', { width: winW, height: winH, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url: `${base}?nolock${extraQuery}` });
 const ready = () => waitFor(() => evaluate('!!(window.__duel && window.__duel.qa)', 5_000), 180_000, '__duel.qa');
 await ready();

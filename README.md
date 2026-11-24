@@ -524,19 +524,19 @@ of this.
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
 fights), so a 12-fight rate moves by roughly ±15 points between runs (Broccoli Head read 29% to
 58% across 24-fight runs within 0.03 of this multiplier). Each boss's spell damage is
-also scaled on its own (`damageMultiplier`): Sahil ×0.5, Bitcoin Obama ×0.73 and The Midget ×0.53,
+also scaled on its own (`damageMultiplier`): Sahil ×0.55, Bitcoin Obama ×0.73 and The Midget ×0.53,
 Broccoli Head ×0.93, Glowie ×1.0, Tinubu ×0.74 (fights 2 to 4 were ×0.64 and ×0.46, ×0.76, ×0.86
 before the retune). A player who stands still takes far more than the reference AI.
 Tinubu is almost impossible: the reference AI dies in his second form.
 
 **The beginner's end of both ladders** (2026-11-24, after the table above was measured). Sahil and
 the Apprentice were softened for a player who only strafes and holds Bolt. Sahil: stage bars
-1870 / 1910 / 1970 to 1400 / 1450 / 1500, `damageMultiplier` 0.77 to 0.5, his powers 7 / 7 / 13 to
-5 / 5 / 10 damage, Quicksand 6 to 4 a second, and `aimError` 0.34 to 0.07 with no lead, so his bolts
-miss a player who keeps moving and find one who stands still. On the sim, with scripted players and
-the stock staff: the bolt-only player wins about half its fights (0 of 6 before, in about 20
+1870 / 1910 / 1970 to 1400 / 1450 / 1500, `damageMultiplier` 0.77 to 0.55, and a sharper aim in
+stage 1 only (`stageAim` 0.2 / 1 / 1 on his `aimError`, still with no lead), so his bolts find a
+player who stands still and miss one who keeps moving. On the sim, with scripted players and the
+stock staff: the bolt-only player wins about one fight in four (6 of 24; 0 of 6 before, in about 19
 minutes either way), a mid-skill player wins every fight in about 9 minutes (12 before), and a
-player who stands still falls in about 5 minutes (12 before). The Apprentice: `aimError` 0.17 to
+player who stands still falls in about 4 minutes (12 before). The Apprentice: `aimError` 0.17 to
 0.2, `dodgeChance` 0.25 to 0.12, `blastChance` 0.25 to 0.2, `stunChance` 0.15 to 0.1 and
 `strafeSpeed` 0.65 to 0.45: the bolt-only player wins 22 of 48 matches (2 of 48 before) and a
 player who stands still loses every round. Sahil's row in the table above predates this.

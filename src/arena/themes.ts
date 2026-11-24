@@ -290,8 +290,11 @@ export const THEMES: Record<ArenaThemeId, ArenaTheme> = {
     debris: { color: 0x8a6a48, emissive: 0, shape: 'panel' },
     brazier: { bowl: 0x6a5030, flame: [1.0, 0.75, 0.25] },
     fire: {
-      root: [1.0, 0.92, 0.6], mid: [1.0, 0.62, 0.12], tip: [0.65, 0.25, 0.05],
-      glow: [1.0, 0.68, 0.18], ember: [1.0, 0.82, 0.35], burn: 0xffb040, intensity: 1,
+      // The glow and the flames' middle stay under the bloom threshold like every other arena's
+      // (glow [1, 0.68, 0.18] was the only one over it: the whole ring bloomed across the bright
+      // sand), and the near-white root [1, 0.92, 0.6] comes down to the other arenas' brightness.
+      root: [1.0, 0.82, 0.42], mid: [1.0, 0.52, 0.1], tip: [0.65, 0.25, 0.05],
+      glow: [1.0, 0.55, 0.12], ember: [1.0, 0.82, 0.35], burn: 0xffb040, intensity: 1,
     },
     ambient: { kind: 'sand', rate: 70, color: [0.86, 0.68, 0.44], color2: [0.95, 0.82, 0.6] },
   },

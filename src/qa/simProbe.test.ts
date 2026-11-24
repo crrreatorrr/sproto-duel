@@ -82,7 +82,9 @@ describe('staff standing', () => {
     expect(moonward).toBeLessThan(1.8);
     expect(shooter).toBeGreaterThan(moonward);
     expect(shooter).toBeGreaterThan(2.4);
-    expect(shooter).toBeLessThan(3.15);
+    // 3.34 now (2.65 before Sahil's first stage aimed sharply): this player stands still, so his
+    // bolts meet theirs, and the stock staff loses more of its own to those clashes than the others.
+    expect(shooter).toBeLessThan(3.5);
     expect(alien).toBeGreaterThan(shooter);
     expect(alien).toBeLessThan(3.7);
     expect(fighter).toBeGreaterThan(alien);

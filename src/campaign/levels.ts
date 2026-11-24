@@ -119,6 +119,11 @@ export interface BossFighter {
   /** Base AI for stage 1; later stages scale it by CONFIG.campaign.stageAI. */
   ai: AIProfile;
   /**
+   * Multiplies `ai.aimError` per stage, on top of CONFIG.campaign.stageAI.aimError (unset: 1 / 1 / 1).
+   * Below 1 the stage aims sharper: with no lead that only finds a player who stands still.
+   */
+  stageAim?: [number, number, number];
+  /**
    * HP of each stage's own health bar (stage 1, 2, 3). When a bar empties the boss transforms into
    * the next stage and comes back with that stage's full bar (overflow from the hit is lost); only
    * emptying the last bar is a KO. Sized so a stage lasts about five minutes against a competent
@@ -243,19 +248,17 @@ export const BOSSES: BossDef[] = [
     ],
     skins: { bolt: 'rugRoll', blast: 'carpet' },
     transform: 'bazaar',
-    shift: { mood: 0xff9a3c, pools: { name: 'Quicksand', color: 0xd9b26a, dps: 4, look: 'sand', slow: 0.5 }, spring: { name: 'Oasis', color: 0x4fe0c8 }, vents: { name: 'Sand Geysers', color: 0xffc070, damage: 14 } },
+    shift: { mood: 0xff9a3c, pools: { name: 'Quicksand', color: 0xd9b26a, dps: 6, look: 'sand', slow: 0.5 }, spring: { name: 'Oasis', color: 0x4fe0c8 }, vents: { name: 'Sand Geysers', color: 0xffc070, damage: 14 } },
     powers: [
-      { kind: 'sweep', name: 'Carpet Sweep', from: 0, cooldown: 15, damage: 5, range: 15, arc: 200, duration: 1.9, length: 15, warn: 1.1, skin: 'carpet' },
-      { kind: 'barrage', name: 'Bazaar Rain', from: 1, cooldown: 17, damage: 5, range: 30, count: 7, radius: 2, spread: 5, duration: 2.4, warn: 1.15, skin: 'rugRoll' },
-      { kind: 'strike', name: 'Magic Carpet Drop', from: 2, cooldown: 16, damage: 10, range: 30, radius: 2.7, track: 1.6, warn: 0.85, skin: 'carpet' },
+      { kind: 'sweep', name: 'Carpet Sweep', from: 0, cooldown: 15, damage: 7, range: 15, arc: 200, duration: 1.9, length: 15, warn: 1.1, skin: 'carpet' },
+      { kind: 'barrage', name: 'Bazaar Rain', from: 1, cooldown: 17, damage: 7, range: 30, count: 7, radius: 2, spread: 5, duration: 2.4, warn: 1.15, skin: 'rugRoll' },
+      { kind: 'strike', name: 'Magic Carpet Drop', from: 2, cooldown: 16, damage: 13, range: 30, radius: 2.7, track: 1.6, warn: 0.85, skin: 'carpet' },
     ],
     palette: { name: 'Sahil', robe: 0x7a1f2b, trim: 0xe8b04a, spell: 0xff9a3c, blast: 0xd94a2a, stun: 0xffe2b0, ultimate: 0xffb347 },
     ai: {
       label: 'Sahil',
       reactionTime: 0.85,
-      // Sharp aim with no lead: his bolts find a player who stands still (who falls in about five
-      // minutes) and miss one who keeps moving.
-      aimError: 0.07,
+      aimError: 0.34,
       leadFactor: 0,
       dodgeChance: 0.08,
       shieldPreference: 0.2,
@@ -269,9 +272,12 @@ export const BOSSES: BossDef[] = [
       preferredRange: [10, 15],
     },
     // The first fight is the gentle one: smaller bars and softer hits than the size rule above
-    // gives, so a player who only strafes and holds Bolt can win it with a few tries.
+    // gives, so a player who only strafes and holds Bolt wins about one fight in four.
     stageHealth: [1400, 1450, 1500],
-    damageMultiplier: 0.5,
+    // Stage 1 aims sharply and never leads: his bolts find a player who stands still (who falls
+    // in about five minutes instead of twelve) and still miss one who keeps moving.
+    stageAim: [0.2, 1, 1],
+    damageMultiplier: 0.55,
     spellDamage: 0.45,
   }),
   boss({
