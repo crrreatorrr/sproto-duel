@@ -17,7 +17,8 @@ spec exists. The tasks below are the model files the manifest names that are not
   block and `public/assets/models/rigged/` has no rival.
 - **What is wrong:** the file does not exist, so the opponent in Quick Duel, Player 2 in Local
   Versus, the online opponent and the menu's background duellist are the code-built placeholder:
-  a red cone-robed figure with a hat and a stick, sliding without leg or arm animation. The
+  a red cone-robed figure with a hat and a staff and no limbs, moved only by the procedural
+  bob and lean. The
   player and all six bosses are rigged characters, so the rival is the one character on screen
   that is not.
 - **How to see it:** `npm run dev`, main menu, **Quick Duel**. The rival across the arena is the
