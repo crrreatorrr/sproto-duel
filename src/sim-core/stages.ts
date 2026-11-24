@@ -32,7 +32,7 @@ export function stageProfile(boss: BossFighter, stage: number): AIProfile {
   return {
     label: b.label,
     reactionTime: b.reactionTime * A.reactionTime[s],
-    aimError: b.aimError * A.aimError[s],
+    aimError: b.aimError * A.aimError[s] * (boss.stageAim ? boss.stageAim[s] : 1),
     leadFactor: Math.min(1, b.leadFactor + A.leadBonus[s]),
     burst: [b.burst[0] + A.burstBonus[s], b.burst[1] + A.burstBonus[s] + G.burstExtra],
     burstPause: [b.burstPause[0] * A.burstPause[s] * G.burstPause, b.burstPause[1] * A.burstPause[s] * G.burstPause],

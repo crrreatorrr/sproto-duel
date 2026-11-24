@@ -253,7 +253,15 @@ export class AIController implements IntentSource {
     );
   }
 
+  /**
+   * Set on the app's own controllers while a QA scenario runs: they are not ticked then, and must
+   * not roll for a punish on the scenario's events (the roll would shift a seeded Math.random by
+   * whatever state the last match left them in).
+   */
+  muted = false;
+
   private tryPunish(): void {
+    if (this.muted) return;
     if (chance(this.profile.punishChance)) this.punishTimer = AI.punishTime;
   }
 

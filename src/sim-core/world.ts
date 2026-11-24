@@ -376,9 +376,13 @@ export class SimWorld {
   private nextRound(): void {
     const m = this.match;
     const need = this.rules.roundsToWin;
-    if (m.wins[0] >= need || m.wins[1] >= need) {
+    // Local Versus: a second drawn round in a row ends the match (two players who never fight would
+    // replay the round for ever). Whoever is ahead on rounds takes it; level is a drawn match (-1).
+    const rw = m.roundWinners;
+    const stale = this.rules.id === 'versus' && rw.length >= 2 && rw[rw.length - 1] < 0 && rw[rw.length - 2] < 0;
+    if (m.wins[0] >= need || m.wins[1] >= need || stale) {
       m.phase = 'matchEnd';
-      m.winner = m.wins[0] > m.wins[1] ? 0 : 1;
+      m.winner = m.wins[0] > m.wins[1] ? 0 : m.wins[1] > m.wins[0] ? 1 : -1;
       this.actionsLocked = true;
       this.events.push('matchEnd', m.winner);
       return;

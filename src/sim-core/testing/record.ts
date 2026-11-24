@@ -45,6 +45,6 @@ export function recordMatch(
     rec.after();
   }
   const r = world.match;
-  const log = rec.log({ winnerSeat: world.over ? (r.winner as 0 | 1) : null, wins: [r.wins[0], r.wins[1]], rounds: r.roundWinners.length, ticks: world.tick });
+  const log = rec.log({ winnerSeat: world.over && (r.winner === 0 || r.winner === 1) ? r.winner : null, wins: [r.wins[0], r.wins[1]], rounds: r.roundWinners.length, ticks: world.tick });
   return { world, log, bytes: rec.size };
 }

@@ -119,6 +119,11 @@ export interface BossFighter {
   /** Base AI for stage 1; later stages scale it by CONFIG.campaign.stageAI. */
   ai: AIProfile;
   /**
+   * Multiplies `ai.aimError` per stage, on top of CONFIG.campaign.stageAI.aimError (unset: 1 / 1 / 1).
+   * Below 1 the stage aims sharper: with no lead that only finds a player who stands still.
+   */
+  stageAim?: [number, number, number];
+  /**
    * HP of each stage's own health bar (stage 1, 2, 3). When a bar empties the boss transforms into
    * the next stage and comes back with that stage's full bar (overflow from the hit is lost); only
    * emptying the last bar is a KO. Sized so a stage lasts about five minutes against a competent
@@ -266,8 +271,13 @@ export const BOSSES: BossDef[] = [
       strafeSpeed: 0.4,
       preferredRange: [10, 15],
     },
-    stageHealth: [1870, 1910, 1970],
-    damageMultiplier: 0.77,
+    // The first fight is the gentle one: smaller bars and softer hits than the size rule above
+    // gives, so a player who only strafes and holds Bolt wins about one fight in four.
+    stageHealth: [1400, 1450, 1500],
+    // Stage 1 aims sharply and never leads: his bolts find a player who stands still (who falls
+    // in about five minutes instead of twelve) and still miss one who keeps moving.
+    stageAim: [0.2, 1, 1],
+    damageMultiplier: 0.55,
     spellDamage: 0.45,
   }),
   boss({

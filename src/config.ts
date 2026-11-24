@@ -1146,24 +1146,27 @@ export const CONFIG = {
      * have their own. The QA soaks and balance probes use all three as reference opponents.
      */
     difficulty: {
+      // The beginner's rival: a player who only strafes and holds Bolt wins a little under half of
+      // their matches against it (it was 1 in 12 with aimError 0.17, dodgeChance 0.25, blastChance
+      // 0.25, stunChance 0.15 and strafeSpeed 0.65); one who stands still loses every round.
       easy: {
         label: 'Apprentice',
         reactionTime: 0.45,
-        aimError: 0.17,
+        aimError: 0.2,
         leadFactor: 0.1,
-        dodgeChance: 0.25,
+        dodgeChance: 0.12,
         shieldPreference: 0.3,
         perfectShieldChance: 0.05,
         burst: [2, 3],
         burstPause: [1.0, 1.8],
-        blastChance: 0.25,
-        stunChance: 0.15,
+        blastChance: 0.2,
+        stunChance: 0.1,
         punishChance: 0.25,
-        strafeSpeed: 0.65,
+        strafeSpeed: 0.45,
         preferredRange: [10, 15],
       },
       // The middle step: a scripted attacker (strafe, hold fire, cast what is affordable) wins about
-      // 40% of its rounds against it, about 65% against easy and none against hard.
+      // 40% of its rounds against it, nearly all against easy and none against hard.
       normal: {
         label: 'Adept',
         reactionTime: 0.34,

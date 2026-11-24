@@ -304,6 +304,9 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
       c.expect(local.x > -0.1 && local.y > 0.4 && local.y < 1.0, `Midget stage 1: bolt at local (${local.x.toFixed(2)}, ${local.y.toFixed(2)}): not his left hand's phone`);
       c.expect(q.visual.muzzleSocketed(q.muzzleIndex('bolt')), 'Midget stage 1: phone not riding his hand');
       c.expect(q.visual.muzzleType(q.muzzleIndex('bolt')) === 'phone', 'Midget muzzle is not a phone');
+      // Nothing left in flight, so the phone bolts' look is freed on restore (it stayed in the scene
+      // and muzzles.fx_pooled, run after this, counted it going).
+      game.spells.clear();
     });
     // Stages 2 and 3: a phone in each hand, shots alternate; stage 3's are drawn in his fists.
     for (const stage of [1, 2]) {
@@ -323,6 +326,7 @@ export function registerMuzzleScenarios(qa: QAHarness, game: Game): void {
           c.expect(sides[0] !== sides[1] && sides[0] === sides[2] && sides[1] === sides[3], `${f.id} stage ${stage + 1}: phones fired ${sides.join()} (want them to alternate)`);
           if (stage === 2) c.expect(w.visual.muzzleProp(0) && w.visual.muzzleProp(1), `${f.id} stage 3: no phones drawn in the fists`);
         }
+        game.spells.clear();
       });
     }
     c.expect(game.spells.muzzleFx.counts.phone > 0, 'no phone effects played');

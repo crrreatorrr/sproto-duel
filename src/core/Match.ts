@@ -364,9 +364,12 @@ export class Match {
 
   private next(): void {
     const decided = this.wins[0] >= this.roundsToWin || this.wins[1] >= this.roundsToWin;
-    if (decided) {
+    // Local Versus: a second drawn round in a row ends the match (sim-core world.nextRound).
+    const rw = this.roundWinners;
+    const stale = this.rules.kind === 'versus' && rw.length >= 2 && !rw[rw.length - 1] && !rw[rw.length - 2];
+    if (decided || stale) {
       this.phase = 'matchEnd';
-      const winner = this.leader(this.wins[0] > this.wins[1] ? 0 : 1);
+      const winner = this.wins[0] === this.wins[1] ? null : this.leader(this.wins[0] > this.wins[1] ? 0 : 1);
       events.emit('matchEnd', { winner });
       return;
     }

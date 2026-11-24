@@ -114,6 +114,7 @@ export class QAHarness {
     g.qaMode = true;
     g.inSandbox = true;
     g.enemyController = null;
+    for (const b of g.residentBrains) b.muted = true;
     const duo = g.partnerActive ? g.boss : null;
     if (duo) g.setupPartner(null);
     // God mode applies only if a scenario turns it on (the menus hold it off the background duel).
@@ -129,6 +130,7 @@ export class QAHarness {
       this.reset();
       g.qaMode = false;
       g.inSandbox = false;
+      for (const b of g.residentBrains) b.muted = false;
       g.enemyController = saved.controller;
       g.enemyController?.reset?.();
       saved.seats.forEach((c, i) => (g.controllers[i + 1] = c));

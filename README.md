@@ -180,6 +180,9 @@ arena. Main menu → **Local Versus** → Player 2 presses A on a controller →
 - Even rules: both staffs are looks only (starter stats), no boss reward spells, no life packs, no
   god mode (F9, "99" and `?god` are ignored mid-match). Golden tickets still spawn.
 - Nothing is reported to the hub (no Tickets, no board): one screen could farm it.
+- A round that runs out the clock with both players on equal health is a draw and is played
+  again. A second drawn round in a row ends the match: whoever is ahead on rounds wins it, and
+  with the rounds level the results say **Draw** (`world.nextRound`; Quick Duel and online are unchanged).
 - Pause works from either side (Esc, or Start on any controller in play).
 - Rendering: each half has its own camera and composer, a slightly wider field of view
   (`CONFIG.versus.fov`), bloom at half strength and quarter resolution, and the shadow map drops to
@@ -291,7 +294,8 @@ Each stage hits harder (`stageDamage`), thinks faster and sharper (`stageAI`), a
 attacks (Blast, Stun, the Ultimate, a signature volley). Stages are sized to last about five
 minutes each for a player with a person's aim and a mid staff (about eight with the stock staff,
 two to three with the strongest reward staves, four to five for the soak's reference AI), so a
-fight runs roughly 6 to 25 minutes. The boss plate shows
+fight runs roughly 6 to 25 minutes. Sahil's bars are smaller than that rule gives (1400 / 1450 /
+1500, about three quarters): he is the beginner's fight. The boss plate shows
 the current stage's bar, its stage pips and name; the bar sweeps up as the boss transforms.
 
 **Life packs.** Up to three health pickups per fight (a red potion with a light beam): one comes
@@ -520,10 +524,22 @@ of this.
 The soak isn't bit-for-bit repeatable across page sessions (the physics state carries between
 fights), so a 12-fight rate moves by roughly ±15 points between runs (Broccoli Head read 29% to
 58% across 24-fight runs within 0.03 of this multiplier). Each boss's spell damage is
-also scaled on its own (`damageMultiplier`): Sahil ×0.77, Bitcoin Obama ×0.73 and The Midget ×0.53,
+also scaled on its own (`damageMultiplier`): Sahil ×0.55, Bitcoin Obama ×0.73 and The Midget ×0.53,
 Broccoli Head ×0.93, Glowie ×1.0, Tinubu ×0.74 (fights 2 to 4 were ×0.64 and ×0.46, ×0.76, ×0.86
 before the retune). A player who stands still takes far more than the reference AI.
 Tinubu is almost impossible: the reference AI dies in his second form.
+
+**The beginner's end of both ladders** (2026-11-24, after the table above was measured). Sahil and
+the Apprentice were softened for a player who only strafes and holds Bolt. Sahil: stage bars
+1870 / 1910 / 1970 to 1400 / 1450 / 1500, `damageMultiplier` 0.77 to 0.55, and a sharper aim in
+stage 1 only (`stageAim` 0.2 / 1 / 1 on his `aimError`, still with no lead), so his bolts find a
+player who stands still and miss one who keeps moving. On the sim, with scripted players and the
+stock staff: the bolt-only player wins about one fight in four (12 of 48; 0 of 6 before, in about 19
+minutes either way), a mid-skill player wins every fight in about 9 minutes (12 before), and a
+player who stands still falls in about 4 minutes (12 before). The Apprentice: `aimError` 0.17 to
+0.2, `dodgeChance` 0.25 to 0.12, `blastChance` 0.25 to 0.2, `stunChance` 0.15 to 0.1 and
+`strafeSpeed` 0.65 to 0.45: the bolt-only player wins 22 of 48 matches (2 of 48 before) and a
+player who stands still loses every round. Sahil's row in the table above predates this.
 
 ## God mode (testing)
 
